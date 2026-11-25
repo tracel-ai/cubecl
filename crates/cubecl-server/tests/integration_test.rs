@@ -4226,8 +4226,9 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
 /// A prune keeps this build's kernels its work launched, every variant of
 /// them, and removes those only a race launched, those another build compiled
 /// with the records of what its work launched, and the build records; the
-/// autotune answers stay. The launches are written here as the loader records
-/// them: what this tests is the prune, the recording being the runtimes'.
+/// autotune answers the work used stay. The launches are written here as the
+/// loader records them: what this tests is the prune, the recording being the
+/// runtimes'.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
@@ -4331,14 +4332,145 @@ fn a_prune_keeps_what_the_work_loaded() {
     assert_eq!(
         autotune(),
         std::slice::from_ref(&answers),
-        "the answers stay"
+        "the answer the work used stays"
     );
     assert!(
         database
             .get(&answers, b"an answer to an older candidate list")
-            .is_some(),
-        "an answer no tuner reads any more stays too"
+            .is_none(),
+        "an answer no tuner reads any more goes"
     );
+    assert_eq!((pruned.answers.kept, pruned.answers.removed), (1, 1));
+}
+
+/// A prune keeps the answers the work used, loaded or measured, and removes
+/// those it only held: one no work looked up, one of a table no tuner of this
+/// version reads, and one only another build used, with the record of it.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_removes_the_answers_the_work_did_not_use() {
+    use cubecl_environment::environment::{
+        AutotuneAnswer, BuildStamp, EnvironmentId, EnvironmentOrigin, PruneOptions, SaveOptions,
+        UsedAnswersName,
+    };
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let shared = tuned_answers(&["elsewhere", "idle", "loaded"]);
+    let [elsewhere, idle, loaded] = &shared[..] else {
+        panic!("one answer a tuner: {shared:?}");
+    };
+    let outdated = AutotuneAnswer {
+        table: "autotune/0.1.0/layout-v1/hardware/loaded".into(),
+        ..loaded.clone()
+    };
+    let other_build = BuildStamp {
+        hash: BuildStamp::current().hash ^ 1,
+    };
+    let other_uses = UsedAnswersName {
+        build: other_build,
+        table: &elsewhere.table,
+    }
+    .namespace();
+    EnvironmentId::create("pruned", EnvironmentOrigin::Answers(shared.clone()))
+        .unwrap()
+        .activate()
+        .unwrap();
+    let database = Database::open_active().unwrap();
+    database.insert(&outdated.table, &outdated.key, b"pick", Origin::Imported);
+    database.insert(other_uses.as_str(), &elsewhere.key, b"", Origin::Imported);
+
+    let measured = tuned_answers(&["loaded", "measured"]);
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::default())
+        .unwrap();
+
+    assert_eq!((pruned.answers.kept, pruned.answers.removed), (2, 3));
+    for used in &measured {
+        assert!(database.get(&used.table, &used.key).is_some(), "{used:?}");
+    }
+    for unused in [idle, elsewhere, &outdated] {
+        assert!(
+            database.get(&unused.table, &unused.key).is_none(),
+            "{unused:?}"
+        );
+    }
+    assert!(!database.namespaces().contains(&other_uses.to_string()));
+    let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
+    assert_eq!(
+        saved.read_used_answers().unwrap(),
+        measured,
+        "still given back"
+    );
+}
+
+/// An environment in which this build's work used no answer says nothing of
+/// those it holds: every one stays.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_where_the_work_used_no_answer_keeps_every_answer() {
+    use cubecl_environment::environment::{EnvironmentId, EnvironmentOrigin, PruneOptions};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let shared = tuned_answers(&["first", "second"]);
+    let idle = EnvironmentId::create("idle", EnvironmentOrigin::Answers(shared)).unwrap();
+
+    let pruned = idle.prune(PruneOptions::default()).unwrap();
+
+    assert_eq!((pruned.answers.kept, pruned.answers.removed), (2, 0));
+    assert_eq!(idle.summary().unwrap().autotune_answers, 2);
+}
+
+/// A pass that only gathers kernels loads the answers it meets, and a prune
+/// keeps those: the work it stands for runs their picks. A key it gathered
+/// has no answer to keep.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_prune_after_a_gathering_pass_keeps_the_answers_it_met() {
+    use cubecl_environment::environment::{EnvironmentId, EnvironmentOrigin, PruneOptions};
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let shared = tuned_answers(&["met", "idle"]);
+    let gathered = EnvironmentId::create("gathered", EnvironmentOrigin::Answers(shared)).unwrap();
+    gathered.activate().unwrap();
+
+    let collector = StatisticsCollector::new();
+    let compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let met = tuned_answers(&["met", "gathered"]);
+    core::mem::drop(compile);
+    let pruned = gathered.prune(PruneOptions::default()).unwrap();
+
+    assert_eq!(met.len(), 1, "the gathered key has no answer");
+    assert_eq!((pruned.answers.kept, pruned.answers.removed), (1, 1));
+}
+
+/// Tunes one addition with a tuner of each name in the active environment, and
+/// gives back the answers used there since it was created, in the order of
+/// `tuners` as they sort.
+#[cfg(all(feature = "std", persistence))]
+fn tuned_answers(tuners: &[&str]) -> Vec<cubecl_environment::environment::AutotuneAnswer> {
+    use cubecl_environment::environment::{EnvironmentId, SaveOptions};
+    use cubecl_server::tune::Tuner;
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    for name in tuners {
+        let tuner: Tuner<String> = Tuner::new(name, &client.hardware_identity());
+        tuner.check_tune(&key, &handles, &set, &client, None);
+    }
+    let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
+    saved.read_used_answers().unwrap()
 }
 
 /// An application keeps its data in the environment beside the compilers',

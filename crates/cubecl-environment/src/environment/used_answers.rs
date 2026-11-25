@@ -63,6 +63,19 @@ impl UsedAnswers {
         Self { tables }
     }
 
+    /// Whether the work is recorded using none, so that nothing is known of the
+    /// answers an environment holds.
+    pub fn is_empty(&self) -> bool {
+        self.tables.values().all(BTreeSet::is_empty)
+    }
+
+    /// Whether the work used the answer `table` holds under `key`.
+    pub fn contains(&self, table: &str, key: &[u8]) -> bool {
+        self.tables
+            .get(table)
+            .is_some_and(|keys| keys.contains(key))
+    }
+
     /// The answers as `entries` holds them now, trimmed to their picks. One
     /// used and since removed, or whose value does not decode, is left out.
     pub fn answers(&self, entries: &dyn Bundle) -> Vec<AutotuneAnswer> {

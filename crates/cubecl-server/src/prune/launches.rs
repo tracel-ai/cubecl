@@ -1,27 +1,12 @@
 //! A prune by the kernels the work launched, as the loader records them.
 
-use super::Prune;
 use crate::compiler::{KernelCacheKey, NamespaceRoot, WorkLaunchStore};
 use alloc::string::String;
 use alloc::vec::Vec;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_environment::environment::BuildStamp;
-use cubecl_environment::environment::{
-    EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned,
-};
-use cubecl_environment::persistence::{Access, Database};
-use cubecl_environment::records::Records;
-
-impl Prune for EnvironmentId {
-    fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
-        let database = self.database(Access::ReadWrite)?;
-        let launches = WorkLaunches::read(&database, BuildStamp::current());
-        let kernels = launches.prune(&database);
-        let records = Records::new(&database).retain(options.records);
-        Ok(Pruned { kernels, records })
-    }
-}
+use cubecl_environment::environment::{BuildStamp, PruneTally};
+use cubecl_environment::persistence::Database;
 
 /// What an environment's records say of one compiled artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,7 +35,7 @@ impl ArtifactFate {
 
 /// What an environment recorded of the kernels this build's work launched.
 #[derive(Debug)]
-struct WorkLaunches {
+pub struct WorkLaunches {
     /// The build this program is.
     build: BuildStamp,
     /// The kernels recorded, `None` when this build's work launched none here.
@@ -62,7 +47,7 @@ struct WorkLaunches {
 
 impl WorkLaunches {
     /// What `database` recorded of the work of `build`.
-    fn read(database: &Database, build: BuildStamp) -> Self {
+    pub fn read(database: &Database, build: BuildStamp) -> Self {
         let this_build = WorkLaunchStore::namespace(build);
         let mut launched = HashSet::default();
         let mut other_builds = Vec::new();
@@ -103,7 +88,7 @@ impl WorkLaunches {
     /// go, counting by artifact: an artifact and the entries that map a
     /// source to it are one kernel. Other builds' records of their work go
     /// with their kernels.
-    fn prune(&self, database: &Database) -> PruneTally {
+    pub fn prune(&self, database: &Database) -> PruneTally {
         let mut kept: HashSet<KernelCacheKey> = HashSet::default();
         let mut removed: HashMap<KernelCacheKey, u64> = HashMap::default();
         for namespace in database.namespaces() {

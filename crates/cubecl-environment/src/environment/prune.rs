@@ -2,16 +2,18 @@
 //!
 //! A build fills its environment with more than its work runs: every
 //! candidate an autotune race measured compiled its kernels, at the shape it
-//! was tuned for. Pruning keeps the kernels this build's work launched and
-//! removes the rest of what it compiled, everything another build compiled,
-//! and the build records the caller does not keep. The autotune answers
-//! stay.
+//! was tuned for. It may also hold answers brought from elsewhere that its
+//! work never asks for. Pruning keeps the kernels this build's work launched
+//! and the autotune answers it used, and removes the rest of what it compiled,
+//! everything another build compiled, every other answer, and the build
+//! records the caller does not keep.
 //!
 //! These are values: what a caller asks for and what it gets back cross the
 //! network unchanged, so a remote environment prunes where it lives. The
 //! pruning itself is the runtime's, which knows the entries it stored.
 
-/// What a prune removes beyond the kernels this build's work never launched.
+/// What a prune removes beyond the kernels and the answers this build's work
+/// never used.
 ///
 /// Built with [`new`](Self::new) and a setter per option, so an option added
 /// later breaks no caller.
@@ -61,6 +63,8 @@ pub struct Pruned {
     /// The compiled kernels: an artifact and the entries that name it count
     /// as one kernel.
     pub kernels: PruneTally,
+    /// The autotune answers, each one entry.
+    pub answers: PruneTally,
     /// The build records, each one entry.
     pub records: PruneTally,
 }
