@@ -121,15 +121,19 @@ impl Tile {
                     .at_coords(&first, space.clone(), comptime!(Guard::Checked)),
                 through_products,
             );
-            #[unroll]
-            for c in 0..lines_under {
-                let offset = comptime!((s * lines_under + c) * vw);
-                let to = landing(&line_coords(&start, &load, offset, &space), &space, dst);
-                out.write(
-                    lands.index(&to, dst),
-                    decode.line::<S, O, I, WP, VW>(held, offset, mem, stored_as),
-                );
-            }
+            decode.write_lines::<S, O, I, WP, VW>(
+                held,
+                out,
+                &start,
+                comptime!(s * lines_under),
+                lines_under,
+                &load,
+                &space,
+                dst,
+                &lands,
+                mem,
+                stored_as,
+            );
         }
     }
 
@@ -150,11 +154,11 @@ impl Tile {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct LoadDecode {
     /// How the load's values are stored.
-    stored_as: Packing,
+    pub stored_as: Packing,
     /// Its values.
-    loaded: usize,
+    pub loaded: usize,
     /// The values of one destination line.
-    line: usize,
+    pub line: usize,
 }
 
 impl LoadDecode {
@@ -191,34 +195,59 @@ fn reads_products<O: Numeric>(#[comptime] load: LoadDecode, mem: &Memory) -> com
 /// product in `f32`, rounded once.
 #[derive(CubeType, Clone)]
 struct ScaledDecode {
-    scale: f32,
+    pub scale: f32,
     /// The products of the magnitudes of codes 0 to 3, a byte each; zero where the values are
     /// multiplied.
-    products_low: u32,
+    pub products_low: u32,
     /// Those of codes 4 to 7.
-    products_high: u32,
+    pub products_high: u32,
     #[cube(comptime)]
-    through_products: bool,
+    pub through_products: bool,
 }
 
 #[cube]
 impl ScaledDecode {
     fn under<O: Numeric>(scale: f32, #[comptime] through_products: bool) -> ScaledDecode {
-        if through_products {
-            let (products_low, products_high) = e2m1_products::<O>(scale);
-            ScaledDecode {
-                scale,
-                products_low,
-                products_high,
-                through_products,
-            }
+        let (products_low, products_high) = if through_products {
+            e2m1_products::<O>(scale)
         } else {
-            ScaledDecode {
-                scale,
-                products_low: 0u32.runtime(),
-                products_high: 0u32.runtime(),
-                through_products,
-            }
+            (0u32.runtime(), 0u32.runtime())
+        };
+        ScaledDecode {
+            scale,
+            products_low,
+            products_high,
+            through_products,
+        }
+    }
+
+    /// Decode the `count` destination lines of `held` from its `first`-th on into `out`, `held`
+    /// being the load of `load` starting at `start` over `space`, and `out` a window spanning
+    /// `dst` written in `lands`.
+    #[allow(clippy::too_many_arguments)]
+    fn write_lines<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
+        &self,
+        held: Vector<I, WP>,
+        out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
+        start: &Coords<u32>,
+        #[comptime] first: usize,
+        #[comptime] count: usize,
+        #[comptime] load: &VectorTile,
+        #[comptime] space: &Space,
+        #[comptime] dst: &Space,
+        #[comptime] lands: &VectorTile,
+        mem: &Memory,
+        #[comptime] stored_as: Packing,
+    ) {
+        let vw = VW::value();
+        #[unroll]
+        for c in 0..count {
+            let offset = comptime!((first + c) * vw);
+            let to = landing(&line_coords(start, load, offset, space), space, dst);
+            out.write(
+                lands.index(&to, dst),
+                self.line::<S, O, I, WP, VW>(held, offset, mem, stored_as),
+            );
         }
     }
 
@@ -356,7 +385,8 @@ impl Tile {
         let inner = src.factor.innermost_scale();
         let turns = self.decoded_fetch_turns(src);
         let turns = comptime!(turns.expect(
-            "Tile::fetch_decoded_from: a decoding fill fetched into registers has a known share"
+            "Tile::fetch_decoded_from: a decoding fill fetched into registers should have a known \
+             share"
         ));
         let holder = comptime!(self.place.holder());
         let fill = self.copy_level();
@@ -426,7 +456,7 @@ impl Tile {
         let coarse = src.factor.coarse();
         let turns = self.decoded_fetch_turns(src);
         let turns = comptime!(turns.expect(
-            "Tile::store_decoded: a decoding fill fetched into registers has a known share"
+            "Tile::store_decoded: a decoding fill fetched into registers should have a known share"
         ));
         let holder = comptime!(self.place.holder());
         let fill = self.copy_level();
@@ -458,15 +488,19 @@ impl Tile {
                     );
                     let block = inner.scale_in_word::<f32>(scales[t * per_load + s], &own);
                     let decode = ScaledDecode::under::<O>(block * coarse, through_products);
-                    #[unroll]
-                    for c in 0..lines_under {
-                        let offset = comptime!((s * lines_under + c) * vw);
-                        let to = landing(&line_coords(&start, &load, offset, &space), &space, &dst);
-                        out.write(
-                            lands.index(&to, &dst),
-                            decode.line::<S, O, I, WP, VW>(held, offset, mem, stored_as),
-                        );
-                    }
+                    decode.write_lines::<S, O, I, WP, VW>(
+                        held,
+                        &mut out,
+                        &start,
+                        comptime!(s * lines_under),
+                        lines_under,
+                        &load,
+                        &space,
+                        &dst,
+                        &lands,
+                        mem,
+                        stored_as,
+                    );
                 }
             }
         }
@@ -636,6 +670,40 @@ mod tests {
     use super::*;
     extern crate cubecl as cubecl_runtime;
     use cubecl_runtime::TestRuntime;
+
+    fn e2m1_load(loaded: usize, line: usize) -> LoadDecode {
+        LoadDecode {
+            stored_as: Packing::Packed {
+                field: Field::Quant(QuantValue::E2M1),
+            },
+            loaded,
+            line,
+        }
+    }
+
+    #[test]
+    fn a_load_of_whole_e2m1_words_holds_them() {
+        assert!(e2m1_load(16, 8).holds_e2m1_words());
+    }
+
+    #[test]
+    fn a_line_of_part_of_an_e2m1_word_holds_no_whole_words() {
+        assert!(!e2m1_load(16, 4).holds_e2m1_words());
+    }
+
+    #[test]
+    fn a_load_of_part_of_an_e2m1_word_holds_no_whole_words() {
+        assert!(!e2m1_load(4, 4).holds_e2m1_words());
+    }
+
+    #[test]
+    fn plain_values_hold_no_e2m1_words() {
+        let plain = LoadDecode {
+            stored_as: Packing::Plain,
+            ..e2m1_load(16, 8)
+        };
+        assert!(!plain.holds_e2m1_words());
+    }
 
     /// The sixteen `e2m1` codes of two words, each looked up in bytes that name its magnitude.
     #[test]
