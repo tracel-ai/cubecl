@@ -31,6 +31,7 @@ use cubecl_hip_sys::hipStream_t;
 use cubecl_server::command::{CollectiveServer, Collectives, PeerLaunch, Refused};
 use cubecl_server::compiler::ArtifactId;
 use cubecl_server::device::AmdDevice;
+use cubecl_server::device_events::Event;
 use cubecl_server::metadata_cache::Lookup;
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -42,8 +43,8 @@ use cubecl_server::{
     server::Server,
     storage::{ManagedResource, StorageAllocator},
     stream::{
-        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
-        failed_writing,
+        ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, StreamFence,
+        WriteScoped, failed_writing,
     },
 };
 use std::collections::HashSet;
@@ -266,6 +267,30 @@ impl Server for HipServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        WriteScoped::keep_lazy_read(self, read, stream_id)
+    }
+
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::read_lazy_access(self, read, source, stream_id)
+    }
+
+    fn take_lazy_copy(
+        &mut self,
+        read: &Arc<cubecl_core::server::LazyRead>,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::take_started_copy(self, read)
     }
 
     fn compile_queued(&mut self) {
@@ -563,7 +588,9 @@ impl ServerCommunication for HipServer {
         // The same claim check a read makes: a peer reads these bytes with
         // nothing ordering it behind a failed write here.
         let stream = binding.stream;
-        Ok(self.get_resource(binding, stream)?.resource().ptr as u64)
+        let address = self.get_resource(binding.clone(), stream)?.resource().ptr as u64;
+        WriteScoped::start_reads_before_sharing(self, &binding)?;
+        Ok(address)
     }
 
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {
@@ -659,6 +686,46 @@ impl WriteScoped for HipServer {
         self.streams
             .try_stream_mut(&stream)
             .map(|stream| &mut stream.capturing)
+    }
+
+    fn read_lazy_copy(
+        &mut self,
+        sources: Vec<CopyDescriptor>,
+        stream: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        Some(Server::read(self, sources, stream))
+    }
+
+    fn fence_stream(&mut self, stream: StreamId) -> Option<Arc<dyn StreamFence>> {
+        let sys = self.streams.stream_or_create(&stream).ok()?.sys;
+        let event = Event::<crate::compute::events::Hip>::new().ok()?;
+        event.record(sys).ok()?;
+        Some(Arc::new(event))
+    }
+
+    fn wait_for_fence(&mut self, writer: StreamId, fence: &dyn StreamFence) {
+        let event = (fence as &dyn core::any::Any)
+            .downcast_ref::<Event<crate::compute::events::Hip>>()
+            .expect("a copy fence of this server should be one of its events");
+        let waited = self
+            .streams
+            .stream_or_create(&writer)
+            .and_then(|stream| Ok(event.wait_async(stream.sys)?));
+        if let Err(error) = waited {
+            log::warn!(
+                "a write could not be ordered after the lazy read it overwrites on the device, \
+                 waiting on the host: {error}"
+            );
+            // A failed copy is the read's own fault, which its bytes report.
+            let _ = event.wait();
+        }
+    }
+
+    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {
+        // Its own fault, which the read reports as well.
+        if let Err(error) = self.streams.wait_for(writer, reader) {
+            log::warn!("a write could not be ordered after the lazy read it overwrites: {error}");
+        }
     }
 }
 

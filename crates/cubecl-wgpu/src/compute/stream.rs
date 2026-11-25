@@ -399,18 +399,19 @@ impl WgpuStream {
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
-            let aligned_len = resource.size.div_ceil(align) * align;
+            let lead = resource.offset % align;
+            let aligned_len = (lead + resource.size).div_ceil(align) * align;
             let (staging, binding) = self.auxiliary.reserve_staging(aligned_len).unwrap();
 
             self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
                 &resource.buffer,
-                resource.offset,
+                resource.offset - lead,
                 &staging.buffer,
                 0,
                 aligned_len,
             );
-            staging_info.push(Some((staging, binding, size)));
+            staging_info.push(Some((staging, binding, lead as usize, size)));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the
@@ -429,18 +430,24 @@ impl WgpuStream {
 
         let mut staged = Vec::with_capacity(staging_info.len());
         for entry in staging_info {
-            if let Some((staging, binding, size)) = entry {
+            if let Some((staging, binding, lead, size)) = entry {
                 let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
                 self.poison.wake_on_loss(&sender);
                 // Held until the map completes, which an abandoned read's staging buffer waits on.
                 let polling = self.poll.start_polling();
-                let staging =
-                    MappingStaging::map(staging.buffer, binding, size, &self.poison, move |v| {
+                let staging = MappingStaging::map(
+                    staging.buffer,
+                    binding,
+                    lead,
+                    size,
+                    &self.poison,
+                    move |v| {
                         // This might fail if the channel is closed (eg. the future is dropped).
                         // This is fine, just means results aren't needed anymore.
                         let _ = sender.try_send(v);
                         core::mem::drop(polling);
-                    });
+                    },
+                );
 
                 callbacks.push(Some(receiver));
                 staged.push(Some(staging));
@@ -450,7 +457,8 @@ impl WgpuStream {
             }
         }
 
-        let poll = self.poll.start_polling();
+        // Each map polls until its callback, so a future left pending, as a lazy read's is,
+        // keeps no poll running once the copies are mapped.
         let poison = self.poison.clone();
 
         Box::pin(async move {
@@ -474,9 +482,6 @@ impl WgpuStream {
                     }
                 }
             }
-
-            // Can stop polling now.
-            core::mem::drop(poll);
 
             let result = staged
                 .into_iter()

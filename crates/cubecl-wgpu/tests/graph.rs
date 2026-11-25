@@ -9,7 +9,7 @@
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::capture_status;
+use cubecl_core::runtime_tests::{capture_status, read_lazy};
 use cubecl_core::server::Handle;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
@@ -1054,4 +1054,18 @@ fn wgpu_graph_prepared_capture_ends_at_stop_capture() {
 fn wgpu_graph_work_that_panics_leaves_no_capture() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     capture_status::a_work_that_panics_leaves_no_capture::<WgpuRuntime>();
+}
+
+/// See [`read_lazy::a_lazy_read_is_its_buffer_before_a_replay`].
+#[test]
+fn wgpu_graph_lazy_read_is_its_buffer_before_a_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_lazy::a_lazy_read_is_its_buffer_before_a_replay::<WgpuRuntime>();
+}
+
+/// See [`read_lazy::a_lazy_read_inside_a_capture_window_is_refused`].
+#[test]
+fn wgpu_graph_lazy_read_inside_a_capture_window_is_refused() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    read_lazy::a_lazy_read_inside_a_capture_window_is_refused::<WgpuRuntime>();
 }

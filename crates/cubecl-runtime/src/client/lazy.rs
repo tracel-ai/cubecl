@@ -1,12 +1,12 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
 use super::Client;
-use crate::server::{CopyDescriptor, Handle};
+use crate::server::{CopyDescriptor, Handle, LazyReadHold};
 use alloc::boxed::Box;
 use alloc::format;
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{
-    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
+    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, Writer,
 };
 use cubecl_environment::sync::{Mutex, Once};
 use cubecl_zspace::striding::has_contiguous_row_major_strides;
@@ -15,25 +15,39 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 ///
 /// Constructing the [`Bytes`] is cheap: it only captures the [`Client`] and the source's
 /// [`CopyDescriptor`]. The device-to-host copy goes through the regular read path, including
-/// pinned staging, and only happens the first time the bytes are read (e.g. during
-/// serialization); the result is cached for subsequent accesses.
+/// pinned staging, and happens the first time the bytes are read (e.g. during serialization),
+/// unless work writing the buffer or sharing it with peers started it earlier; the result is
+/// cached for subsequent accesses.
 ///
 /// This lets a large number of device tensors be serialized without materializing them all in
 /// host memory at once: each [`Bytes`] is read just-in-time and dropped right after.
 ///
-/// # Semantics
-///
 /// Until the first access the controller holds the source's [`Handle`], so
 /// [`Handle::can_mut`] is false for it and a caller that honours it does not write the buffer in
-/// place: the data read is the data as it was at [`read_lazy`]. The source is let go once the
-/// host bytes are independent of it. A zero-copy host read retains the handle until dropped
-/// or copied for mutation.
+/// place, which spares the server a copy. The source is let go once the host bytes are
+/// independent of it. A zero-copy host read retains the handle until dropped or copied for
+/// mutation.
+///
+/// # Assumptions
+///
+/// - Nothing writes the buffer through a pointer [`Client::get_resource`] handed out: the server
+///   never sees such a write.
+///
+/// # Guarantees
+///
+/// - On a server whose reads copy, the bytes are the buffer as it was at [`read_lazy`], under
+///   every write that server queues before the first access: a kernel, a host write, a graph's
+///   replay or a collective starts the read first. On one whose reads alias its memory, the CPU,
+///   they are as live as an eager read's.
 ///
 /// [`read_lazy`]: Client::read_lazy
 pub struct LazyDeviceController {
     client: Client,
     /// The source until the host bytes no longer alias it.
     source: Mutex<Option<CopyDescriptor<Handle>>>,
+    /// The bytes of the read the server keeps that these are, shared with every view of the
+    /// same bytes. Let go once the host bytes are read.
+    read: Mutex<Option<LazyReadHold>>,
     /// The host byte length, known without the source.
     len: usize,
     /// Host bytes, materialized from the device on first access.
@@ -41,11 +55,12 @@ pub struct LazyDeviceController {
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>) -> Self {
+    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>, read: LazyReadHold) -> Self {
         Self {
             client,
-            len: source.shape.iter().product::<usize>() * source.elem_size,
+            len: read.range().len(),
             source: Mutex::new(Some(source)),
+            read: Mutex::new(Some(read)),
             materialized: Once::new(),
         }
     }
@@ -78,12 +93,18 @@ impl LazyDeviceController {
                     .source
                     .lock()
                     .clone()
-                    .expect("The source is held until its bytes are on the host");
-                cubecl_environment::future::reader::read_sync(
-                    self.client.read_one_tensor_async(source.binding()),
-                )
-                .map_err(|err| AccessError::Read(format!("{err:?}")))
+                    .expect("The source should be held until its bytes are on the host");
+                let (read, range) = self
+                    .read
+                    .lock()
+                    .as_ref()
+                    .map(|held| (held.read().clone(), held.range()))
+                    .expect("The read should be held until its bytes are on the host");
+                self.client
+                    .read_lazily(source, &read, range)
+                    .map_err(|err| AccessError::Read(format!("{err:?}")))
             })?;
+        self.read.lock().take();
         if !bytes.may_alias_mutable_storage() {
             self.source.lock().take();
         }
@@ -146,9 +167,11 @@ impl AllocationController for LazyDeviceController {
 
         // Flat byte descriptor over the sub-range; materializing reads only these bytes.
         let descriptor = CopyDescriptor::new(handle, [end - start].into(), [1].into(), 1);
+        let read = self.read.lock().as_ref()?.narrowed(start..end);
         Some(Box::new(LazyDeviceController::new(
             self.client.clone(),
             descriptor,
+            read,
         )))
     }
 
@@ -171,7 +194,11 @@ impl AllocationController for LazyDeviceController {
             .materialized
             .get_mut()
             .expect("materialized must be set after init");
-        let slice: &mut [u8] = bytes;
+        let writer = match policy.copy_allowed() {
+            true => Writer::new(),
+            false => Writer::new().no_copy(),
+        };
+        let slice = bytes.write(writer)?;
         let (ptr, len) = (slice.as_mut_ptr(), slice.len());
         if !bytes.may_alias_mutable_storage() {
             self.source.lock().take();

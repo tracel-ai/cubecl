@@ -58,6 +58,24 @@ fn lazy_read_releases_a_copied_source() {
     assert_eq!(&*bytes, &[1, 2, 3, 4]);
 }
 
+/// The bytes of a lazy read are the buffer as it was when read, under a write before the
+/// first access.
+#[test_log::test]
+fn lazy_read_is_its_buffer_before_a_write() {
+    let client = test_client(&DummyDevice);
+    let source = client.create_from_slice(&[1]);
+    let bytes = client.read_lazy(CopyDescriptor::new(
+        source.clone(),
+        [1].into(),
+        [1].into(),
+        1,
+    ));
+
+    client.write(&source, Bytes::from_bytes_vec(vec![2]));
+
+    assert_eq!(&*bytes, &[1]);
+}
+
 #[test_log::test]
 fn empty_allocates_memory() {
     let client = test_client(&DummyDevice);

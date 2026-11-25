@@ -260,6 +260,15 @@ impl WriteScoped for MetalServer {
             .try_stream_mut(&stream)
             .map(|stream| &mut stream.capturing)
     }
+
+    fn read_lazy_copy(
+        &mut self,
+        sources: Vec<CopyDescriptor>,
+        stream: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        // The copy reaches host memory before this returns, so no write has to wait for it.
+        Some(Server::read(self, sources, stream))
+    }
 }
 
 impl Server for MetalServer {
@@ -432,6 +441,30 @@ impl Server for MetalServer {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.streams.ensure_written(handles.iter())
+    }
+
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        WriteScoped::keep_lazy_read(self, read, stream_id)
+    }
+
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::read_lazy_access(self, read, source, stream_id)
+    }
+
+    fn take_lazy_copy(
+        &mut self,
+        read: &Arc<cubecl_core::server::LazyRead>,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::take_started_copy(self, read)
     }
 
     fn compile_queued(&mut self) {

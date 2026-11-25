@@ -116,6 +116,15 @@ impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
     fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
         Some(&mut self.scheduler.stream(&stream).capturing)
     }
+
+    fn read_lazy_copy(
+        &mut self,
+        sources: Vec<CopyDescriptor>,
+        stream: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        // Submitted at once to the one queue, ahead of everything the writer encodes after it.
+        Some(Server::read(self, sources, stream))
+    }
 }
 
 impl<C: WgpuCompiler> WgpuServer<C> {
@@ -425,6 +434,30 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.scheduler.ensure_written(handles.iter())
+    }
+
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        WriteScoped::keep_lazy_read(self, read, stream_id)
+    }
+
+    fn read_lazy_bytes(
+        &mut self,
+        read: Arc<cubecl_core::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::read_lazy_access(self, read, source, stream_id)
+    }
+
+    fn take_lazy_copy(
+        &mut self,
+        read: &Arc<cubecl_core::server::LazyRead>,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        WriteScoped::take_started_copy(self, read)
     }
 
     unsafe fn launch(

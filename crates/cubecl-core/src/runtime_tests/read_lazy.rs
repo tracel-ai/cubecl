@@ -1,9 +1,13 @@
 use crate::{self as cubecl};
+use alloc::vec;
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::{AccessError, AllocationProperty, Bytes, Reader};
+use cubecl_environment::future::block_on;
+use cubecl_environment::stream::StreamId;
+use cubecl_ir::{ElemType, FloatKind};
 use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::server::{CopyDescriptor, MemoryLayout};
+use cubecl_runtime::server::{CopyDescriptor, Handle, MemoryLayout, ReduceOperation};
 use cubecl_zspace::shape;
 
 /// A device resource read lazily must defer the device-to-host copy until first access, then
@@ -170,6 +174,235 @@ pub fn test_create_empty_tensor<R: Runtime>(client: Client) {
     }
 }
 
+const BEFORE: [f32; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+const AFTER: [f32; 5] = [2.0, 3.0, 4.0, 5.0, 6.0];
+
+/// Adds one to every element of `buffer`.
+///
+/// - `buffer`: the values, written in place.
+#[cube(launch)]
+fn add_one_in_place(buffer: &mut [f32]) {
+    if ABSOLUTE_POS < buffer.len() {
+        buffer[ABSOLUTE_POS] += 1.0;
+    }
+}
+
+/// Writes each element of `input` plus one into `output`.
+///
+/// - `input`: the values, at least as many as `output` holds.
+/// - `output`: the results, one per value.
+#[cube(launch)]
+fn add_one_into(input: &[f32], output: &mut [f32]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS] + 1.0;
+    }
+}
+
+fn lazy(client: &Client, buffer: &Handle) -> Bytes {
+    let source = CopyDescriptor::new(
+        buffer.clone(),
+        [BEFORE.len()].into(),
+        [1].into(),
+        size_of::<f32>(),
+    );
+    block_on(client.read_lazy_async(source)).expect("the buffer should be readable")
+}
+
+/// A kernel handed the buffer itself writes it in place, whatever `can_mut` says.
+fn add_one_to(client: &Client, buffer: &Handle) {
+    add_one_in_place::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(BEFORE.len() as u32),
+        unsafe { BufferArg::from_raw_parts(buffer.clone(), BEFORE.len()) },
+    );
+}
+
+/// A kernel that writes a buffer a lazy read holds leaves that read the buffer as it was.
+pub fn test_a_lazy_read_is_its_buffer_before_a_kernel_writes_it<R: Runtime>(client: Client) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(f32::from_bytes(&read), BEFORE);
+    assert_eq!(f32::from_bytes(&client.read_one(buffer).unwrap()), AFTER);
+}
+
+/// A host write to a buffer a lazy read holds leaves that read the buffer as it was.
+pub fn test_a_lazy_read_is_its_buffer_before_a_host_write<R: Runtime>(client: Client) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+
+    client.write(
+        &buffer,
+        Bytes::from_bytes_vec(f32::as_bytes(&AFTER).to_vec()),
+    );
+
+    assert_eq!(f32::from_bytes(&read), BEFORE);
+}
+
+/// A view of a lazy read takes its bytes from what the write started for the read it views.
+pub fn test_a_view_of_a_lazy_read_is_its_buffer_before_a_write<R: Runtime>(client: Client) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+    let view = read
+        .view(size_of::<f32>(), 3 * size_of::<f32>())
+        .expect("a contiguous device buffer should support views");
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(f32::from_bytes(&view), &BEFORE[1..3]);
+}
+
+/// A view that outlives the lazy read it came from copies its own bytes before a write.
+pub fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runtime>(
+    client: Client,
+) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+    let view = read
+        .view(size_of::<f32>(), 3 * size_of::<f32>())
+        .expect("a contiguous device buffer should support views");
+    drop(read);
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(f32::from_bytes(&view), &BEFORE[1..3]);
+}
+
+/// A view between four-byte boundaries that outlives its lazy read copies the aligned bytes
+/// around it, which every backend can copy.
+pub fn test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write<R: Runtime>(
+    client: Client,
+) {
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let read = lazy(&client, &buffer);
+    let view = read
+        .view(1, 5)
+        .expect("a contiguous device buffer should support views");
+    drop(read);
+
+    add_one_to(&client, &buffer);
+
+    assert_eq!(&view[..], &f32::as_bytes(&BEFORE)[1..5]);
+}
+
+/// A write on another stream than the read's waits for the read it overwrites.
+pub fn test_a_lazy_read_is_its_buffer_before_a_write_on_another_stream<R: Runtime>(client: Client) {
+    let (reader, writer) = (StreamId { value: 3_300_001 }, StreamId { value: 3_300_002 });
+    let buffer = reader.executes(|| client.create_from_slice(f32::as_bytes(&BEFORE)));
+    let read = reader.executes(|| lazy(&client, &buffer));
+
+    writer.executes(|| add_one_to(&client, &buffer));
+
+    assert_eq!(f32::from_bytes(&read), BEFORE);
+}
+
+/// A replay that writes a buffer a lazy read holds leaves that read the buffer as it was.
+///
+/// Not part of `testgen_read_lazy_before_write`: a capture holds its stream for its whole window,
+/// so a runtime calls this from its graph tests, one capture at a time.
+pub fn a_lazy_read_is_its_buffer_before_a_replay<R: Runtime>() {
+    let client = R::client(&Default::default());
+    let input = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let output = client.empty(size_of_val(&BEFORE));
+    let (graph, ()) = client
+        .capture(|| {
+            add_one_into::launch(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(BEFORE.len() as u32),
+                unsafe { BufferArg::from_raw_parts(input.clone(), BEFORE.len()) },
+                unsafe { BufferArg::from_raw_parts(output.clone(), BEFORE.len()) },
+            )
+        })
+        .expect("the launch should capture");
+    unsafe { graph.replay() }.expect("the replay should enqueue");
+    let first_replay = BEFORE.map(|value| value + 1.0);
+    let read = lazy(&client, &output);
+
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&AFTER).to_vec()),
+    );
+    unsafe { graph.replay() }.expect("the replay should enqueue");
+    let replayed = client.read_one_unchecked(output);
+
+    assert_eq!(
+        (f32::from_bytes(&read), f32::from_bytes(&replayed)),
+        (&first_replay[..], &AFTER.map(|value| value + 1.0)[..])
+    );
+}
+
+/// A replayed collective that writes a buffer a lazy read holds leaves that read the buffer as
+/// it was.
+///
+/// Called from a runtime's graph tests, as [`a_lazy_read_is_its_buffer_before_a_replay`].
+pub fn a_lazy_read_is_its_buffer_before_a_replayed_collective<R: Runtime>() {
+    let _collectives = super::collectives::queue_alone();
+    let mut client = R::client(&Default::default());
+    if !client.has_device_transport() {
+        std::println!("skipped: no device transport");
+        return;
+    }
+    let device = client.service_id().device;
+    let input = client.create_from_slice(f32::as_bytes(&BEFORE));
+    let output = client.empty(size_of_val(&BEFORE));
+    let (graph, ()) = client
+        .clone()
+        .capture(|| {
+            client.all_reduce(
+                input.clone(),
+                output.clone(),
+                ElemType::Float(FloatKind::F32),
+                vec![device],
+                ReduceOperation::Sum,
+            );
+            client.sync_collective();
+        })
+        .expect("the collective should capture");
+    unsafe { graph.replay() }.expect("the replay should enqueue");
+    let read = lazy(&client, &output);
+
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&AFTER).to_vec()),
+    );
+    unsafe { graph.replay() }.expect("the replay should enqueue");
+    let replayed = client.read_one_unchecked(output);
+
+    assert_eq!(
+        (f32::from_bytes(&read), f32::from_bytes(&replayed)),
+        (&BEFORE[..], &AFTER[..])
+    );
+}
+
+/// A lazy read on a stream recording a graph is refused: its copy would be recorded rather
+/// than run.
+///
+/// Called from a runtime's graph tests, as [`a_lazy_read_is_its_buffer_before_a_replay`].
+pub fn a_lazy_read_inside_a_capture_window_is_refused<R: Runtime>() {
+    let client = R::client(&Default::default());
+    let buffer = client.create_from_slice(f32::as_bytes(&BEFORE));
+    client.graph_prepare().expect("the capture should prepare");
+    add_one_to(&client, &buffer);
+    client.graph_end_run().expect("the planning run should end");
+    client.start_capture().expect("the window should open");
+    add_one_to(&client, &buffer);
+
+    let source = CopyDescriptor::new(
+        buffer.clone(),
+        [BEFORE.len()].into(),
+        [1].into(),
+        size_of::<f32>(),
+    );
+    let refused = block_on(client.read_lazy_async(source));
+
+    drop(client.stop_capture());
+    assert!(refused.is_err());
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_read_lazy {
@@ -201,6 +434,53 @@ macro_rules! testgen_read_lazy {
         fn test_create_empty_tensor() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::read_lazy::test_create_empty_tensor::<TestRuntime>(client);
+        }
+    };
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_read_lazy_before_write {
+    () => {
+        mod read_lazy_before_write {
+            use super::*;
+            use cubecl_core::prelude::*;
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_lazy_read_is_its_buffer_before_a_kernel_writes_it() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_lazy_read_is_its_buffer_before_a_kernel_writes_it::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_lazy_read_is_its_buffer_before_a_host_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_lazy_read_is_its_buffer_before_a_host_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_view_of_a_lazy_read_is_its_buffer_before_a_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_view_of_a_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_view_outliving_its_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_an_unaligned_view_outliving_its_lazy_read_is_its_buffer_before_a_write::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_a_lazy_read_is_its_buffer_before_a_write_on_another_stream() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::read_lazy::test_a_lazy_read_is_its_buffer_before_a_write_on_another_stream::<TestRuntime>(client);
+        }
         }
     };
 }

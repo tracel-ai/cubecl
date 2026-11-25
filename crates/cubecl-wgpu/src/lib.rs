@@ -36,6 +36,7 @@ mod tests {
     // Also include f16, this is an extension but supported by wgpu and WebGPU.
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i32, i64], u32: [u32, u64]);
     cubecl_core::testgen_stream_untyped!();
+    cubecl_core::testgen_read_lazy_before_write!();
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
@@ -205,6 +206,7 @@ mod tests_spirv {
 
     cubecl_core::testgen_all!(f32: [f16, flex32, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_core::testgen_stream_untyped!();
+    cubecl_core::testgen_read_lazy_before_write!();
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
@@ -219,6 +221,7 @@ mod tests_msl {
 
     cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_core::testgen_stream_untyped!();
+    cubecl_core::testgen_read_lazy_before_write!();
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);

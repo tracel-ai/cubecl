@@ -30,9 +30,13 @@
 
 use crate::id::KernelId;
 use crate::memory_management::FailureId;
-use crate::server::{BufferBinding, ServerError};
-use crate::stream::{FailureStore, StreamCapture};
+use crate::server::{BufferBinding, CopyDescriptor, LazyRead, ServerError};
+use crate::stream::lazy_reads::{self, start_overwritten_reads};
+use crate::stream::{FailureStore, StreamCapture, StreamFence};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::bytes::Bytes;
+use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 
 /// A server whose device work runs inside an [`ExecuteScope`].
@@ -90,6 +94,95 @@ pub trait WriteScoped: Sized {
     /// empty claims nothing, which is what a discarded launch wants.
     fn write_set(&mut self) -> Vec<BufferBinding> {
         self.write_streams().write_set()
+    }
+
+    /// The server's read of `sources`, queued on `stream`, for a lazy read it keeps: started
+    /// ahead of work about to write the memory, or accessed before any was.
+    ///
+    /// Defaults to `None`, for a server that keeps no lazy read.
+    #[allow(unused_variables)]
+    fn read_lazy_copy(
+        &mut self,
+        sources: Vec<CopyDescriptor>,
+        stream: StreamId,
+    ) -> Option<DynFut<Result<Vec<Bytes>, ServerError>>> {
+        None
+    }
+
+    /// A fence on `stream` past the work queued there so far: where a lazy read was made, or
+    /// the end of its copy.
+    ///
+    /// Defaults to `None`: a read's copy then runs on the stream it was made on, and work
+    /// writing the memory from another stream waits through
+    /// [`wait_before_write`](Self::wait_before_write).
+    #[allow(unused_variables)]
+    fn fence_stream(&mut self, stream: StreamId) -> Option<Arc<dyn StreamFence>> {
+        None
+    }
+
+    /// Order work queued on `writer` from now on after the work `fence` follows, which a
+    /// [`fence_stream`](Self::fence_stream) of this server gave.
+    ///
+    /// Defaults to nothing, for a server that gives no fence.
+    #[allow(unused_variables)]
+    fn wait_for_fence(&mut self, writer: StreamId, fence: &dyn StreamFence) {}
+
+    /// Order work queued on `writer` from now on after the work queued on `reader` so far,
+    /// which holds the copy of a lazy read that work is about to overwrite.
+    ///
+    /// Defaults to nothing, for a server whose streams run in the order work is queued.
+    #[allow(unused_variables)]
+    fn wait_before_write(&mut self, writer: StreamId, reader: StreamId) {}
+
+    /// Keep `read`, made on `stream`, for work this server queues to write its memory to start
+    /// first, or start it now when that memory is shared with peers, which write it with
+    /// nothing this server runs first.
+    ///
+    /// # Errors
+    ///
+    /// A refusal on a stream recording a graph, where the read's copy would be recorded rather
+    /// than run, and the failure its memory carries.
+    fn keep_lazy_read(&mut self, read: Arc<LazyRead>, stream: StreamId) -> Result<(), ServerError> {
+        lazy_reads::keep(self, read, stream)
+    }
+
+    /// The read of `source`, bytes of `read` an access asks for before any write started it,
+    /// queued on `stream`. While this server keeps `read`, work writing those bytes afterwards
+    /// waits for it, until it is done or has resolved.
+    ///
+    /// # Errors
+    ///
+    /// The read's own, and an error from a server that keeps no lazy read.
+    fn read_lazy_access(
+        &mut self,
+        read: Arc<LazyRead>,
+        source: CopyDescriptor,
+        stream: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        lazy_reads::access(self, read, source, stream)
+    }
+
+    /// The copy this server started of `read`, which it lets go of.
+    ///
+    /// # Errors
+    ///
+    /// The copy's own, and an error when this server holds no copy of `read`.
+    fn take_started_copy(
+        &mut self,
+        read: &Arc<LazyRead>,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        lazy_reads::take_copy(self, read)
+    }
+
+    /// Start every lazy read this server keeps of `binding`'s memory, which kernels on other
+    /// devices may write from now on with nothing this server runs first.
+    ///
+    /// # Errors
+    ///
+    /// A refusal when a lazy read holds the memory and its stream records a graph, where the
+    /// read's copy would be recorded rather than run.
+    fn start_reads_before_sharing(&mut self, binding: &BufferBinding) -> Result<(), ServerError> {
+        lazy_reads::start_before_sharing(self, binding)
     }
 }
 
@@ -162,8 +255,10 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
     /// A scope over work that writes `written` and reads nothing it has to
     /// trust — a host copy, a graph replay, a launch that never compiled.
     ///
-    /// Such work cannot be skipped, so this always enters.
+    /// Such work cannot be skipped, so this always enters. A lazy read of memory it writes is
+    /// started first, before the claim would fail it.
     pub fn over(server: &'a mut S, stream: StreamId, written: Vec<BufferBinding>) -> Self {
+        start_overwritten_reads(server, stream, &written);
         let provisional = server.write_streams().enter_write(&written);
         Self {
             server,
@@ -200,6 +295,7 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
         if let Some(capture) = server.capturing(stream) {
             capture.fail(found.error.clone());
         }
+        start_overwritten_reads(server, stream, &written);
         server.write_streams().propagate(&found, kernel, written);
         Self {
             server,

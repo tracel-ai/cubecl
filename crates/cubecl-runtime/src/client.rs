@@ -514,31 +514,65 @@ impl Client {
 
     /// Reads the buffer `source` describes lazily.
     ///
-    /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
-    /// serialization). This lets a large number of device tensors be serialized without
+    /// The returned [`Bytes`] performs the device-to-host copy on first access (e.g. during
+    /// serialization), unless work writes the buffer first or it is shared with peers, which
+    /// start the copy earlier. This lets a large number of device tensors be serialized without
     /// materializing them all in host memory at once: drain the [`Bytes`] sequentially rather than
     /// holding them all alive.
     ///
     /// Until that first access the [`Bytes`] hold `source`'s handle, so [`Handle::can_mut`] is
-    /// false for it and a caller that honours it does not write the buffer in place: the data
-    /// read is the data as it was at this call.
+    /// false for it and a caller that honours it does not write the buffer in place.
     /// A zero-copy host read keeps holding the source until dropped or copied for mutation.
+    ///
+    /// # Assumptions
+    ///
+    /// - Nothing writes the buffer through a pointer [`get_resource`](Self::get_resource)
+    ///   handed out.
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are the buffer as it was at this call, under every write the server queues
+    ///   before the first access, except on the CPU, whose reads alias its memory: a write
+    ///   starts the copy before it runs. Memory [shared with peers](Self::share_with_peers) is
+    ///   copied by work queued at the call on this client's stream, since a peer writes it with
+    ///   nothing this device can run first: a peer write ordered after a sync of that stream
+    ///   comes after the copy.
+    /// - A write that fails while its stream records a graph is the one exception: the read
+    ///   cannot be started without being recorded, so the first access answers with that
+    ///   failure.
+    /// - The first access answers with the error this call's
+    ///   [`read_lazy_async`](Self::read_lazy_async) would have, a stream recording a graph
+    ///   included, except that a handle of another device panics here instead.
+    ///
+    /// # Panics
+    ///
+    /// When `source` is a handle of another device.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.to_binding());
-        lazy::LazyDeviceController::new(self.clone(), source).into_bytes()
+        let read = Arc::new(crate::server::LazyRead::new(source.clone()));
+        let held = read.hold(0..source.shape.iter().product::<usize>() * source.elem_size);
+        // Weak while queued, so bytes dropped before the device takes it let go of the source.
+        let keep = self.keep_lazy_read(Arc::downgrade(&read));
+        self.device.submit(move |server| {
+            let _ = keep(server);
+        });
+        lazy::LazyDeviceController::new(self.clone(), source, held).into_bytes()
     }
 
     /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
-    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    /// whose device-to-host copy waits for the first access, or for work writing the buffer or
+    /// sharing it with peers, which start it earlier (see [`read_lazy`](Self::read_lazy), whose
+    /// Assumptions and Guarantees it shares).
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read.
-    /// A device fault is not detected here: the copy is deferred, so it surfaces as an error on
-    /// first access to the returned [`Bytes`].
+    /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read,
+    /// and when this client's stream is recording a graph, where the copy would be recorded
+    /// rather than run. A device fault is not detected here: it surfaces as an error on first
+    /// access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
@@ -548,16 +582,85 @@ impl Client {
         if let Err(err) = self.local(&binding) {
             return core::future::ready(Err(err));
         }
-        let stream_id = self.stream_id();
-        let checked = self
+        let read = Arc::new(crate::server::LazyRead::new(source.clone()));
+        let held = read.hold(0..source.shape.iter().product::<usize>() * source.elem_size);
+        let keep = self.keep_lazy_read(Arc::downgrade(&read));
+        let kept = self
             .device
-            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .submit_blocking(move |server| keep(server))
             .closed_as_error();
-        if let Err(err) = checked {
+        if let Err(err) = kept {
             return core::future::ready(Err(err));
         }
-        let controller = lazy::LazyDeviceController::new(self.clone(), source);
+        let controller = lazy::LazyDeviceController::new(self.clone(), source, held);
         core::future::ready(Ok(controller.into_bytes()))
+    }
+
+    /// What has the server keep `read`, and has `read` answer a refusal on first access.
+    /// Nothing, once its bytes are gone.
+    #[cfg(not(target_family = "wasm"))]
+    fn keep_lazy_read(
+        &self,
+        read: alloc::sync::Weak<crate::server::LazyRead>,
+    ) -> impl FnOnce(&mut dyn Server) -> Result<(), ServerError> + Send + use<> {
+        let stream_id = self.stream_id();
+        move |server| {
+            let Some(read) = read.upgrade() else {
+                return Ok(());
+            };
+            server
+                .read_lazy(read.clone(), stream_id)
+                .inspect_err(|error| {
+                    read.refuse(error.clone());
+                })
+        }
+    }
+
+    /// The bytes `source` names, taken from `range` of what a write started `read` for when one
+    /// did, or else read now, with work writing them afterwards waiting for that copy.
+    ///
+    /// Asked on the device thread, so a write queued before this access has started the read.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal to keep `read`, and the read's own errors.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn read_lazily(
+        &self,
+        source: CopyDescriptor<Handle>,
+        read: &Arc<crate::server::LazyRead>,
+        range: core::ops::Range<usize>,
+    ) -> Result<Bytes, ServerError> {
+        let source = crate::server::LazyReadPlan::whole_source(&source);
+        let stream_id = self.stream_id();
+        let started = read.clone();
+        let now = self
+            .device
+            .submit_blocking(move |server| -> Result<_, ServerError> {
+                Ok(match started.is_started()? {
+                    true => None,
+                    false => Some(server.read_lazy_bytes(started, source, stream_id)),
+                })
+            })
+            .closed_as_error()?;
+        match now {
+            Some(now) => Ok(cubecl_environment::future::reader::read_sync(now)?.remove(0)),
+            None => read.started_bytes(range, || self.take_lazy_copy(read)),
+        }
+    }
+
+    /// The copy a write started of `read`, waited for.
+    #[cfg(not(target_family = "wasm"))]
+    fn take_lazy_copy(
+        &self,
+        read: &Arc<crate::server::LazyRead>,
+    ) -> Result<Vec<Bytes>, ServerError> {
+        let read = read.clone();
+        let copy = self
+            .device
+            .submit_blocking(move |server| Ok::<_, ServerError>(server.take_lazy_copy(&read)))
+            .closed_as_error()?;
+        cubecl_environment::future::reader::read_sync(copy)
     }
 
     /// Reads the buffer `source` describes lazily, async variant.
@@ -1024,8 +1127,9 @@ impl Client {
     /// # Errors
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
-    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
-    /// failure the buffer carries.
+    /// [`ServerError::ForeignHandle`] for a handle of another client, the
+    /// failure the buffer carries, and a graph-state error when a lazy read
+    /// holds the buffer while its stream records a graph.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
         let binding = handle.to_binding();

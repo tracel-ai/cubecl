@@ -449,6 +449,12 @@ impl BufferBinding {
         self.offset_start.unwrap_or(0)..self.size - self.offset_end.unwrap_or(0)
     }
 
+    /// Whether it and `range`, of the same memory, share a byte.
+    pub fn overlaps(&self, range: &core::ops::Range<u64>) -> bool {
+        let own = self.range();
+        own.start.max(range.start) < own.end.min(range.end)
+    }
+
     /// The identity a claim on this binding is stored under: the allocation
     /// and the byte range of it, exactly as [`range`](Self::range) computes
     /// it.

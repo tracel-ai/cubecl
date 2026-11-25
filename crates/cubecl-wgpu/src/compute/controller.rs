@@ -92,6 +92,7 @@ impl WgpuAllocController {
 /// pool can hand it out again.
 pub(crate) struct MappingStaging {
     staging: Arc<Mutex<Staging>>,
+    lead: usize,
     size: usize,
     poison: PoisonWatch,
 }
@@ -105,10 +106,12 @@ struct Staging {
 }
 
 impl MappingStaging {
-    /// Map `buffer` for reading, calling `on_mapped` once the map completes.
+    /// Map `buffer` for reading, whose `size` bytes start `lead` bytes in, calling `on_mapped`
+    /// once the map completes.
     pub(crate) fn map(
         buffer: wgpu::Buffer,
         binding: ManagedMemoryBinding,
+        lead: usize,
         size: usize,
         poison: &PoisonWatch,
         on_mapped: impl FnOnce(Result<(), wgpu::BufferAsyncError>) + Send + 'static,
@@ -128,12 +131,13 @@ impl MappingStaging {
 
         Self {
             staging,
+            lead,
             size,
             poison: poison.clone(),
         }
     }
 
-    /// The buffer's first `size` bytes, once its map has completed.
+    /// The buffer's `size` bytes after its `lead`, once its map has completed.
     pub(crate) fn into_bytes(self) -> Bytes {
         let (buffer, binding) = self
             .staging
@@ -142,8 +146,12 @@ impl MappingStaging {
             .take()
             .expect("taken once");
         let controller = Box::new(WgpuAllocController::init(binding, buffer));
-        // SAFETY: The binding has initialized memory for at least `size` bytes.
-        unsafe { Bytes::from_controller(controller, self.size) }
+        // SAFETY: The binding has initialized memory for at least `lead + size` bytes.
+        let mapped = unsafe { Bytes::from_controller(controller, self.lead + self.size) };
+        match self.lead {
+            0 => mapped,
+            lead => Bytes::from_bytes_vec(mapped[lead..lead + self.size].to_vec()),
+        }
     }
 }
 
