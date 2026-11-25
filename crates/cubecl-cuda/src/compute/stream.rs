@@ -175,11 +175,11 @@ impl EventStreamBackend for CudaStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
-        event.wait_async(stream.sys)
+        event.sync_device(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
-        event.wait_sync()
+        event.sync_host()
     }
 
     fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {

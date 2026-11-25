@@ -168,7 +168,7 @@ impl CollectiveDriver for Cuda {
         stream: StreamSignal<Self>,
         queued_on: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        Fence::new(queued_on).wait_async(stream)
+        Fence::new(queued_on).sync_device(stream)
     }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {

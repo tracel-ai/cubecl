@@ -1,7 +1,7 @@
-mod device_waiter;
 mod policy;
 mod queue;
+mod stream_syncer;
 
-pub use device_waiter::DeviceWaiter;
 pub use policy::FlushingPolicy;
 pub use queue::PendingDropQueue;
+pub use stream_syncer::StreamSyncer;

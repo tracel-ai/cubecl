@@ -429,7 +429,7 @@ impl MetalQueue {
                 self.fault.clone(),
             ),
         };
-        event.wait_sync()
+        event.sync_host()
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -604,7 +604,7 @@ impl MetalEvent {
     /// check is what turns that into the failure every dependent caller has
     /// to hear — a read reports it instead of returning garbage, a write
     /// taints its destinations with it.
-    pub fn wait_sync(self) -> Result<(), ServerError> {
+    pub fn sync_host(self) -> Result<(), ServerError> {
         let timeout_ms = 60_000;
         let result = (*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms);
         if !result {
@@ -624,7 +624,7 @@ impl MetalEvent {
     }
 
     /// Make the work `queue` submits from here wait for this event.
-    pub fn wait_async(self, queue: &mut MetalQueue) {
+    pub fn sync_device(self, queue: &mut MetalQueue) {
         if std::ptr::eq(
             &*self.shared_event as *const _,
             &*queue.shared_event as *const _,
@@ -646,9 +646,9 @@ impl MetalEvent {
     }
 }
 
-impl cubecl_server::memory_management::drop_queue::DeviceWaiter for MetalEvent {
-    fn wait(self) -> Result<(), ServerError> {
-        self.wait_sync()
+impl cubecl_server::memory_management::drop_queue::StreamSyncer for MetalEvent {
+    fn sync_host(self) -> Result<(), ServerError> {
+        self.sync_host()
     }
 }
 
@@ -764,11 +764,11 @@ impl EventStreamBackend for MetalStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
-        event.wait_async(&mut stream.queue());
+        event.sync_device(&mut stream.queue());
         Ok(())
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
-        event.wait_sync()
+        event.sync_host()
     }
 }

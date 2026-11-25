@@ -1,7 +1,7 @@
 //! The streams a relocation copies on.
 
 use super::{DeviceStream, Driver};
-use crate::memory_management::drop_queue::DeviceWaiter;
+use crate::memory_management::drop_queue::StreamSyncer;
 use crate::memory_management::relocation::{RelocationCopier, StorageCopy};
 use crate::server::{IoError, ServerError};
 use crate::storage::StorageAllocator;
@@ -50,7 +50,7 @@ unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStora
 {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         for signal in self.signals.iter() {
-            D::Stream::fence(*signal).wait()?;
+            D::Stream::fence(*signal).sync_host()?;
         }
         D::wait_outside_streams(self.ctx)
     }
@@ -70,6 +70,6 @@ unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStora
     }
 
     fn wait_copies(&mut self) -> Result<(), ServerError> {
-        D::Stream::fence(self.queue).wait()
+        D::Stream::fence(self.queue).sync_host()
     }
 }

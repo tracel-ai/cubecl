@@ -1,4 +1,4 @@
-use crate::memory_management::drop_queue::{DeviceWaiter, FlushingPolicy, policy::FlushTracker};
+use crate::memory_management::drop_queue::{FlushingPolicy, StreamSyncer, policy::FlushTracker};
 use crate::memory_management::release_or_leak;
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
@@ -33,11 +33,11 @@ use cubecl_environment::bytes::Bytes;
 ///   device's lifetime.
 /// - A queue that holds nothing mints no fence: a fence is recorded on the
 ///   stream, which an open capture window cannot tolerate.
-pub struct PendingDropQueue<F: DeviceWaiter> {
+pub struct PendingDropQueue<F: StreamSyncer> {
     flusher: DropFlusher<F>,
 }
 
-impl<F: DeviceWaiter> PendingDropQueue<F> {
+impl<F: StreamSyncer> PendingDropQueue<F> {
     /// An empty queue that asks to be flushed as `policy` says.
     pub fn new(policy: FlushingPolicy) -> Self {
         Self {
@@ -46,7 +46,7 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
     }
 }
 
-impl<F: DeviceWaiter> PendingDropQueue<F> {
+impl<F: StreamSyncer> PendingDropQueue<F> {
     /// Keep `bytes` until the device has finished reading them: they join the
     /// current batch, freed on the flush cycle *after* the next flush.
     ///
@@ -102,7 +102,7 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
     }
 }
 
-impl<F: DeviceWaiter> core::fmt::Debug for PendingDropQueue<F> {
+impl<F: StreamSyncer> core::fmt::Debug for PendingDropQueue<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PendingDropQueue")
             .field("flusher", &self.flusher)
@@ -110,7 +110,7 @@ impl<F: DeviceWaiter> core::fmt::Debug for PendingDropQueue<F> {
     }
 }
 
-impl<F: DeviceWaiter> Default for PendingDropQueue<F> {
+impl<F: StreamSyncer> Default for PendingDropQueue<F> {
     fn default() -> Self {
         Self::new(Default::default())
     }
@@ -118,7 +118,7 @@ impl<F: DeviceWaiter> Default for PendingDropQueue<F> {
 
 /// Flushes a [`PendingDropQueue`]: holds each batch until the fence that
 /// follows it signals.
-struct DropFlusher<F: DeviceWaiter> {
+struct DropFlusher<F: StreamSyncer> {
     /// What the previous flush cycle held, in the order it was staged
     /// (Arrival), with the fence that signals the device consumed it.
     pending: Option<(F, Vec<HeldMemory>)>,
@@ -128,14 +128,14 @@ struct DropFlusher<F: DeviceWaiter> {
     tracker: FlushTracker,
 }
 
-impl<F: DeviceWaiter> Drop for DropFlusher<F> {
+impl<F: StreamSyncer> Drop for DropFlusher<F> {
     fn drop(&mut self) {
         self.staged.drain(..).for_each(core::mem::forget);
         self.pending.take().into_iter().for_each(core::mem::forget);
     }
 }
 
-impl<F: DeviceWaiter> core::fmt::Debug for DropFlusher<F> {
+impl<F: StreamSyncer> core::fmt::Debug for DropFlusher<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DropFlusher")
             .field("pending", &self.pending.as_ref().map(|(_, held)| held))
@@ -155,7 +155,7 @@ enum HeldMemory {
     Peer(#[allow(unused)] BufferBinding),
 }
 
-impl<F: DeviceWaiter> DropFlusher<F> {
+impl<F: StreamSyncer> DropFlusher<F> {
     fn new(policy: FlushingPolicy) -> Self {
         Self {
             pending: None,
@@ -210,10 +210,9 @@ impl<F: DeviceWaiter> DropFlusher<F> {
         if self.holds_nothing() {
             return;
         }
-        let mut batch = self
-            .pending
-            .take()
-            .map_or_else(Vec::new, |(fence, held)| Self::retire(held, fence.wait()));
+        let mut batch = self.pending.take().map_or_else(Vec::new, |(fence, held)| {
+            Self::retire(held, fence.sync_host())
+        });
         batch.append(&mut self.staged);
         self.pending = Some((factory(), batch));
         self.tracker.reset();
@@ -228,12 +227,12 @@ mod tests {
     use core::cell::Cell;
 
     #[derive(Clone)]
-    struct MockDeviceWaiter<'a> {
+    struct MockStreamSyncer<'a> {
         sync_count: &'a Cell<u32>,
     }
 
-    impl DeviceWaiter for MockDeviceWaiter<'_> {
-        fn wait(self) -> Result<(), ServerError> {
+    impl StreamSyncer for MockStreamSyncer<'_> {
+        fn sync_host(self) -> Result<(), ServerError> {
             self.sync_count.set(self.sync_count.get() + 1);
             Ok(())
         }
@@ -242,11 +241,11 @@ mod tests {
     fn make_queue<'a>(
         sync_count: &'a Cell<u32>,
     ) -> (
-        PendingDropQueue<MockDeviceWaiter<'a>>,
-        impl Fn() -> MockDeviceWaiter<'a> + 'a,
+        PendingDropQueue<MockStreamSyncer<'a>>,
+        impl Fn() -> MockStreamSyncer<'a> + 'a,
     ) {
         let queue = PendingDropQueue::new(test_policy());
-        let factory = move || MockDeviceWaiter { sync_count };
+        let factory = move || MockStreamSyncer { sync_count };
         (queue, factory)
     }
 
@@ -261,7 +260,7 @@ mod tests {
         }
     }
 
-    fn pending_len(queue: &PendingDropQueue<MockDeviceWaiter<'_>>) -> Option<usize> {
+    fn pending_len(queue: &PendingDropQueue<MockStreamSyncer<'_>>) -> Option<usize> {
         queue.flusher.pending.as_ref().map(|(_, held)| held.len())
     }
 

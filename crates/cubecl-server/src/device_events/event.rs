@@ -38,7 +38,7 @@ impl<A: EventApi> Event<A> {
     /// # Errors
     ///
     /// [`DriverError`], the fault the wait revealed on the stream.
-    pub fn wait(&self) -> Result<(), DriverError> {
+    pub fn sync_host(&self) -> Result<(), DriverError> {
         A::event_wait(&self.sys)
     }
 
@@ -47,7 +47,7 @@ impl<A: EventApi> Event<A> {
     /// # Errors
     ///
     /// [`DriverError`] when the driver refuses the dependency.
-    pub fn wait_async(&self, stream: A::Stream) -> Result<(), DriverError> {
+    pub fn sync_device(&self, stream: A::Stream) -> Result<(), DriverError> {
         A::stream_wait_event(stream, &self.sys)
     }
 

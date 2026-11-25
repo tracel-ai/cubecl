@@ -13,7 +13,7 @@
 use super::stream_relocation_copier::StreamRelocationCopier;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::drop_queue::DeviceWaiter;
+use crate::memory_management::drop_queue::StreamSyncer;
 use crate::memory_management::relocation::{
     DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope,
 };
@@ -459,7 +459,7 @@ impl<'a, D: Driver> Command<'a, D> {
                     // one here and wait it out before the partial set drops.
                     if !result.is_empty()
                         && let Err(waited) =
-                            D::Stream::fence(self.streams.current().signal()).wait()
+                            D::Stream::fence(self.streams.current().signal()).sync_host()
                     {
                         crate::memory_management::release_or_leak(result, &waited);
                     }
@@ -661,7 +661,7 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let fence = D::Stream::fence(self.streams.current().signal());
 
-        Box::pin(async move { fence.wait() })
+        Box::pin(async move { fence.sync_host() })
     }
 
     /// Keep `peers`, memory of other devices the kernel just enqueued binds,
@@ -807,12 +807,12 @@ fn num_bytes(descriptor: &CopyDescriptor) -> usize {
 /// device sources and host destinations. Dropped before [`wait`](Self::wait),
 /// it waits for the fence itself, so a read abandoned unawaited never hands a
 /// buffer back to its pool mid-copy.
-struct InFlight<F: DeviceWaiter, M> {
+struct InFlight<F: StreamSyncer, M> {
     fence_and_memory: Option<(F, M)>,
     waits_on_drop: bool,
 }
 
-impl<F: DeviceWaiter, M> InFlight<F, M> {
+impl<F: StreamSyncer, M> InFlight<F, M> {
     fn new(fence: F, memory: M) -> Self {
         Self {
             fence_and_memory: Some((fence, memory)),
@@ -836,7 +836,7 @@ impl<F: DeviceWaiter, M> InFlight<F, M> {
     /// The fault the fence reports; the memory is then released or leaked.
     fn wait(mut self) -> Result<M, ServerError> {
         let (fence, memory) = self.fence_and_memory.take().expect("waited once");
-        match fence.wait() {
+        match fence.sync_host() {
             Ok(()) => Ok(memory),
             Err(err) => {
                 release_or_leak(memory, &err);
@@ -846,11 +846,11 @@ impl<F: DeviceWaiter, M> InFlight<F, M> {
     }
 }
 
-impl<F: DeviceWaiter, M> Drop for InFlight<F, M> {
+impl<F: StreamSyncer, M> Drop for InFlight<F, M> {
     fn drop(&mut self) {
         if let Some((fence, memory)) = self.fence_and_memory.take()
             && self.waits_on_drop
-            && let Err(err) = fence.wait()
+            && let Err(err) = fence.sync_host()
         {
             release_or_leak(memory, &err);
         }
@@ -865,8 +865,8 @@ mod tests {
 
     struct CountingFence(Arc<AtomicUsize>);
 
-    impl DeviceWaiter for CountingFence {
-        fn wait(self) -> Result<(), ServerError> {
+    impl StreamSyncer for CountingFence {
+        fn sync_host(self) -> Result<(), ServerError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
