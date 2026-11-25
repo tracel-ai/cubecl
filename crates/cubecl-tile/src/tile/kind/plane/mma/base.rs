@@ -1339,7 +1339,9 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     // or a lone cell; one that decodes them as it reads them (packed words, or values under
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
     let (quantized, packing) = (src.quantized(), src.packing());
-    let as_stored = comptime!(!quantized && packing == Packing::Plain);
+    // So is a window the problem's edge cuts short: a read through the view is zero past it.
+    let whole = view.reads_unmasked();
+    let as_stored = comptime!(!quantized && packing == Packing::Plain && whole);
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -1361,7 +1363,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, T::from_int(0));
                 }
-            } else if comptime!(width >= vector_size && !as_stored) {
+            } else if comptime!(width > vector_size && !as_stored) {
                 // A register vector starts at a multiple of its size, so it stays within `width`.
                 let line = view.read((line_row, cell / comptime!(width as u32)));
                 let start = cell % comptime!(width as u32);
@@ -1369,7 +1371,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
                 }
-            } else if comptime!(width >= vector_size) {
+            } else if comptime!(width > vector_size) {
                 // A register vector starts at a multiple of its size, so it stays within `width`:
                 // the line read at the register's width holds it whole, one load at the unit's
                 // offset. Picking its cells out of the whole line instead indexes the line's

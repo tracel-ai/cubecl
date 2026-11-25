@@ -54,6 +54,12 @@ impl<'a, T: CubePrimitive, C: Coordinates + 'a> Masked<'a, T, C> {
         self.view.read_unchecked(pos)
     }
 
+    /// Whether the launch proved every access in bounds, so a read tests nothing and an address is
+    /// the value's.
+    pub(crate) fn reads_unmasked(&self) -> comptime_type!(bool) {
+        comptime!(!self.check)
+    }
+
     /// Whether `pos` lands on real data; always `true` when `check` is `false`.
     pub fn is_in_bounds(&self, pos: C) -> bool {
         if comptime!(self.check) {
