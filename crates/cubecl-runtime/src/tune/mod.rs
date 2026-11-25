@@ -65,6 +65,7 @@ pub use bounds_generator::{AutotuneBound, Bounds, BoundsGenerator, Thresholds, T
 // `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
 // autotune bounds and benchmark reporting share one definition.
 pub use cubecl_common::work::Work;
+pub use cubecl_environment::persistence::{LAYOUT_PREFIX, TuneTableName};
 pub use device_access::TuneDeviceAccess;
 pub use eviction::{Eviction, Evictor};
 pub use input_generator::{CloneInputGenerator, InputGenerator};
@@ -78,9 +79,9 @@ pub use operation::{AutotuneKey, TunableSet, TuneFn};
 pub use record::{PlannedCandidate, Trial, TuneRecord};
 pub use stage::{StageEnterer, TuneStage};
 pub use tune_benchmark::AutotuneOutput;
-pub use tune_cache::{AutotuneResult, LAYOUT_PREFIX, TuneCacheResult};
+pub use tune_cache::{AutotuneResult, TuneCacheResult};
 #[cfg(persistence)]
-pub use tune_cache::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
+pub use tune_cache::{PersistentCacheKey, PersistentCacheValue};
 pub use tune_inputs::TuneInputs;
 pub use tuner::{AutotuneError, AutotuneOutcome, Tuner};
 pub use util::anchor;

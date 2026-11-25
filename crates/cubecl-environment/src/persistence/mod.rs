@@ -21,10 +21,12 @@ pub use storage::*;
 mod namespace;
 mod namespace_root;
 mod store;
+mod tune_table;
 
 pub use namespace::Namespace;
 pub use namespace_root::*;
 pub use store::*;
+pub use tune_table::*;
 
 /// The database file shared by every namespace of an environment.
 #[cfg(any(native_cache, browser_cache))]

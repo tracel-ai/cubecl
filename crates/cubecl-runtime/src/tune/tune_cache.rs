@@ -5,7 +5,7 @@ use cubecl_common::device::ServiceId;
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Namespace, NamespaceRoot, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Store, StoreOptions, TuneTableName};
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
@@ -17,14 +17,8 @@ use crate::device::HardwareIdentity;
 use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
 #[cfg(persistence)]
-use crate::namespace_version::NamespaceVersion;
-#[cfg(persistence)]
 use alloc::string::String;
 use cubecl_environment::collections::HashMap;
-
-/// Bumped when tables are named another way.
-#[cfg(persistence)]
-static TABLES: NamespaceVersion = NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 1);
 
 #[derive(Debug)]
 pub enum CacheEntry {
@@ -161,28 +155,6 @@ pub enum TuneCacheResult {
     Compiled,
     /// No operation is found yet.
     Miss,
-}
-
-/// What the segment numbering a table layout starts with, as in `layout-v1`.
-pub const LAYOUT_PREFIX: &str = "layout-v";
-
-/// What names the table one tuner stores its answers in on one hardware.
-#[cfg(persistence)]
-#[derive(Clone, Copy, Debug)]
-pub struct TuneTableName<'a> {
-    /// The hardware the answers were measured on, as its [`HardwareIdentity`] displays.
-    pub hardware: &'a str,
-    /// The tuner, named by the code that declared it.
-    pub tuner: &'a str,
-}
-
-#[cfg(persistence)]
-impl TuneTableName<'_> {
-    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
-    pub fn namespace(&self) -> Namespace {
-        let Self { hardware, tuner } = self;
-        TABLES.namespace(&alloc::format!("{hardware}/{tuner}"))
-    }
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
@@ -458,7 +430,7 @@ mod tests {
     use super::*;
     use alloc::boxed::Box;
     use alloc::string::ToString;
-    use cubecl_environment::persistence::MemoryStorage;
+    use cubecl_environment::persistence::{MemoryStorage, Namespace};
 
     const KEY: &str = "matmul-64x64";
     /// Sorts before [`CURRENT`], so a table read in key order meets it first.
