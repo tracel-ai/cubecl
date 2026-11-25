@@ -83,7 +83,16 @@ pub struct DummyServer<M = ()> {
     /// and no call "drains" anything.
     failures: ErrorGraph,
     next_timing: Option<CommunicationTiming>,
+    lazy_reads: cubecl_server::server::LazyReadCount,
+    /// Keyed usage, by read through a scan: what each lazy read held when it was made.
+    snapshots: Vec<Snapshot>,
 }
+
+/// A lazy read, and what it held when it was made.
+type Snapshot = (
+    std::sync::Weak<cubecl_server::server::LazyRead>,
+    Result<Vec<Bytes>, ServerError>,
+);
 
 /// What a [`DummyServer`]'s marker has to be: a distinct type, and the transport its runtime
 /// claims between its devices.
@@ -518,6 +527,45 @@ impl<M: Marker> Server for DummyServer<M> {
         self.ensure_written(handles.iter())
     }
 
+    fn read_lazy(
+        &mut self,
+        read: Arc<cubecl_server::server::LazyRead>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        self.ensure_written(core::iter::once(&read.to_source().handle))?;
+        // Its reads copy the memory when resolved, so the snapshot is taken here rather than
+        // ahead of each write.
+        let (sources, offsets) = read.to_held_sources();
+        let snapshot = cubecl_environment::future::block_on(self.read(sources, stream_id));
+        read.keep(&self.lazy_reads);
+        read.start(offsets);
+        self.snapshots.retain(|(read, _)| read.strong_count() > 0);
+        self.snapshots.push((Arc::downgrade(&read), snapshot));
+        Ok(())
+    }
+
+    fn read_lazy_bytes(
+        &mut self,
+        _read: Arc<cubecl_server::server::LazyRead>,
+        source: CopyDescriptor,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        self.read(vec![source], stream_id)
+    }
+
+    fn take_lazy_copy(
+        &mut self,
+        read: &Arc<cubecl_server::server::LazyRead>,
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        let index = self
+            .snapshots
+            .iter()
+            .position(|(kept, _)| core::ptr::eq(kept.as_ptr(), Arc::as_ptr(read)))
+            .expect("a started lazy read should have its snapshot");
+        let (_, snapshot) = self.snapshots.swap_remove(index);
+        Box::pin(async move { snapshot })
+    }
+
     fn memory_report(
         &mut self,
         stream_id: StreamId,
@@ -623,6 +671,8 @@ impl<M: Marker> DummyServer<M> {
             timestamps: TimestampProfiler::default(),
             failures: ErrorGraph::default(),
             next_timing: None,
+            lazy_reads: Default::default(),
+            snapshots: Vec::new(),
         }
     }
 
