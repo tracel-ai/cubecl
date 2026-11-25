@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use cubecl_environment::sync::Arc;
 
-/// Carves one device page into [slices](Slice) of a fixed
+/// Suballocates one device page into [slices](Slice) of a fixed
 /// [storage buffer](StorageHandle): the allocations on it and the free room
 /// between them.
 ///
@@ -23,7 +23,7 @@ use cubecl_environment::sync::Arc;
 ///
 /// `failures`, in every function that takes it, is the [`ErrorGraph`] that
 /// holds the failures the page's slices carry.
-pub(crate) struct PageCarver {
+pub(crate) struct PageSuballocator {
     storage: StorageHandle,
     /// The slices in offset order, read by the position a location carries
     /// (Position) and scanned in offset order for room (Ordered).
@@ -43,7 +43,7 @@ pub(crate) struct PageCarver {
     guards: Arc<()>,
 }
 
-/// What a [`PageCarver`] holds, as its readers see it.
+/// What a [`PageSuballocator`] holds, as its readers see it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PageView<'a> {
     /// The page's slices, read by the position a location carries (Position)
@@ -59,7 +59,7 @@ pub(crate) struct PageView<'a> {
     pub storage_id: StorageId,
 }
 
-impl PageCarver {
+impl PageSuballocator {
     /// A page of one free slice over `storage`, whose slices start at
     /// `alignment`, backed now or later as `mapping` says.
     pub(crate) fn new(
@@ -167,7 +167,7 @@ impl PageCarver {
     /// fits them, padded, splitting off the room it leaves. `None` when no
     /// free slice fits them: [`coalesce`](Self::coalesce) merges neighbouring
     /// free slices into larger ones.
-    pub(crate) fn carve_bytes(&mut self, size_bytes: u64) -> Option<ManagedMemoryHandle> {
+    pub(crate) fn suballocate_bytes(&mut self, size_bytes: u64) -> Option<ManagedMemoryHandle> {
         let effective_size = padded_size(size_bytes, self.alignment)?;
         let index = self
             .slices
@@ -437,7 +437,7 @@ impl Debug for MemoryPageSummary {
     }
 }
 
-impl Display for PageCarver {
+impl Display for PageSuballocator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{}", self.view().summary_with_blocks(true)))
     }
@@ -460,12 +460,12 @@ mod tests {
         }
     }
 
-    fn reserve(page: &mut PageCarver, size_bytes: u64) -> ManagedMemoryHandle {
-        page.carve_bytes(size_bytes)
+    fn reserve(page: &mut PageSuballocator, size_bytes: u64) -> ManagedMemoryHandle {
+        page.suballocate_bytes(size_bytes)
             .expect("the page should have room for the slice")
     }
 
-    fn offset_of(page: &PageCarver, handle: &ManagedMemoryHandle) -> StorageUtilization {
+    fn offset_of(page: &PageSuballocator, handle: &ManagedMemoryHandle) -> StorageUtilization {
         page.find(&handle.clone().binding())
             .expect("the slice should be on the page")
             .storage
@@ -545,7 +545,7 @@ mod tests {
         let mut page = new_memory_page(32 * MB);
         let _slices = [4, 15, 8, 4].map(|size| reserve(&mut page, size * MB));
 
-        assert!(page.carve_bytes(8 * MB).is_none());
+        assert!(page.suballocate_bytes(8 * MB).is_none());
     }
 
     /// A summary asked without blocks lists none.
@@ -566,7 +566,7 @@ mod tests {
         let _nine = reserve(&mut page, 9 * MB);
         core::mem::drop(third);
 
-        assert!(page.carve_bytes(9 * MB).is_none(), "6 and 8 MB apart");
+        assert!(page.suballocate_bytes(9 * MB).is_none(), "6 and 8 MB apart");
     }
 
     /// Coalesced, neighbouring free slices serve what they fit together.
@@ -581,7 +581,7 @@ mod tests {
 
         page.coalesce(&mut ErrorGraph::default());
 
-        assert!(page.carve_bytes(9 * MB).is_some(), "14 MB together");
+        assert!(page.suballocate_bytes(9 * MB).is_some(), "14 MB together");
     }
 
     /// Coalescing keeps the live slices' offsets.
@@ -610,7 +610,10 @@ mod tests {
         let mut page = aligned_memory_page(128, 32);
         core::mem::drop(reserve(&mut page, 100));
 
-        assert!(page.carve_bytes(100).is_some(), "the slice is 128 bytes");
+        assert!(
+            page.suballocate_bytes(100).is_some(),
+            "the slice is 128 bytes"
+        );
     }
 
     /// Splitting a freed slice leaves the rest of its padded room on the page.
@@ -629,7 +632,7 @@ mod tests {
     fn a_size_whose_padding_overflows_fits_no_slice() {
         let mut page = aligned_memory_page(128, 32);
 
-        assert!(page.carve_bytes(u64::MAX).is_none());
+        assert!(page.suballocate_bytes(u64::MAX).is_none());
     }
 
     /// A binding resolves to the slice it was bound to.
@@ -721,7 +724,7 @@ mod tests {
         assert!(!page.release_if_unused(&mut storage, &mut ErrorGraph::default()));
     }
 
-    fn lazy_page() -> PageCarver {
+    fn lazy_page() -> PageSuballocator {
         let storage = StorageHandle::new(
             StorageId::new(),
             StorageUtilization {
@@ -729,14 +732,14 @@ mod tests {
                 size_bytes: MB,
             },
         );
-        PageCarver::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Lazy)
+        PageSuballocator::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Lazy)
     }
 
-    fn new_memory_page(size: u64) -> PageCarver {
+    fn new_memory_page(size: u64) -> PageSuballocator {
         aligned_memory_page(size, 4)
     }
 
-    fn aligned_memory_page(size: u64, alignment: u64) -> PageCarver {
+    fn aligned_memory_page(size: u64, alignment: u64) -> PageSuballocator {
         let storage = StorageHandle::new(
             StorageId::new(),
             StorageUtilization {
@@ -745,7 +748,7 @@ mod tests {
             },
         );
 
-        PageCarver::new(
+        PageSuballocator::new(
             storage,
             alignment,
             MemoryLocation::new(0, 0, 0),

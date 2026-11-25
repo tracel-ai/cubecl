@@ -1,7 +1,7 @@
 //! Which outdated pages a relocation empties, and in what order.
 
 use crate::memory_management::ManagedMemoryBinding;
-use crate::memory_management::memory_pool::PageCarver;
+use crate::memory_management::memory_pool::PageSuballocator;
 use alloc::vec::Vec;
 
 /// The outdated pages a relocation can empty: every page with a live
@@ -41,7 +41,7 @@ pub(crate) struct LiveAllocation {
 impl OutdatedPages {
     /// The movable pages among `pages`, cheapest first, pages of equal cost
     /// in the order found.
-    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageCarver>) -> Self {
+    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageSuballocator>) -> Self {
         let mut ordered: Vec<MovablePage> = Vec::new();
         for page in pages
             .into_iter()
@@ -66,7 +66,7 @@ impl OutdatedPages {
 impl MovablePage {
     /// What `page` holds, `None` when nothing live is on it or one of its
     /// allocations is bound.
-    fn new(page: &PageCarver) -> Option<Self> {
+    fn new(page: &PageSuballocator) -> Option<Self> {
         if page.view().live().any(|slice| slice.handle.is_bound()) {
             return None;
         }
@@ -95,7 +95,7 @@ mod tests {
     use super::*;
     use crate::memory_management::{
         MemoryLocation,
-        memory_pool::{PageCarver, PageMapping},
+        memory_pool::{PageMapping, PageSuballocator},
     };
     use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use alloc::vec;
@@ -108,7 +108,10 @@ mod tests {
             let mut page = page();
             let held: Vec<_> = sizes
                 .iter()
-                .map(|size| page.carve_bytes(*size).expect("the page should have room"))
+                .map(|size| {
+                    page.suballocate_bytes(*size)
+                        .expect("the page should have room")
+                })
                 .collect();
             (page, held)
         });
@@ -122,7 +125,7 @@ mod tests {
     #[test]
     fn an_empty_page_does_not_move() {
         let mut empty = page();
-        core::mem::drop(empty.carve_bytes(64));
+        core::mem::drop(empty.suballocate_bytes(64));
 
         assert!(OutdatedPages::new([&empty]).into_plan().is_empty());
     }
@@ -131,7 +134,7 @@ mod tests {
     #[test]
     fn a_guarded_page_does_not_move() {
         let mut guarded = page();
-        let _slice = guarded.carve_bytes(64);
+        let _slice = guarded.suballocate_bytes(64);
         let _guard = guarded.guard();
 
         assert!(OutdatedPages::new([&guarded]).into_plan().is_empty());
@@ -141,7 +144,9 @@ mod tests {
     #[test]
     fn a_page_with_a_bound_allocation_does_not_move() {
         let mut bound = page();
-        let slice = bound.carve_bytes(64).expect("the page should have room");
+        let slice = bound
+            .suballocate_bytes(64)
+            .expect("the page should have room");
         let _binding = slice.clone().binding();
 
         assert!(OutdatedPages::new([&bound]).into_plan().is_empty());
@@ -151,7 +156,7 @@ mod tests {
     #[test]
     fn a_page_of_unbound_live_allocations_moves() {
         let mut movable = page();
-        let _slice = movable.carve_bytes(64);
+        let _slice = movable.suballocate_bytes(64);
 
         assert_eq!(
             sizes(&OutdatedPages::new([&movable]).into_plan()),
@@ -159,8 +164,8 @@ mod tests {
         );
     }
 
-    fn page() -> PageCarver {
-        PageCarver::new(
+    fn page() -> PageSuballocator {
+        PageSuballocator::new(
             StorageHandle::new(
                 StorageId::new(),
                 StorageUtilization {

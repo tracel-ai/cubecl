@@ -1,7 +1,7 @@
 use super::PagedSliceReserver;
 use crate::memory_management::{
     MemoryPoolKind, MemoryPoolReport,
-    memory_pool::{PageCarver, sum_usage},
+    memory_pool::{PageSuballocator, sum_usage},
 };
 
 /// What a [`PagedSliceReserver`] holds, as its readers see it: a handle on
@@ -13,7 +13,7 @@ pub(crate) struct PagedView<'a> {
 
 impl<'a> PagedView<'a> {
     /// The pages the pool holds, in the order a location numbers them.
-    pub(crate) fn pages(&self) -> &'a [PageCarver] {
+    pub(crate) fn pages(&self) -> &'a [PageSuballocator] {
         &self.pool.pages
     }
 

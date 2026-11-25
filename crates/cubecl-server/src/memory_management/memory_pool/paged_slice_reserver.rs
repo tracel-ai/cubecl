@@ -4,7 +4,8 @@ use crate::{
         BytesFormat, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryLocation, PageGuard,
         memory_pool::{
-            PageCarver, PageMapping, Slice, SliceAllocator, SliceReserver, missing, pool_origin,
+            PageMapping, PageSuballocator, Slice, SliceAllocator, SliceReserver, missing,
+            pool_origin,
         },
     },
     server::IoError,
@@ -33,7 +34,7 @@ pub enum PinnedRoom {
 pub(crate) struct PagedSliceReserver {
     /// Every page, read by the index a location carries (Position) and
     /// scanned in that order for room (Ordered).
-    pages: Vec<PageCarver>,
+    pages: Vec<PageSuballocator>,
     layout: PagedLayout,
     /// Whether an allocation past the largest slice but close to the page size
     /// is accepted too, as one that leaves little of its page unused.
@@ -93,7 +94,7 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When the pool holds no page there.
-    pub(crate) fn page_at(&self, location: MemoryLocation) -> &PageCarver {
+    pub(crate) fn page_at(&self, location: MemoryLocation) -> &PageSuballocator {
         &self.pages[location.page as usize]
     }
 
@@ -163,7 +164,7 @@ impl PagedSliceReserver {
             .filter(|page| room == PinnedRoom::Share || !page.view().is_guarded)
             .find_map(|page| {
                 page.coalesce(failures);
-                page.carve_bytes(size)
+                page.suballocate_bytes(size)
             })?;
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(handle)
@@ -225,9 +226,10 @@ impl PagedSliceReserver {
         };
         let handle =
             SliceAllocator::new(storage).allocate_storage(mapping, self.layout.page_size_bytes)?;
-        let mut page = PageCarver::new(handle, self.layout.alignment_bytes, location_base, mapping);
+        let mut page =
+            PageSuballocator::new(handle, self.layout.alignment_bytes, location_base, mapping);
         let reserved = page
-            .carve_bytes(size)
+            .suballocate_bytes(size)
             .expect("a page should be allocated only for an allocation the pool accepts");
         self.pages.push(page);
         self.peak_pages = self.peak_pages.max(self.pages.len() as u64);

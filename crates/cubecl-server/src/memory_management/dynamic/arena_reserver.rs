@@ -10,7 +10,8 @@ use crate::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolKind,
         MemoryPoolReport,
         memory_pool::{
-            PageCarver, PageMapping, PagedSliceReserver, PinnedRoom, SliceBinder, SliceReserver,
+            PageMapping, PageSuballocator, PagedSliceReserver, PinnedRoom, SliceBinder,
+            SliceReserver,
         },
         relocation::{
             ArenaShape, ArenaState, LandedRelocation, LiveAllocation, MovablePage, Move,
@@ -270,7 +271,7 @@ impl ArenaReserver {
     }
 
     /// The pages the outdated pools hold.
-    fn outdated_pages(&self) -> impl Iterator<Item = &PageCarver> {
+    fn outdated_pages(&self) -> impl Iterator<Item = &PageSuballocator> {
         self.outdated().flat_map(|pool| pool.view().pages())
     }
 
