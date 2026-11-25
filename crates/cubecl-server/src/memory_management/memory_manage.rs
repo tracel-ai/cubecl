@@ -811,7 +811,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
             return Ok(reserved);
         }
 
-        if persistent_mode || (size_match && self.persistent.has_size_bytes(size)) {
+        if persistent_mode || (size_match && self.persistent.view().has_size_bytes(size)) {
             let allocated = self
                 .persistent
                 .alloc(&mut self.storage, size, mapping, failures);

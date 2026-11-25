@@ -12,6 +12,9 @@ use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 
+mod persistent_view;
+pub(crate) use persistent_view::PersistentView;
+
 /// A pool of one device allocation per buffer, reused only by a buffer of
 /// the same padded size: what weights and other allocations kept for a
 /// model's life are served from, so they never hold a page of the dynamic
@@ -59,11 +62,9 @@ impl PersistentSliceReserver {
         }
     }
 
-    /// Whether the pool holds a slice of the padded size `size_bytes` takes,
-    /// free or not.
-    pub(crate) fn has_size_bytes(&self, size_bytes: u64) -> bool {
-        padded_size(size_bytes, self.alignment)
-            .is_some_and(|effective_size| self.sizes.contains_key(&effective_size))
+    /// A [`PersistentView`] of the pool.
+    pub(crate) fn view(&self) -> PersistentView<'_> {
+        PersistentView { pool: self }
     }
 }
 
@@ -345,7 +346,11 @@ mod tests {
     /// A size whose padding passes the largest `u64` has no bucket.
     #[test_log::test]
     fn a_size_whose_padding_overflows_has_no_bucket() {
-        assert!(!PersistentSliceReserver::new(1024, 32, 0).has_size_bytes(u64::MAX));
+        assert!(
+            !PersistentSliceReserver::new(1024, 32, 0)
+                .view()
+                .has_size_bytes(u64::MAX)
+        );
     }
 
     /// A size whose padding passes the largest `u64` is refused rather than
@@ -378,7 +383,7 @@ mod tests {
         let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
         core::mem::drop(alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit"));
 
-        assert!(pool.has_size_bytes(1024));
+        assert!(pool.view().has_size_bytes(1024));
     }
 
     /// A pool's usage counts what is live and what it holds.

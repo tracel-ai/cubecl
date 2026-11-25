@@ -2,10 +2,9 @@ use crate::{
     memory_management::relocation::StorageCopy,
     memory_management::{
         BytesFormat, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
-        MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
+        MemoryLocation, PageGuard,
         memory_pool::{
             PageCarver, PageMapping, Slice, SliceAllocator, SliceReserver, missing, pool_origin,
-            sum_usage,
         },
     },
     server::IoError,
@@ -13,6 +12,9 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
+
+mod paged_view;
+pub(crate) use paged_view::PagedView;
 
 /// Whether a reservation may carve the free room on a page a graph guards (see [`PageGuard`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +82,7 @@ impl PagedSliceReserver {
         self
     }
 
-    /// What the pool holds, each part read when asked.
+    /// A [`PagedView`] of the pool.
     pub(crate) fn view(&self) -> PagedView<'_> {
         PagedView { pool: self }
     }
@@ -242,57 +244,6 @@ fn near_page(size: u64, page_size: u64) -> bool {
         .is_some_and(|unused| unused * 5 < page_size)
 }
 
-impl PagedSliceReserver {
-    /// The pool's shape, usage and high-water marks.
-    fn make_report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Sliced {
-                page_size: self.layout.page_size_bytes,
-                max_slice_size: self.layout.max_slice_bytes,
-            },
-            usage: sum_usage(self.pages.iter().map(|page| page.view().usage())),
-            page_count: self.pages.len() as u64,
-            peak_page_count: self.peak_pages,
-            unmapped_page_count: self
-                .pages
-                .iter()
-                .filter(|page| !page.view().is_mapped)
-                .count() as u64,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
-    }
-
-    /// Whether graphs guard every page the pool holds, and it holds some.
-    fn pinned(&self) -> bool {
-        !self.pages.is_empty() && self.pages.iter().all(|page| page.view().is_guarded)
-    }
-}
-
-/// What a [`PagedSliceReserver`] holds, as its readers see it: a handle on
-/// the pool that reads each part only when asked.
-#[derive(Clone, Copy)]
-pub(crate) struct PagedView<'a> {
-    pool: &'a PagedSliceReserver,
-}
-
-impl<'a> PagedView<'a> {
-    /// The pages the pool holds, in the order a location numbers them.
-    pub(crate) fn pages(&self) -> &'a [PageCarver] {
-        &self.pool.pages
-    }
-
-    /// Whether graphs guard every page the pool holds, and it holds some: room
-    /// for work outside a capture comes only from a new page then.
-    pub(crate) fn is_pinned(&self) -> bool {
-        self.pool.pinned()
-    }
-
-    /// The pool's shape, usage and high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
-        self.pool.make_report()
-    }
-}
-
 impl SliceReserver for PagedSliceReserver {
     fn accepts_bytes(&self, size: u64) -> bool {
         self.layout.max_slice_bytes >= size
@@ -411,7 +362,7 @@ impl Display for PagedSliceReserver {
             ))?;
         }
 
-        f.write_fmt(format_args!("\n{}\n", self.make_report().usage))
+        f.write_fmt(format_args!("\n{}\n", self.view().report().usage))
     }
 }
 
