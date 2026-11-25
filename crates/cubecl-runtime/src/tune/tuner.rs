@@ -389,8 +389,8 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
 
-        // A `CompileOnly` override queues the candidates' kernels and measures nothing; the key
-        // stays untuned for the pass that profiles it.
+        // A `CompileOnly` override queues the kernels of the top of the plan and measures
+        // nothing; the key stays untuned for the pass that profiles it.
         let Some(mark) = mark else {
             let gathering = super::gathering::CandidateGathering::new();
             self.compile_plan(key, inputs, tunables, &autotunables);
@@ -484,10 +484,8 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Runs the top of the plan once each, on the inputs a tune generates, so their launches
     /// queue their kernels under a `CompileOnly` override. The key is left untuned.
     ///
-    /// The top is the candidates the plan ranks first, and after them as many more, in plan
-    /// order, as it takes for as many candidates as compile at once to have served the problem
-    /// ([`TunePlan::queue_top`]): the ones a tune measures first, compiled in one batch. The
-    /// rest are compiled by the tune itself, at their turn, only when the top did not stop it.
+    /// Runs [`TunePlan::queue_top`] with the configured compilation parallelism; the tune
+    /// compiles the rest at their turn.
     fn compile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,

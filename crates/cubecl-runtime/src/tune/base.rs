@@ -289,9 +289,10 @@ impl Batch {
     /// How many entries lead the batch at its first entry's priority: the candidates the plan
     /// ranks first, among which it states no preference.
     pub(crate) fn leading_len(&self) -> usize {
-        let Some(first) = self.entries.first() else {
-            return 0;
-        };
+        let first = self
+            .entries
+            .first()
+            .expect("the batch should hold an entry: only a plan's non-empty batch is ranked");
         self.entries
             .iter()
             .take_while(|entry| entry.priority == first.priority)
@@ -519,6 +520,10 @@ impl TunePlan {
     /// batch's, as the tune falls back to it. Once one has served, no later batch is reached,
     /// since the tune stops at that batch.
     pub(crate) fn queue_top(&mut self, parallelism: usize, mut queue: impl FnMut(usize) -> bool) {
+        assert!(
+            parallelism > 0,
+            "the parallelism should be at least one: the top is extended until that many served"
+        );
         loop {
             let batch = self.next();
             if batch.is_empty() {
@@ -1214,7 +1219,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
-    struct SizeKey(i8);
+    struct SizeKey(pub i8);
 
     impl Display for SizeKey {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1321,11 +1326,6 @@ mod tests {
     fn test_queue_top_hands_over_the_whole_plan_when_nothing_serves() {
         let plan = ordered_plan(&[2, 1]);
         assert_eq!(queued(plan, 1, &[0, 1, 2]), vec![0, 1, 2]);
-    }
-
-    #[test_log::test]
-    fn test_an_empty_batch_has_no_leading_entry() {
-        assert_eq!(Batch::default().leading_len(), 0);
     }
 
     fn fake_kernel(_: ()) -> Result<(), String> {

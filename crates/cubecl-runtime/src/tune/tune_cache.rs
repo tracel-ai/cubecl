@@ -30,8 +30,8 @@ pub(crate) enum CacheEntry {
         fastest_index: usize,
     },
     Pending,
-    /// A `CompileOnly` override or another key's compile pass queued the kernels of the key's
-    /// candidates on `services` and decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
+    /// A `CompileOnly` override or another key's compile pass queued the kernels of the top of
+    /// the key's plan on `services` and decided nothing: a miss to anything that tunes, and done to the next `CompileOnly` override
     /// on one of `services`. Never persisted. `registration` is the key's tune as the override that
     /// gathered it first registered it, settled once its pick commits; `None` when it registered
     /// none. Replacing the entry other than through [`TuneCache::mark_pending`] or
@@ -151,7 +151,7 @@ pub enum TuneCacheResult {
     /// the in-flight job. A card a tune found lost answers this for every key it has not settled.
     Pending,
     /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override or another key's
-    /// compile pass queued the kernels of the key's candidates, and measured and decided nothing. Callers run the first candidate that
+    /// compile pass queued the kernels of the top of the key's plan, and measured and decided nothing. Callers run the first candidate that
     /// serves the problem, which only queues its kernels too.
     Compiled,
     /// No operation is found yet.
@@ -301,8 +301,8 @@ impl<K: AutotuneKey> TuneCache<K> {
         );
     }
 
-    /// Whether a `CompileOnly` override already queued the kernels of `key`'s candidates on
-    /// `service`.
+    /// Whether a `CompileOnly` override already queued the kernels of the top of `key`'s plan
+    /// on `service`.
     pub(crate) fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
             self.in_memory_cache.get(key),

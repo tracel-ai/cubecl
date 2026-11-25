@@ -7,9 +7,18 @@ pub enum ProcessMode {
     Execute,
     /// Launches and tune candidates queue their kernels and are discarded. The
     /// queue compiles in one batch, at the next launch that loads a kernel. A
-    /// tune measures and decides nothing, and queues only the top of its plan:
-    /// its highest-priority candidates, or as many as compile at once if those
-    /// are fewer.
+    /// tune measures and decides nothing, and queues only the top of its plan.
+    ///
+    /// # Guarantees
+    ///
+    /// - A tune queues every candidate tied at its plan's highest priority, then
+    ///   the next ones in plan order until as many as compile at once
+    ///   (`compilation.parallelism`) have served the problem.
+    /// - A candidate that declines the problem queues nothing and counts for
+    ///   nothing toward that number.
+    /// - A batch of the plan in which no candidate serves is queued whole, and
+    ///   the top is taken from the next one.
+    /// - A tunable set with no group states no priority, so all of it is queued.
     CompileOnly,
     /// Launches compile their kernels and are discarded. A tune measures its
     /// candidates for real, compiling at their turn those a `CompileOnly` pass
