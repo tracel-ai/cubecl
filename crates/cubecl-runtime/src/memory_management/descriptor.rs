@@ -122,14 +122,12 @@ impl ManagedMemoryDescriptor {
     }
 
     /// Its device keeps one more lazy read of the memory.
-    #[doc(hidden)]
-    pub fn lazy_read_kept(&self) {
+    pub(crate) fn lazy_read_kept(&self) {
         self.lazy_reads.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Its device keeps one lazy read of the memory fewer.
-    #[doc(hidden)]
-    pub fn lazy_read_let_go(&self) {
+    pub(crate) fn lazy_read_let_go(&self) {
         self.lazy_reads.fetch_sub(1, Ordering::Relaxed);
     }
 

@@ -1,99 +1,81 @@
 //! The lazy reads a device keeps, which work about to write their memory starts first.
 
-use crate::device_events::{Event, EventApi};
 use crate::memory_management::ManagedMemoryId;
-use crate::server::{BufferBinding, LazyRead, RetireCopy, ServerError};
-use crate::stream::{FailureStore, StreamCapture, WriteScoped};
+use crate::server::{BufferBinding, CopyDescriptor, LazyRead, LazyReadCount, ServerError};
+use crate::stream::{ExecuteScope, FailureStore, StreamCapture, StreamFence, WriteScoped};
 use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use cubecl_common::bytes::Bytes;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_environment::sync::Mutex;
+
+type Copy = DynFut<Result<Vec<Bytes>, ServerError>>;
 
 /// The lazy reads a device keeps, until work about to write their memory starts them and their
-/// copies resolve, or their bytes let them go.
+/// copies are done, or their bytes let them go.
 #[derive(Debug, Default)]
-pub struct LazyReads {
+pub(crate) struct LazyReads {
+    /// The reads kept, started and accessed, which spares every write the lookup while none are.
+    count: LazyReadCount,
     /// Keyed usage: the reads of each allocation, looked up by the allocation a write names.
-    kept: HashMap<ManagedMemoryId, Vec<KeptRead>>,
+    kept: HashMap<ManagedMemoryId, KeptReads>,
     /// How many allocations `kept` named when it last let go of the reads nothing holds.
     swept_at: usize,
-    /// The copies of started reads dropped unread, until their fences are reached and the next
-    /// lazy read is kept or overwritten: letting go of a copy in flight waits for it, which
-    /// would block whoever dropped the read.
-    retired: Retired,
+    /// Keyed usage, by read through a scan of the few held at once: the copies of started reads,
+    /// until an access takes one, or its read drops and the fence past it is reached, since
+    /// letting go of a copy in flight waits for it.
+    copies: Vec<StartedCopy>,
 }
 
-type RetiredCopy = (
-    Arc<dyn StreamFence>,
-    DynFut<Result<Vec<Bytes>, ServerError>>,
-);
-
-#[derive(Clone, Default)]
-struct Retired(Arc<Mutex<Vec<RetiredCopy>>>);
-
-impl core::fmt::Debug for Retired {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} retired copies", self.0.lock().len())
-    }
+/// The reads of one allocation.
+#[derive(Debug, Default)]
+struct KeptReads {
+    /// Arrival usage: scanned by every write to the allocation, and pruned of the reads no write
+    /// would find once it reaches `prune_at`.
+    pub reads: Vec<KeptRead>,
+    /// Twice the reads left by the last pruning, so pruning costs linear time over the pushes.
+    pub prune_at: usize,
 }
 
 #[derive(Debug)]
 struct KeptRead {
-    read: Weak<LazyRead>,
+    pub read: Weak<LazyRead>,
     /// The stream the read was made on until it is started, then the stream its copy runs on.
-    stream: StreamId,
+    pub stream: StreamId,
     /// Past the work on `stream` when the read was made, while it is kept and its server gives
     /// one, so the copy can run behind exactly that work on the writer's stream.
-    made_at: Option<Arc<dyn StreamFence>>,
+    pub made_at: Option<Arc<dyn StreamFence>>,
     /// Past the copy once the read is started, when its server gives one.
-    fence: Option<Arc<dyn StreamFence>>,
+    pub fence: Option<Arc<dyn StreamFence>>,
     /// The memory an access copies on its own while the read stays kept, which work writing
     /// it waits on until the copy is done or the access has its bytes.
-    accessed: Option<(Range<u64>, Weak<AccessCopy>)>,
+    pub accessed: Option<(Range<u64>, Weak<AccessCopy>)>,
+}
+
+/// The copy of a started read, kept for its first access.
+struct StartedCopy {
+    pub read: Weak<LazyRead>,
+    /// Past the copy, when its server gave one.
+    pub fence: Option<Arc<dyn StreamFence>>,
+    pub copy: Copy,
 }
 
 /// An access's copy of a kept read's bytes, counted on its memory so work writing the memory
 /// finds it, until the access has its bytes.
 #[derive(Debug)]
-struct AccessCopy(Arc<LazyRead>);
-
-impl AccessCopy {
-    fn new(read: &Arc<LazyRead>) -> Arc<Self> {
-        read.descriptor().lazy_read_kept();
-        Arc::new(Self(read.clone()))
-    }
-}
-
-impl Drop for AccessCopy {
-    fn drop(&mut self) {
-        self.0.descriptor().lazy_read_let_go();
-    }
-}
-
-/// A point on a stream, where a lazy read was made or just past its copy, which work on another
-/// stream waits on rather than on all the work queued there since.
-pub trait StreamFence: core::any::Any + Send + Sync + core::fmt::Debug {
-    /// Whether the device has finished the work before it.
-    fn is_reached(&self) -> bool;
-}
-
-impl<A: EventApi> StreamFence for Event<A>
-where
-    A::Event: Send + Sync,
-{
-    fn is_reached(&self) -> bool {
-        Event::is_reached(self)
-    }
+struct AccessCopy {
+    read: Arc<LazyRead>,
+    count: LazyReadCount,
 }
 
 /// A lazy read's copy that may still be running.
 #[derive(Debug)]
-pub struct CopyInFlight {
+struct CopyInFlight {
     /// The stream it runs on.
     pub stream: StreamId,
     /// Past the copy, when its server gave one; otherwise only the stream orders it.
@@ -102,8 +84,7 @@ pub struct CopyInFlight {
 
 /// A kept read work is about to overwrite, which it starts first.
 #[derive(Debug)]
-pub struct ReadToStart {
-    /// The read.
+struct ReadToStart {
     pub read: Arc<LazyRead>,
     /// The stream it was made on.
     pub made_on: StreamId,
@@ -113,24 +94,38 @@ pub struct ReadToStart {
 
 /// What work about to write memory lazy reads hold has to do first.
 #[derive(Debug, Default)]
-pub struct Overwritten {
-    /// The kept reads to start.
+struct Overwritten {
+    /// Arrival usage: the kept reads to start.
     pub reads: Vec<ReadToStart>,
-    /// The started copies of the memory that may still be running.
+    /// Arrival usage: the copies of the memory that may still be running.
     pub in_flight: Vec<CopyInFlight>,
 }
 
 impl LazyReads {
+    /// Whether no read is kept, started or accessed and no copy is held, so a write has
+    /// nothing to start or wait for.
+    fn is_idle(&self) -> bool {
+        self.count.is_zero() && self.copies.is_empty()
+    }
+
     /// Keep `read`, made on `stream` where `made_at` fences, until work about to write its
     /// memory takes it.
-    pub fn keep(
+    fn keep(
         &mut self,
         read: &Arc<LazyRead>,
         stream: StreamId,
         made_at: Option<Arc<dyn StreamFence>>,
     ) {
-        read.keep();
-        self.hold(read, stream, made_at, None, None);
+        self.hold(
+            read,
+            KeptRead {
+                read: Arc::downgrade(read),
+                stream,
+                made_at,
+                fence: None,
+                accessed: None,
+            },
+        );
     }
 
     /// Hold `copy`, of `accessed`, bytes of `read` an access reads on `stream` while it stays
@@ -145,43 +140,57 @@ impl LazyReads {
     ) {
         self.hold(
             read,
-            stream,
-            None,
-            fence,
-            Some((accessed, Arc::downgrade(copy))),
+            KeptRead {
+                read: Arc::downgrade(read),
+                stream,
+                made_at: None,
+                fence,
+                accessed: Some((accessed, Arc::downgrade(copy))),
+            },
         );
     }
 
     /// Hold `read`, started on `stream`, until its copy is done, so work writing its memory
-    /// from another stream waits for it, on `fence` when there is one.
-    pub fn started(
+    /// from another stream waits for it, on `fence` when there is one, and keep `copy` for its
+    /// first access.
+    fn started(
         &mut self,
         read: &Arc<LazyRead>,
         stream: StreamId,
         fence: Option<Arc<dyn StreamFence>>,
+        copy: Copy,
     ) {
-        let entry = self
-            .kept
-            .get_mut(&read.to_source().handle.memory.id())
-            .and_then(|reads| {
-                reads.iter_mut().find(|kept| {
-                    kept.accessed.is_none() && core::ptr::eq(kept.read.as_ptr(), Arc::as_ptr(read))
-                })
-            });
-        match entry {
-            Some(kept) => {
-                kept.stream = stream;
-                kept.made_at = None;
-                kept.fence = fence;
-            }
-            None => self.hold(read, stream, None, fence, None),
-        }
+        self.copies.push(StartedCopy {
+            read: Arc::downgrade(read),
+            fence: fence.clone(),
+            copy,
+        });
+        self.hold(
+            read,
+            KeptRead {
+                read: Arc::downgrade(read),
+                stream,
+                made_at: None,
+                fence,
+                accessed: None,
+            },
+        );
+    }
+
+    /// The copy of `read` this keeps, which it then lets go of.
+    fn take_copy(&mut self, read: &Arc<LazyRead>) -> Option<Copy> {
+        let index = self.copies.iter().position(|copy| copy.is_of(read))?;
+        Some(self.copies.swap_remove(index).copy)
+    }
+
+    /// Let go of the copies no access will take, once they are done.
+    fn drop_done_copies(&mut self) {
+        self.copies.retain(StartedCopy::is_wanted);
     }
 
     /// What work about to write `written` has to do first: the kept reads whose bytes it
     /// overlaps, which are no longer kept, and the streams copies of them are in flight on.
-    pub fn take_overwritten(&mut self, written: &[BufferBinding]) -> Overwritten {
-        self.drop_retired();
+    fn take_overwritten(&mut self, written: &[BufferBinding]) -> Overwritten {
         let mut overwritten = Overwritten::default();
         let written = written
             .iter()
@@ -191,137 +200,148 @@ impl LazyReads {
             let Some(reads) = self.kept.get_mut(&id) else {
                 continue;
             };
-            reads.retain(|kept| {
-                if !is_live(kept) {
-                    return false;
-                }
-                if let Some((accessed, _)) = &kept.accessed {
-                    let written = binding.range();
-                    if accessed.start < written.end && written.start < accessed.end {
-                        overwritten.in_flight.push(CopyInFlight {
-                            stream: kept.stream,
-                            fence: kept.fence.clone(),
-                        });
-                    }
-                    return true;
-                }
-                let Some(read) = kept.read.upgrade() else {
-                    return false;
-                };
-                if !read.is_overwritten_by(binding) {
-                    return true;
-                }
-                let is_kept = read.is_kept();
-                match is_kept {
-                    true => overwritten.reads.push(ReadToStart {
-                        read,
-                        made_on: kept.stream,
-                        made_at: kept.made_at.clone(),
-                    }),
-                    false => overwritten.in_flight.push(CopyInFlight {
-                        stream: kept.stream,
-                        fence: kept.fence.clone(),
-                    }),
-                }
-                !is_kept
-            });
-            if reads.is_empty() {
+            reads
+                .reads
+                .retain(|kept| kept.is_left_by(binding, &mut overwritten));
+            if reads.reads.is_empty() {
                 self.kept.remove(&id);
             }
         }
         overwritten
     }
 
-    fn hold(
-        &mut self,
-        read: &Arc<LazyRead>,
-        stream: StreamId,
-        made_at: Option<Arc<dyn StreamFence>>,
-        fence: Option<Arc<dyn StreamFence>>,
-        accessed: Option<(Range<u64>, Weak<AccessCopy>)>,
-    ) {
-        self.drop_retired();
+    fn hold(&mut self, read: &Arc<LazyRead>, kept: KeptRead) {
+        self.drop_done_copies();
         let reads = self
             .kept
             .entry(read.to_source().handle.memory.id())
             .or_default();
-        // Pruned at each doubling, so repeated reads of one buffer stay bounded at linear cost.
-        if reads.len() >= 8 && reads.len().is_power_of_two() {
-            reads.retain(is_live);
-        }
-        reads.push(KeptRead {
-            read: Arc::downgrade(read),
-            stream,
-            made_at,
-            fence,
-            accessed,
-        });
+        reads.prune();
+        reads.reads.push(kept);
+        self.sweep_when_grown();
+    }
+
+    /// Let go of the reads nothing holds, keeps or copies anymore, once the allocations named
+    /// have doubled since the last time.
+    fn sweep_when_grown(&mut self) {
         if self.kept.len() > 2 * self.swept_at.max(16) {
             self.sweep();
         }
     }
 
-    /// What a started read hands its copy to if it drops unread: the copy is let go of here
-    /// once `fence`, past it, is reached.
-    fn retire(&self, fence: Option<Arc<dyn StreamFence>>) -> RetireCopy {
-        match fence {
-            Some(fence) => {
-                let retired = self.retired.clone();
-                Box::new(move |copy| match fence.is_reached() {
-                    true => drop(copy),
-                    false => retired.0.lock().push((fence, copy)),
-                })
-            }
-            None => Box::new(core::mem::drop),
-        }
-    }
-
-    fn drop_retired(&mut self) {
-        let done: Vec<RetiredCopy> = {
-            let mut retired = self.retired.0.lock();
-            if retired.is_empty() {
-                return;
-            }
-            let (done, pending) = core::mem::take(&mut *retired)
-                .into_iter()
-                .partition(|(fence, _)| fence.is_reached());
-            *retired = pending;
-            done
-        };
-        core::mem::drop(done);
-    }
-
-    /// Let go of the reads nothing holds, keeps or copies anymore, which no write would find.
     fn sweep(&mut self) {
         self.kept.retain(|_, reads| {
-            reads.retain(is_live);
-            !reads.is_empty()
+            reads.reads.retain(KeptRead::is_live);
+            !reads.reads.is_empty()
         });
         self.swept_at = self.kept.len();
     }
 }
 
-/// Whether a write may still have to start `kept`'s read or wait for its copy.
-fn is_live(kept: &KeptRead) -> bool {
-    if kept.fence.as_ref().is_some_and(|fence| fence.is_reached()) {
-        return false;
-    }
-    match &kept.accessed {
-        Some((_, copy)) => copy.strong_count() > 0,
-        None => kept
-            .read
-            .upgrade()
-            .is_some_and(|read| read.is_kept() || read.is_in_flight()),
+impl KeptReads {
+    /// Let go of the reads no write would find, once there are `prune_at` of them.
+    fn prune(&mut self) {
+        if self.reads.len() >= self.prune_at.max(8) {
+            self.reads.retain(KeptRead::is_live);
+            self.prune_at = 2 * self.reads.len();
+        }
     }
 }
 
-/// Keep `read`, made on `stream`, for work `server` queues to write its memory to start first.
-///
-/// # Errors
-///
-/// A refusal on a stream recording a graph, where the read's copy would be recorded rather
-/// than run, and the failure its memory carries.
-pub fn keep_lazy_read<S: WriteScoped>(
+impl KeptRead {
+    /// Whether a write may still have to start its read or wait for its copy.
+    fn is_live(&self) -> bool {
+        if self.fence.as_ref().is_some_and(|fence| fence.is_reached()) {
+            return false;
+        }
+        match &self.accessed {
+            Some((_, copy)) => copy.strong_count() > 0,
+            None => self
+                .read
+                .upgrade()
+                .is_some_and(|read| read.is_kept() || read.is_in_flight()),
+        }
+    }
+
+    /// Whether it stays after `written` is written, adding to `overwritten` the read to start
+    /// or the copy to wait for that the write overlaps.
+    fn is_left_by(&self, written: &BufferBinding, overwritten: &mut Overwritten) -> bool {
+        if !self.is_live() {
+            return false;
+        }
+        if let Some((accessed, _)) = &self.accessed {
+            if written.overlaps(accessed) {
+                overwritten.in_flight.push(self.in_flight());
+            }
+            return true;
+        }
+        let Some(read) = self.read.upgrade() else {
+            return false;
+        };
+        if !read.is_overwritten_by(written) {
+            return true;
+        }
+        let is_kept = read.is_kept();
+        match is_kept {
+            true => overwritten.reads.push(ReadToStart {
+                read,
+                made_on: self.stream,
+                made_at: self.made_at.clone(),
+            }),
+            false => overwritten.in_flight.push(self.in_flight()),
+        }
+        !is_kept
+    }
+
+    fn in_flight(&self) -> CopyInFlight {
+        CopyInFlight {
+            stream: self.stream,
+            fence: self.fence.clone(),
+        }
+    }
+}
+
+impl StartedCopy {
+    fn is_of(&self, read: &Arc<LazyRead>) -> bool {
+        core::ptr::eq(self.read.as_ptr(), Arc::as_ptr(read)) && self.read.strong_count() > 0
+    }
+
+    /// Whether an access may still take it, or letting go of it would wait for it.
+    fn is_wanted(&self) -> bool {
+        self.read.strong_count() > 0 || self.fence.as_ref().is_some_and(|fence| !fence.is_reached())
+    }
+}
+
+impl core::fmt::Debug for StartedCopy {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StartedCopy")
+            .field("fence", &self.fence)
+            .finish()
+    }
+}
+
+impl AccessCopy {
+    fn new(read: &Arc<LazyRead>, count: &LazyReadCount) -> Arc<Self> {
+        count.add(read.descriptor());
+        Arc::new(Self {
+            read: read.clone(),
+            count: count.clone(),
+        })
+    }
+}
+
+impl Drop for AccessCopy {
+    fn drop(&mut self) {
+        self.count.remove(self.read.descriptor());
+    }
+}
+
+fn lazy_reads<S: WriteScoped>(server: &mut S) -> &mut LazyReads {
+    server.write_streams().split().1.lazy_reads()
+}
+
+/// See [`WriteScoped::keep_lazy_read`].
+pub(crate) fn keep<S: WriteScoped>(
     server: &mut S,
     read: Arc<LazyRead>,
     stream: StreamId,
@@ -336,38 +356,34 @@ pub fn keep_lazy_read<S: WriteScoped>(
     server
         .write_streams()
         .ensure_written(core::iter::once(&source.handle))?;
-    let made_at = server.fence_stream(stream);
-    server
-        .write_streams()
-        .lazy_reads()
-        .keep(&read, stream, made_at);
+    read.keep(&lazy_reads(server).count);
     if source.handle.memory.descriptor().is_shared_with_peers() {
         start(server, &read, stream);
+        return Ok(());
     }
+    let made_at = server.fence_stream(stream);
+    lazy_reads(server).keep(&read, stream, made_at);
     Ok(())
 }
 
-/// `copy`, an access's read of `accessed`, bytes of `read`, just queued on `stream`, held while
-/// `server` keeps the read so work writing those bytes afterwards waits for it as for a copy a
-/// write started, until it is done or resolves.
-///
-/// Holds nothing while `stream` records a graph, where the copy is recorded rather than run.
-pub fn lazy_read_accessed<S: WriteScoped>(
+/// See [`WriteScoped::read_lazy_access`].
+pub(crate) fn access<S: WriteScoped>(
     server: &mut S,
-    read: &Arc<LazyRead>,
-    accessed: Range<u64>,
+    read: Arc<LazyRead>,
+    source: CopyDescriptor,
     stream: StreamId,
-    copy: DynFut<Result<Vec<Bytes>, ServerError>>,
-) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+) -> Copy {
+    let accessed = source.handle.range();
+    let Some(copy) = server.read_lazy_copy(vec![source], stream) else {
+        return refused("this server keeps no lazy read");
+    };
     if !read.is_kept() || is_recording(server.capturing(stream)) {
         return copy;
     }
     let fence = server.fence_stream(stream);
-    let in_flight = AccessCopy::new(read);
-    server
-        .write_streams()
-        .lazy_reads()
-        .accessed(read, accessed, &in_flight, stream, fence);
+    let reads = lazy_reads(server);
+    let in_flight = AccessCopy::new(&read, &reads.count);
+    reads.accessed(&read, accessed, &in_flight, stream, fence);
     Box::pin(async move {
         let copied = copy.await;
         core::mem::drop(in_flight);
@@ -375,89 +391,47 @@ pub fn lazy_read_accessed<S: WriteScoped>(
     })
 }
 
+/// See [`WriteScoped::take_started_copy`].
+pub(crate) fn take_copy<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>) -> Copy {
+    lazy_reads(server)
+        .take_copy(read)
+        .unwrap_or_else(|| refused("this server holds no copy of the lazy read"))
+}
+
 /// Start every lazy read `server` keeps of memory `written` names, and order work on `writer`
 /// after the copies of it, ahead of that work writing it.
 ///
 /// Does nothing while `writer` records a graph: the recorded work writes nothing until a
 /// replay, whose own write scope starts the reads then.
-pub fn start_overwritten_reads<S: WriteScoped>(
+pub(crate) fn start_overwritten_reads<S: WriteScoped>(
     server: &mut S,
     writer: StreamId,
     written: &[BufferBinding],
 ) {
-    if !written
+    let reads = lazy_reads(server);
+    if reads.is_idle() {
+        return;
+    }
+    reads.drop_done_copies();
+    let overlaps_a_read = written
         .iter()
-        .any(|binding| binding.memory.descriptor().has_lazy_reads())
-    {
-        server.write_streams().lazy_reads().drop_retired();
+        .any(|binding| binding.memory.descriptor().has_lazy_reads());
+    if !overlaps_a_read || is_recording(server.capturing(writer)) {
         return;
     }
-    if is_recording(server.capturing(writer)) {
-        return;
-    }
-    let mut overwritten = server
-        .write_streams()
-        .lazy_reads()
-        .take_overwritten(written);
+    let overwritten = lazy_reads(server).take_overwritten(written);
+    let mut in_flight = overwritten.in_flight;
     for kept in overwritten.reads {
-        // The copy runs on the writer, behind the reader's work up to the read and none after
-        // it, which may itself wait on the writer.
-        let stream = match (&kept.made_at, kept.made_on == writer) {
-            (_, true) => writer,
-            (Some(made_at), false) => {
-                if !made_at.is_reached() {
-                    server.wait_for_fence(writer, made_at.as_ref());
-                }
-                writer
-            }
-            // A copy queued on a stream recording a graph would run at every replay instead.
-            (None, false) => match is_recording(server.capturing(kept.made_on)) {
-                true => writer,
-                false => kept.made_on,
-            },
-        };
-        overwritten
-            .in_flight
-            .extend(start(server, &kept.read, stream));
+        let stream = copy_stream(server, &kept, writer);
+        in_flight.extend(start(server, &kept.read, stream));
     }
-    let in_flight = overwritten
-        .in_flight
-        .into_iter()
-        .filter(|copy| copy.stream != writer);
-    for copy in in_flight {
-        match &copy.fence {
-            Some(fence) => server.wait_for_fence(writer, fence.as_ref()),
-            None => server.wait_before_write(writer, copy.stream),
-        }
+    for copy in in_flight.iter().filter(|copy| copy.stream != writer) {
+        wait_for_copy(server, writer, copy);
     }
 }
 
-/// Start `read` on `stream`, holding it with a fence past its copy when `server` gives one.
-fn start<S: WriteScoped>(
-    server: &mut S,
-    read: &Arc<LazyRead>,
-    stream: StreamId,
-) -> Option<CopyInFlight> {
-    let (sources, offsets) = read.to_held_sources();
-    if sources.is_empty() {
-        return None;
-    }
-    let started = server.read_before_write(sources, stream)?;
-    let fence = server.fence_stream(stream);
-    let reads = server.write_streams().lazy_reads();
-    read.start(offsets, started, reads.retire(fence.clone()));
-    reads.started(read, stream, fence.clone());
-    Some(CopyInFlight { stream, fence })
-}
-
-/// Start every lazy read `server` keeps of `binding`'s memory, which kernels on other devices
-/// may write from now on with nothing this device runs first.
-///
-/// # Errors
-///
-/// A refusal when a lazy read holds the memory and its stream records a graph, where the
-/// read's copy would be recorded rather than run.
-pub fn start_reads_before_sharing<S: WriteScoped>(
+/// See [`WriteScoped::start_reads_before_sharing`].
+pub(crate) fn start_before_sharing<S: WriteScoped>(
     server: &mut S,
     binding: &BufferBinding,
 ) -> Result<(), ServerError> {
@@ -471,6 +445,72 @@ pub fn start_reads_before_sharing<S: WriteScoped>(
     descriptor.share_with_peers();
     start_overwritten_reads(server, binding.stream, core::slice::from_ref(binding));
     Ok(())
+}
+
+/// The stream `kept`'s copy runs on: the writer, behind the reader's work up to the read and
+/// none after it, which may itself wait on the writer.
+fn copy_stream<S: WriteScoped>(server: &mut S, kept: &ReadToStart, writer: StreamId) -> StreamId {
+    match (&kept.made_at, kept.made_on == writer) {
+        (_, true) => writer,
+        (Some(made_at), false) => behind(server, writer, made_at.as_ref()),
+        (None, false) => reader_stream(server, kept.made_on, writer),
+    }
+}
+
+/// `writer`, ordered after `made_at`.
+fn behind<S: WriteScoped>(server: &mut S, writer: StreamId, made_at: &dyn StreamFence) -> StreamId {
+    if !made_at.is_reached() {
+        server.wait_for_fence(writer, made_at);
+    }
+    writer
+}
+
+/// The reader's stream, unless it records a graph, where a copy would run at every replay
+/// instead.
+fn reader_stream<S: WriteScoped>(server: &mut S, reader: StreamId, writer: StreamId) -> StreamId {
+    match is_recording(server.capturing(reader)) {
+        true => writer,
+        false => reader,
+    }
+}
+
+fn wait_for_copy<S: WriteScoped>(server: &mut S, writer: StreamId, copy: &CopyInFlight) {
+    match &copy.fence {
+        Some(fence) => server.wait_for_fence(writer, fence.as_ref()),
+        None => server.wait_before_write(writer, copy.stream),
+    }
+}
+
+/// Start `read` on `stream`, in a scope of its own, holding its copy with a fence past it when
+/// `server` gives one.
+fn start<S: WriteScoped>(
+    server: &mut S,
+    read: &Arc<LazyRead>,
+    stream: StreamId,
+) -> Option<CopyInFlight> {
+    let (sources, offsets) = read.to_held_sources();
+    if sources.is_empty() {
+        return None;
+    }
+    // A scope that writes nothing cannot fail, and its body reports a failed copy through it.
+    let copy = ExecuteScope::over(server, stream, Vec::new())
+        .execute(|server| Ok::<_, ServerError>(server.read_lazy_copy(sources, stream)))
+        .into_result()
+        .ok()
+        .flatten()?;
+    let fence = server.fence_stream(stream);
+    read.start(offsets);
+    lazy_reads(server).started(read, stream, fence.clone(), copy);
+    Some(CopyInFlight { stream, fence })
+}
+
+fn refused(reason: &'static str) -> Copy {
+    Box::pin(async move {
+        Err(ServerError::Generic {
+            reason: reason.into(),
+            backtrace: BackTrace::capture(),
+        })
+    })
 }
 
 fn is_recording(capture: Option<&mut StreamCapture>) -> bool {

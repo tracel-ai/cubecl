@@ -10,6 +10,10 @@
 //! contract — memory pools, streams, drivers, the compilation pipeline — lives
 //! in `cubecl-server`, so that user code never depends on it.
 //!
+//! A [`LazyRead`](server::LazyRead) is a read whose copy waits for the first access to its
+//! bytes, each [`LazyReadHold`](server::LazyReadHold) a range of them, and a
+//! [`LazyReadCount`](server::LazyReadCount) the lazy reads a device keeps.
+//!
 //! # Error handling
 //!
 //! A failure belongs to the memory that work left unwritten and travels the

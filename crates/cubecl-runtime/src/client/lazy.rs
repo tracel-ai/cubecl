@@ -1,12 +1,10 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
-use super::{Client, ClosedAsError};
-use crate::server::{CopyDescriptor, Handle, LazyRead, LazyReadHold, ServerError};
+use super::Client;
+use crate::server::{CopyDescriptor, Handle, LazyReadHold};
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::sync::Arc;
 use core::mem::MaybeUninit;
-use core::ops::Range;
 use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, Writer,
 };
@@ -17,8 +15,9 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 ///
 /// Constructing the [`Bytes`] is cheap: it only captures the [`Client`] and the source's
 /// [`CopyDescriptor`]. The device-to-host copy goes through the regular read path, including
-/// pinned staging, and only happens the first time the bytes are read (e.g. during
-/// serialization); the result is cached for subsequent accesses.
+/// pinned staging, and happens the first time the bytes are read (e.g. during serialization),
+/// unless work writing the buffer or sharing it with peers started it earlier; the result is
+/// cached for subsequent accesses.
 ///
 /// This lets a large number of device tensors be serialized without materializing them all in
 /// host memory at once: each [`Bytes`] is read just-in-time and dropped right after.
@@ -215,38 +214,5 @@ impl AllocationController for LazyDeviceController {
             .expect("device: host access failed");
         let len = buf.len().min(bytes.len());
         buf[..len].copy_from_slice(&bytes[..len]);
-    }
-}
-
-impl Client {
-    /// The bytes `source` names, taken from `range` of what a write started `read` for when one
-    /// did, or else read now, with work writing them afterwards waiting for that copy.
-    ///
-    /// Asked on the device thread, so a write queued before this access has started the read.
-    ///
-    /// # Errors
-    ///
-    /// The server's refusal to keep `read`, and the read's own errors.
-    fn read_lazily(
-        &self,
-        source: CopyDescriptor,
-        read: &Arc<LazyRead>,
-        range: Range<usize>,
-    ) -> Result<Bytes, ServerError> {
-        let stream_id = self.stream_id();
-        let started = read.clone();
-        let now = self
-            .device
-            .submit_blocking(move |server| -> Result<_, ServerError> {
-                Ok(match started.is_started()? {
-                    true => None,
-                    false => Some(server.read_lazy_bytes(started, source, stream_id)),
-                })
-            })
-            .closed_as_error()?;
-        match now {
-            Some(now) => Ok(cubecl_environment::future::reader::read_sync(now)?.remove(0)),
-            None => read.started_bytes(range),
-        }
     }
 }

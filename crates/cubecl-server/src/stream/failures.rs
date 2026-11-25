@@ -12,7 +12,8 @@ use crate::id::KernelId;
 use crate::logging::ServerLogger;
 use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryBinding, Skipped};
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::{LazyReads, ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
+use crate::stream::lazy_reads::LazyReads;
+use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -59,6 +60,13 @@ impl Failures {
     /// cleanup — those are where slices shed the failures they carry.
     pub fn graph_mut(&mut self) -> &mut ErrorGraph {
         &mut self.graph
+    }
+}
+
+impl Failures {
+    /// The lazy reads the device keeps.
+    pub(crate) fn lazy_reads(&mut self) -> &mut LazyReads {
+        &mut self.lazy_reads
     }
 }
 
@@ -203,12 +211,6 @@ pub trait FailureStore {
         tell_peers(written.iter(), Some(&found.error));
         written.clear();
         failures.scratch = written;
-    }
-
-    /// The lazy reads the device keeps.
-    fn lazy_reads(&mut self) -> &mut LazyReads {
-        let (_, failures) = self.split();
-        &mut failures.lazy_reads
     }
 
     /// An empty write set, pooled here so a launch allocates nothing for it.

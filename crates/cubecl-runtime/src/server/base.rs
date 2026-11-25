@@ -902,12 +902,29 @@ pub trait Server:
     /// Read `source`, bytes of `read` accessed before any write started it, as
     /// [`read`](Self::read) does. While this server keeps `read`, work it queues to write
     /// those bytes afterwards waits for this copy too.
+    ///
+    /// # Errors
+    ///
+    /// What [`read`](Self::read) returns for `source`.
     fn read_lazy_bytes(
         &mut self,
         read: Arc<LazyRead>,
         source: CopyDescriptor,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>>;
+
+    /// The copy this server started of `read` ahead of work writing its memory, which it kept
+    /// until now: the pieces [`LazyRead::to_held_sources`] named when it started, in order.
+    ///
+    /// # Assumptions
+    ///
+    /// - This server started `read`, and this is the one call for it.
+    ///
+    /// # Errors
+    ///
+    /// What [`read`](Self::read) returns for those pieces. An implementation that keeps no
+    /// lazy read, or that holds no copy of `read`, returns an error saying so.
+    fn take_lazy_copy(&mut self, read: &Arc<LazyRead>) -> DynFut<Result<Vec<Bytes>, ServerError>>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

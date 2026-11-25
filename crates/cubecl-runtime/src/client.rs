@@ -515,8 +515,9 @@ impl Client {
 
     /// Reads the buffer `source` describes lazily.
     ///
-    /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
-    /// serialization). This lets a large number of device tensors be serialized without
+    /// The returned [`Bytes`] performs the device-to-host copy on first access (e.g. during
+    /// serialization), unless work writes the buffer first or it is shared with peers, which
+    /// start the copy earlier. This lets a large number of device tensors be serialized without
     /// materializing them all in host memory at once: drain the [`Bytes`] sequentially rather than
     /// holding them all alive.
     ///
@@ -542,7 +543,11 @@ impl Client {
     ///   failure.
     /// - The first access answers with the error this call's
     ///   [`read_lazy_async`](Self::read_lazy_async) would have, a stream recording a graph
-    ///   included.
+    ///   included, except that a handle of another device panics here instead.
+    ///
+    /// # Panics
+    ///
+    /// When `source` is a handle of another device.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, source: CopyDescriptor<Handle>) -> Bytes {
         self.expect_local(&source.handle.to_binding());
@@ -609,6 +614,52 @@ impl Client {
                     read.refuse(error.clone());
                 })
         }
+    }
+
+    /// The bytes `source` names, taken from `range` of what a write started `read` for when one
+    /// did, or else read now, with work writing them afterwards waiting for that copy.
+    ///
+    /// Asked on the device thread, so a write queued before this access has started the read.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal to keep `read`, and the read's own errors.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn read_lazily(
+        &self,
+        source: CopyDescriptor,
+        read: &Arc<crate::server::LazyRead>,
+        range: core::ops::Range<usize>,
+    ) -> Result<Bytes, ServerError> {
+        let stream_id = self.stream_id();
+        let started = read.clone();
+        let now = self
+            .device
+            .submit_blocking(move |server| -> Result<_, ServerError> {
+                Ok(match started.is_started()? {
+                    true => None,
+                    false => Some(server.read_lazy_bytes(started, source, stream_id)),
+                })
+            })
+            .closed_as_error()?;
+        match now {
+            Some(now) => Ok(cubecl_environment::future::reader::read_sync(now)?.remove(0)),
+            None => read.started_bytes(range, || self.take_lazy_copy(read)),
+        }
+    }
+
+    /// The copy a write started of `read`, waited for.
+    #[cfg(not(target_family = "wasm"))]
+    fn take_lazy_copy(
+        &self,
+        read: &Arc<crate::server::LazyRead>,
+    ) -> Result<Vec<Bytes>, ServerError> {
+        let read = read.clone();
+        let copy = self
+            .device
+            .submit_blocking(move |server| Ok::<_, ServerError>(server.take_lazy_copy(&read)))
+            .closed_as_error()?;
+        cubecl_environment::future::reader::read_sync(copy)
     }
 
     /// Reads the buffer `source` describes lazily, async variant.
@@ -1075,8 +1126,9 @@ impl Client {
     /// # Errors
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
-    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
-    /// failure the buffer carries.
+    /// [`ServerError::ForeignHandle`] for a handle of another client, the
+    /// failure the buffer carries, and a graph-state error when a lazy read
+    /// holds the buffer while its stream records a graph.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
         let binding = handle.to_binding();
