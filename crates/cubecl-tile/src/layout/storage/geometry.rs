@@ -155,10 +155,13 @@ impl Geometry {
         storage
             .holds(tile, &self.extents(labels))
             .map_err(LineMisfit::Tile)?;
-        // The run, from the finest axis up: each axis it takes steps by what it has taken so far.
+        // The run, from the finest labelled axis up: each axis it takes steps by what it has taken
+        // so far. An axis no label names holds no value of the tile.
+        let unlabelled = self.rank().saturating_sub(labels.len());
         let mut by_stride: SmallVec<[(usize, (usize, usize)); 8]> = self
             .axes()
             .enumerate()
+            .skip(unlabelled)
             .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
             .collect();
         by_stride.sort_by_key(|&(axis, (_, stride))| (stride, core::cmp::Reverse(axis)));
@@ -347,6 +350,16 @@ mod tests {
         assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
         assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
         assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
+
+    /// A line along a labelled axis takes no step of an axis no label names.
+    #[test]
+    fn an_unlabelled_axis_holds_no_value_of_a_line() {
+        let batched = Geometry::new(&[(8, 1), (64, 8)]);
+        assert_eq!(
+            batched.serves(&[(N, 4)], &[N]),
+            Err(LineMisfit::InnermostStrided(8))
+        );
     }
 
     #[test]

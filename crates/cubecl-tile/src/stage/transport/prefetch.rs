@@ -102,8 +102,9 @@ impl Memory {
         }
     }
 
-    /// Write this unit's `fetched` lines into the stage. The caller must `sync_cube` before (after
-    /// the stage's last read) and after (before the next read).
+    /// Write this unit's `fetched` lines into the stage. The caller must synchronize the stage's owner
+    /// before (after the stage's last read) and after (before the next read): the cube, or the plane
+    /// for a stage a plane owns.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn store_fetched<T: Numeric, W: Size>(&mut self, fetched: &Array<Vector<T, W>>) {
         let turns = self.turns();

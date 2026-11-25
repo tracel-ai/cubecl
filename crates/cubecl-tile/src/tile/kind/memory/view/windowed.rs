@@ -17,12 +17,25 @@ use super::super::Window;
 /// dimension, not only those the window names a boundary on: a window opened at a box larger than
 /// its buffer leaves it along a dimension that names none. Read as a window layered over the
 /// buffer, each layer below would check again, the buffer's every axis and its length, and select
-/// the value once per layer.
+/// the value once per layer. A read past the edge that must not reach the buffer at all is
+/// [`PastEdge::Skip`].
 #[expect(dead_code, reason = "read through the expand impls below")]
 #[derive(CubeType, Clone)]
 pub(crate) struct WindowedView<'a, T: CubePrimitive> {
     buffer: View<'a, T, CoordsDyn>,
     window: Window,
+    #[cube(comptime)]
+    past_edge: PastEdge,
+}
+
+/// What a checked read past the window's edge does with the buffer behind it, whose value it drops.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum PastEdge {
+    /// Reads the cell the position clamps onto: a load, which nothing sees.
+    Clamp,
+    /// Reads nothing: a read runs a caller's code, which may write as it produces its value, and
+    /// would write the cell the position clamps onto a second time.
+    Skip,
 }
 
 /// The mutable twin of [`WindowedView`]: a checked write lands only inside the window's bounds.
@@ -35,8 +48,16 @@ pub(crate) struct WindowedViewMut<'a, T: CubePrimitive> {
 
 #[cube]
 impl<'a, T: CubePrimitive> WindowedView<'a, T> {
-    pub(crate) fn new(buffer: View<'a, T, CoordsDyn>, window: Window) -> Self {
-        WindowedView::<'a, T> { buffer, window }
+    pub(crate) fn new(
+        buffer: View<'a, T, CoordsDyn>,
+        window: Window,
+        #[comptime] past_edge: PastEdge,
+    ) -> Self {
+        WindowedView::<'a, T> {
+            buffer,
+            window,
+            past_edge,
+        }
     }
 }
 
@@ -103,7 +124,7 @@ fn addressed(
 }
 
 macro_rules! windowed_reads {
-    ($expand: ident, $buffer: ident) => {
+    ($expand: ident, $buffer: ident, $past_edge: expr) => {
         impl<'a, T: CubePrimitive> ViewOperationsExpand<T, CoordsDyn> for $expand<'a, T> {
             fn __expand_read_method(
                 &self,
@@ -133,8 +154,16 @@ macro_rules! windowed_reads {
                 mask_value: T::ExpandType,
             ) -> T::ExpandType {
                 let (pos, in_bounds) = addressed(scope, &self.window, pos);
-                let value = self.$buffer.__expand_read_unchecked_method(scope, pos);
-                select::expand::<T>(scope, in_bounds, value, mask_value)
+                let read = |scope: &Scope| self.$buffer.__expand_read_unchecked_method(scope, pos);
+                let past_edge: PastEdge = $past_edge(self);
+                match past_edge {
+                    PastEdge::Clamp => {
+                        select::expand::<T>(scope, in_bounds, read(scope), mask_value)
+                    }
+                    PastEdge::Skip => {
+                        if_else_expr_expand(scope, in_bounds, read).or_else(scope, |_| mask_value)
+                    }
+                }
             }
 
             fn __expand_read_unchecked_method(
@@ -207,8 +236,8 @@ macro_rules! windowed_reads {
     };
 }
 
-windowed_reads!(WindowedViewExpand, buffer);
-windowed_reads!(WindowedViewMutExpand, buffer);
+windowed_reads!(WindowedViewExpand, buffer, |view: &Self| view.past_edge);
+windowed_reads!(WindowedViewMutExpand, buffer, |_: &Self| PastEdge::Clamp);
 
 impl<'a, T: CubePrimitive> Vectorized for WindowedView<'a, T> {}
 impl<'a, T: CubePrimitive> Vectorized for WindowedViewMut<'a, T> {}

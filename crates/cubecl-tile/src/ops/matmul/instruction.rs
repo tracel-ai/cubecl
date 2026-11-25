@@ -1,6 +1,6 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::MatrixIdent;
+use cubecl::cmma::{MatrixIdent, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
     DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
@@ -8,6 +8,7 @@ use cubecl::ir::{
 
 use cubecl::quant::scheme::QuantValue;
 
+use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
 use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
@@ -206,6 +207,10 @@ pub(crate) enum OpenedBy {
     /// [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator): a sum drained into an
     /// output whose rows are scaled between its products, as an online softmax's output is.
     RescaledAccumulator,
+    /// [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator): a
+    /// [`StageAccumulator`](Self::StageAccumulator) of products whose first factor the planes hold
+    /// in registers.
+    HeldFactorAccumulator,
 }
 
 impl Instruction {
@@ -262,6 +267,30 @@ impl Instruction {
         )
     }
 
+    /// What the sum [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator) opens
+    /// contracts through: [`for_stage_accumulator`](Self::for_stage_accumulator)'s rule through this
+    /// crate's transport alone, which is what loads a factor once for every product. `None` where
+    /// the device offers no call of it.
+    pub fn for_held_factor_accumulator(
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        lhs: FragmentSource,
+        rhs: FragmentSource,
+        sum: ElemType,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Self::for_plane(
+            device,
+            target,
+            ComputeScope::Plane,
+            lhs,
+            rhs,
+            sum,
+            shape,
+            OpenedBy::HeldFactorAccumulator,
+        )
+    }
+
     /// What the sum [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator) opens
     /// contracts through, a sum whose rows are scaled between its products:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
@@ -289,7 +318,8 @@ impl Instruction {
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator),
-    /// [`for_stage_accumulator`](Self::for_stage_accumulator) and
+    /// [`for_stage_accumulator`](Self::for_stage_accumulator),
+    /// [`for_held_factor_accumulator`](Self::for_held_factor_accumulator) and
     /// [`for_rescaled_accumulator`](Self::for_rescaled_accumulator):
     /// - held by a plane group (`holder`): the plane group MMA;
     /// - an operand already held in fragments: their instruction, which reads them as they lie;
@@ -298,6 +328,7 @@ impl Instruction {
     /// - an operand the TMA engine lands, codes kept beside their scales, which this crate's
     ///   transport decodes in lane runs as it loads, or a sum contracted again where the target
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
+    /// - a sum of products of a factor held in registers: this crate's transport alone;
     /// - a sum whose rows are scaled between its products, where this crate's transport offers the
     ///   call the fragment API would take: this crate's transport, the same call;
     /// - a product of 8-bit floats, whose scales its sum applies cell by cell: this crate's
@@ -398,7 +429,7 @@ impl Instruction {
             let [cmma_call, mma_call] = calls;
             let picks = [
                 cmma_call
-                    .filter(|_| !cells_scaled)
+                    .filter(|_| !cells_scaled && opened_by != OpenedBy::HeldFactorAccumulator)
                     .map(|call| call.picked(Instruction::Cmma)),
                 mma_call.map(|call| call.picked(mma)),
             ];
@@ -476,7 +507,9 @@ struct Offered {
 /// laying a fragment's `A` otherwise than its accumulator, or for values wider than 16 bits,
 /// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
 /// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
-/// too coarse for an attention's probabilities.
+/// too coarse for an attention's probabilities. An `A` is a run of them where the target's
+/// registers lay the two alike ([`rereads`]). A run of RDNA4's held cells is one cell deep
+/// ([`deepest_run`]).
 fn held_run(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -490,8 +523,9 @@ fn held_run(
         return None;
     };
     let element = rhs.element(rhs)?;
-    let read_as_a = element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
-    if !accumulator_is_a(target) || !read_as_a {
+    let holds_probabilities =
+        element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
+    if !accumulator_is_a(target) || !holds_probabilities {
         return None;
     }
     let runs: Vec<&MmaConfig> = device
@@ -503,6 +537,8 @@ fn held_run(
         .filter(|s| s.m as usize == held_rows && m.is_multiple_of(held_rows))
         .filter(|s| n.is_multiple_of(s.n as usize))
         .filter(|s| (s.k as usize).is_multiple_of(held_width) && k.is_multiple_of(s.k as usize))
+        .filter(|s| s.k as usize <= deepest_run(held_width))
+        .filter(|s| rereads(target, [held_rows, held_width], s))
         .collect();
     let depth = runs
         .iter()
@@ -521,6 +557,47 @@ fn held_run(
         instruction: held,
         shape: [held_rows, width, depth],
     })
+}
+
+/// Whether `call`'s `A` is a run of accumulators of `m × n` cells as `target` lays the two in a
+/// lane's vectors ([`KeyOrder::rereading`]).
+fn rereads(target: &TargetProperties, [m, n]: [usize; 2], call: &MmaConfig) -> bool {
+    let element = call.a_type;
+    let vectors = |ident, shape: MatrixShape, copies: usize| {
+        let width = target.mma.vector_size(ident, shape, element);
+        let cells = shape.num_elems(ident) * copies / target.mma.const_plane_size as usize;
+        LaneVectors {
+            width,
+            count: cells / width,
+        }
+    };
+    let acc = vectors(
+        MatrixIdent::Accumulator,
+        (m, n, n).into(),
+        target.mma.register_duplication_acc,
+    );
+    let a = vectors(
+        MatrixIdent::A,
+        (call.m as usize, call.n as usize, call.k as usize).into(),
+        target.mma.register_duplication_a,
+    );
+    KeyOrder::rereading(element.size(), acc, a).is_some()
+}
+
+/// The width of RDNA's WMMA accumulator, `16 × 16`: each half of its lanes holds half of a cell's
+/// columns.
+const RDNA_WMMA_WIDTH: usize = 16;
+
+/// The deepest run of held cells `held_width` wide one call reads as its `A`. A call deeper than
+/// its instruction is cut from each lane's run of `k`, each half of RDNA's lanes holding a half of
+/// the whole run; its held cells hold a half of each cell's columns instead, so two of them side
+/// by side are not that `A`. There a run is one cell deep, an instruction a cell; elsewhere
+/// (`mma.sync`'s `16 × 8`, whose `A` holds its cells' columns in order) any depth.
+fn deepest_run(held_width: usize) -> usize {
+    match held_width {
+        RDNA_WMMA_WIDTH => held_width,
+        _ => usize::MAX,
+    }
 }
 
 /// Whether `target` lays a manual-mma fragment's `A` as it lays its accumulator, so a sum held in
@@ -671,7 +748,8 @@ pub(crate) mod tests {
     use super::*;
     use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
-        DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features,
+        ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
+        features::Features,
     };
     use cubecl::profile::TimingMethod;
 
@@ -759,13 +837,23 @@ pub(crate) mod tests {
         target
     }
 
-    /// A target whose `A` lies otherwise than its accumulator, as on RDNA.
+    /// A target whose `A` lies otherwise than its accumulator, as on RDNA3.
     pub(crate) fn sum_is_not_next_a() -> TargetProperties {
         let mut target = sum_is_next_a();
         target.mma.register_layout_a = match target.mma.register_layout_acc {
             MatrixLayout::RowMajor => MatrixLayout::ColMajor,
             _ => MatrixLayout::RowMajor,
         };
+        target
+    }
+
+    /// A target whose `A` and accumulator lie alike, a lane's vectors of each as long as given.
+    fn sum_is_next_a_in(a: VectorSize, acc: VectorSize) -> TargetProperties {
+        let mut target = sum_is_next_a();
+        target.mma.contiguous_elements = ContiguousElements::new(move |_, ident, _| match ident {
+            MatrixIdent::A | MatrixIdent::B => a,
+            MatrixIdent::Accumulator => acc,
+        });
         target
     }
 
@@ -989,6 +1077,31 @@ pub(crate) mod tests {
         assert_eq!(pick(metal(), [8, 8, 8]), Some(Instruction::Cmma));
     }
 
+    /// A sum of a factor held in registers goes through the crate's transport where the fragment
+    /// API offers the same calls too, and nowhere else.
+    #[test]
+    fn a_held_factors_sum_goes_through_mma_alone() {
+        let pick = |device: &DeviceProperties, shape| {
+            Instruction::for_held_factor_accumulator(
+                device,
+                &sum_is_next_a(),
+                HALF,
+                HALF,
+                F32,
+                shape,
+            )
+            .map(|pick| pick.instruction)
+        };
+        assert_eq!(pick(&metal(), [8, 8, 8]), Some(mma()));
+        let mut fragment_api_alone = plain();
+        fragment_api_alone
+            .features
+            .matmul
+            .cmma
+            .insert(shape(16, 16, 16));
+        assert_eq!(pick(&fragment_api_alone, [16, 16, 16]), None);
+    }
+
     /// Where the accumulator is not the next `A`, keeping the sum in registers buys nothing.
     #[test]
     fn a_stage_accumulators_sum_needs_to_be_the_next_a() {
@@ -1123,7 +1236,7 @@ pub(crate) mod tests {
         let pick = |kind| {
             Instruction::for_accumulator(
                 &device,
-                &sum_is_next_a(),
+                &sum_is_next_a_in(4, 2),
                 ComputeScope::Plane,
                 held,
                 FragmentSource::Values(fp8(kind)),
@@ -1134,6 +1247,63 @@ pub(crate) mod tests {
         };
         assert_eq!(pick(FloatKind::E4M3), Some((mma(), [16, 8], 32)));
         assert_eq!(pick(FloatKind::E5M2), None);
+    }
+
+    /// Held `16 × 16` cells, as RDNA's, are reread one cell a call even where the device offers a
+    /// deeper call: a run of two would pair the halves of two cells.
+    #[test]
+    fn held_cells_16_wide_are_reread_a_cell_a_call() {
+        let mut device = rdna();
+        device.features.matmul.mma.insert(shape(16, 16, 32));
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 16],
+        };
+
+        let pick = Instruction::for_accumulator(
+            &device,
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            held,
+            HALF,
+            F32,
+            [16, 64, 32],
+        )
+        .map(|p| p.depth());
+
+        assert_eq!(pick, Some(16));
+    }
+
+    /// Held `16 × 16` cells are reread as an `e4m3` `A` where a lane's vectors of the two are as
+    /// long, as RDNA4's are, and not where an `A` vector is four accumulator vectors long.
+    #[test]
+    fn held_cells_meet_e4m3_values_as_the_registers_lay_them() {
+        let mut device = rdna();
+        let fp8 = ElemType::Float(FloatKind::E4M3);
+        device.features.matmul.mma.insert(MmaConfig {
+            a_type: fp8,
+            b_type: fp8,
+            ..shape(16, 16, 16)
+        });
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 16],
+        };
+        let pick = |target| {
+            Instruction::for_accumulator(
+                &device,
+                &target,
+                ComputeScope::Plane,
+                held,
+                FragmentSource::Values(fp8),
+                F32,
+                [16, 32, 64],
+            )
+            .map(|p| (p.instruction, p.cell(), p.depth()))
+        };
+
+        assert_eq!(pick(sum_is_next_a_in(8, 8)), Some((mma(), [16, 16], 16)));
+        assert_eq!(pick(sum_is_next_a_in(8, 2)), None);
     }
 
     /// Plane groups of four issue the plane group MMA.

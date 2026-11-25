@@ -73,6 +73,21 @@ impl PlaneTile {
         }
     }
 
+    /// Whether a contraction rereading this tile as its `A` reads its columns in another order than
+    /// they lie ([`MmaData::reorders_as_a`]).
+    pub(crate) fn reorders_as_a<E: Numeric>(&self) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Mma(data) => match &data.fragment {
+                MmaFragment::Acc(_) => data.reorders_as_a::<E>(),
+                MmaFragment::Lhs(_)
+                | MmaFragment::Rhs(_)
+                | MmaFragment::LhsBlockScaled(..)
+                | MmaFragment::RhsBlockScaled(..) => comptime!(false),
+            },
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
+    }
+
     /// Whether this tile contracts through the block-scaled instruction, which reads its factors'
     /// packed codes as they are stored.
     pub(crate) fn reads_codes_as_stored(&self) -> comptime_type!(bool) {
@@ -317,6 +332,17 @@ impl PlaneTile {
         }
     }
 
+    /// Load this fragment, an `A` held across its sum's products, from `src`'s window, cast as it
+    /// loads ([`MmaData::load_cast_window`]).
+    pub(crate) fn load_cast_window<T: Numeric, R: Numeric>(&mut self, src: &Tile) {
+        match self {
+            PlaneTile::Mma(fragment) => fragment.load_cast_window::<T, R>(src),
+            PlaneTile::Cmma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                panic!("PlaneTile::load_cast_window: only a manual-mma fragment is held cast")
+            }
+        }
+    }
+
     /// Fill this fragment from a memory `src`, a manual-mma one deeper than its instruction as
     /// `load` says. A cmma fragment steps its rows along `row`, a position in `src`'s space read
     /// off the window of its whole grid: under a contraction of several dimensions, the fragment's
@@ -399,17 +425,6 @@ impl PlaneTile {
             // Same-type store; the block drains through `store_cast_window`.
             PlaneTile::Registers(d) => d.store_cast_window::<T, T>(mem, space),
             PlaneTile::Wgmma(d) => d.store_cast_window::<T, T>(mem, space),
-        }
-    }
-
-    /// Add `src`'s block into this one, casting up. Only the register encoding promotes.
-    pub(crate) fn add_cast_from<T: Numeric, S: Numeric>(&mut self, src: &PlaneTile) {
-        match (self, src) {
-            (PlaneTile::Registers(d), PlaneTile::Registers(s)) => d.add_cast_from::<T, S>(s),
-            _ => panic!(
-                "PlaneTile::add_cast_from: a register block promotes into a register block; a \
-                 fragment accumulates in the element its instruction names"
-            ),
         }
     }
 
@@ -942,6 +957,37 @@ impl PlanePartition {
             frags.copy_from(src);
         }
         frags
+    }
+
+    /// [`fill_from`](Self::fill_from) with every cell cast from `R`, the element `src` serves, one
+    /// `A` fragment at a time ([`MmaData::load_cast_window`]).
+    pub(crate) fn fill_cast_from<T: Numeric, R: Numeric>(&self, src: &Tile) {
+        let level = comptime!(fragment_level(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        let edges = comptime!(grid_dimensions(
+            &src.place.space,
+            (self.rows, self.cols),
+            (self.m_tiles, self.n_tiles)
+        ));
+        #[unroll]
+        for mi in 0..comptime!(self.m_tiles) {
+            #[unroll]
+            for ni in 0..comptime!(self.n_tiles) {
+                let window = src.at(&Region::cell(
+                    comptime!(src.place.depth),
+                    &src.place.space,
+                    &level,
+                    edges,
+                    mi,
+                    ni,
+                ));
+                let mut fragment = self.at(mi, ni);
+                fragment.load_cast_window::<T, R>(&window);
+            }
+        }
     }
 
     /// Fill each tile from its window of `src`, in row-major order, manual-mma tiles deeper than

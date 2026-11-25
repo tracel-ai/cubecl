@@ -31,6 +31,9 @@ pub struct Walk {
     routed_at: Vec<usize>,
     base: usize,
     steps: usize,
+    /// Whether the walk takes some of its steps alone ([`range`](Walk::range)).
+    #[cube(comptime)]
+    ranged: bool,
     pub(crate) parent: Region,
     #[cube(comptime)]
     pub(crate) space: Space,
@@ -103,6 +106,7 @@ impl Walk {
             routed_at: comptime!(Vec::new()),
             base: 0usize,
             steps,
+            ranged: comptime!(false),
             parent,
             distributes,
             space: host,
@@ -263,8 +267,8 @@ impl Walk {
         (counts, positions, scales)
     }
 
-    /// This walk taking one step along `dimension`, at the coordinate `coord`.
-    /// The caller must keep `coord` within the dimension's extent; nothing checks it.
+    /// This walk taking one step along `dimension`, at the coordinate `coord`, counted in the
+    /// level's tiles; a coordinate past the last takes the last.
     pub fn routed(self, #[comptime] dimension: Dimension, coord: usize) -> Walk {
         let rank = comptime!(self.space.rank());
         let at = comptime!(self.space.position(dimension));
@@ -304,6 +308,7 @@ impl Walk {
             }),
             base: self.base,
             steps,
+            ranged: comptime!(self.ranged),
             parent: self.parent,
             distributes: comptime!(self.distributes.clone()),
             space: comptime!(self.space.clone()),
@@ -490,7 +495,8 @@ impl Iterable for WalkExpand {
         }
         // Units taking the one dimension in turns, not written out: stride from the unit's place,
         // which is what taking every `n`-th tile is, with no count of its own to reckon.
-        if !self.unroll && Walk::strides(&self.space, &self.level) {
+        let whole = !self.ranged && self.routed_at.is_empty();
+        if !self.unroll && whole && Walk::strides(&self.space, &self.level) {
             let (first, lines, units) = self.__expand_stride_method(scope);
             range_stepped::expand(scope, first, lines, units).expand(scope, &mut |scope, tile| {
                 body(scope, self.__expand_region_at_tile_method(scope, tile));
@@ -631,6 +637,7 @@ impl WalkExpand {
     ) -> Self {
         self.base = base;
         self.steps = steps;
+        self.ranged = true;
         self
     }
 

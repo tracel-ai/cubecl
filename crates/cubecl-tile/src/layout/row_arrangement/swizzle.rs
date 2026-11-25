@@ -27,6 +27,8 @@ pub(crate) struct ChunkSwizzle {
     keys: usize,
     /// Chunks one block row holds.
     row_chunks: usize,
+    /// Bytes one chunk holds: a line where that is wider than a bank chunk.
+    chunk_bytes: usize,
 }
 
 impl ChunkSwizzle {
@@ -36,9 +38,8 @@ impl ChunkSwizzle {
     /// Physical axes one block row spans at most.
     const MAX_SPAN: usize = 3;
 
-    /// Rows after which the keys repeat, whatever the row's length: a row of a bank period or
-    /// less cycles through `BANK_PERIOD_BYTES / CHUNK_BYTES` keys a key per period, one longer
-    /// a key a row.
+    /// Rows the keys repeat within, whatever the row's length: every row's period of keys divides
+    /// it.
     pub(crate) const ROWS_PER_PERIOD: usize = Self::BANK_PERIOD_BYTES / RowChunks::CHUNK_BYTES;
 
     /// The swizzle of a stage with line `extents`, its innermost block's `block_axes` last, `None`
@@ -92,6 +93,7 @@ impl ChunkSwizzle {
             rows_per_key: (period_chunks / chunks).max(1),
             keys,
             row_chunks: chunks,
+            chunk_bytes,
         })
     }
 
@@ -100,8 +102,12 @@ impl ChunkSwizzle {
     /// address bits above the bank period, which for such a row are the row's own bits this
     /// swizzle keys on, provided the stage starts on a span of the bank period's rows
     /// (the TMA stage alignment). A longer row has no descriptor
-    /// swizzle: the engine's spans stop at 128 bytes.
+    /// swizzle: the engine's spans stop at 128 bytes. Neither has one of lines wider than the 16
+    /// bytes the engine moves together.
     pub(crate) fn tma(&self) -> Option<TensorMapSwizzle> {
+        if self.chunk_bytes != RowChunks::CHUNK_BYTES {
+            return None;
+        }
         match self.row_chunks * RowChunks::CHUNK_BYTES {
             32 => Some(TensorMapSwizzle::B32),
             64 => Some(TensorMapSwizzle::B64),
@@ -173,6 +179,13 @@ mod tests {
         slots.sort();
         slots.dedup();
         assert_eq!(slots.len(), 8);
+    }
+
+    /// Lines wider than the chunks an engine moves are swizzled by the units alone.
+    #[test]
+    fn lines_wider_than_a_chunk_have_no_tma_swizzle() {
+        let swizzle = ChunkSwizzle::new(&[64, 4], LineBytes(32), 2).unwrap();
+        assert_eq!(swizzle.tma(), None);
     }
 
     #[test]

@@ -231,6 +231,11 @@ impl Level {
             tile.len() > 1 || !order.block_order().swizzles(),
             "Level::spanning_launch: the blocks of one dimension have one order; a swizzle takes two"
         );
+        assert!(
+            order.cap().is_none() || (order.one_block_a_cube() && tile.len() == 1),
+            "Level::spanning_launch: a capped launch's cubes take a block each, along the level's \
+             one dimension"
+        );
         // A capped launch's planes take the tiles in turns: a whole launch of planes apart.
         let spread = match order.cap() {
             Some(_) => Spread::Interleaved,
@@ -528,8 +533,9 @@ impl Level {
         )
     }
 
-    /// Whether this level's tile on `dimension` fails to divide the extent `space` hands it.
-    /// Static extents only.
+    /// Whether some tile of this level reaches past the extent `space` hands it along `dimension`:
+    /// one the tile does not divide, or one the planes or units of the launch run past
+    /// ([`PlaneOrder::overruns`]). Static extents only.
     pub(crate) fn overhangs(&self, space: &Space, dimension: Dimension) -> bool {
         let Some(tile) = self.tile(dimension) else {
             return false;

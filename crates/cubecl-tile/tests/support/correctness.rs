@@ -101,8 +101,8 @@ fn compare(
         if got.is_nan() != want.is_nan() {
             mismatches.record(index, f64::INFINITY, format!("got {got}, expected {want}"));
         }
-    } else if got.is_infinite() && want.is_infinite() {
-        if got.signum() != want.signum() {
+    } else if got.is_infinite() || want.is_infinite() {
+        if got != want {
             mismatches.record(index, f64::INFINITY, format!("got {got}, expected {want}"));
         }
     } else {

@@ -15,6 +15,7 @@ mod edge_identity;
 mod erased;
 mod folded;
 mod gather;
+mod held_sum;
 mod imperative;
 mod indexed;
 mod lane_runs;

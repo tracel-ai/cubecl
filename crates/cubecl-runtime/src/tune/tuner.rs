@@ -122,6 +122,16 @@ pub enum AutotuneError {
 
     /// An error happened when launching a kernel.
     Launch(LaunchError),
+
+    /// The tunable panicked, or one of its kernels did while it expanded: a defect in it, which
+    /// running it again would hit again — so it is never a kernel to fall back on.
+    #[display("{name}: Panicked.\n{message}")]
+    Panicked {
+        /// The name of the tunable.
+        name: String,
+        /// What the panic said.
+        message: String,
+    },
 }
 
 impl core::fmt::Debug for AutotuneError {

@@ -93,7 +93,7 @@ impl CmmaData {
             element.holds_values(),
             "CmmaData::load_window: a cmma fragment loads at one element type, so it cannot \
              unpack a packed source as it reads; contract it, which lands it, or decode it into a \
-             stage (`stage.copy_from(&w.mul(&scales))`)"
+             stage (`stage.dequantize_from(&w.mul(&scales))`)"
         ));
         let stride = mem.row_stride_at(row);
         match comptime!(self.ident) {

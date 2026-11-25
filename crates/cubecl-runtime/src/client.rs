@@ -1201,9 +1201,9 @@ impl Client {
             });
 
         self.device.submit(move |server| {
-            // Logged rather than unwrapped: a panic on the server thread is
-            // reduced to a log line by the channel's catch_unwind anyway, so
-            // report deliberately instead of through a swallowed unwind.
+            // Logged rather than unwrapped: a panic here would answer the
+            // next call that waits on this device, which is not where a failed
+            // collective sync belongs.
             if let Some(timing) = timing {
                 server.time_next_communication(timing);
             }

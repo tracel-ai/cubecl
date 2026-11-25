@@ -120,6 +120,21 @@ impl Partitioning {
                 .filter_map(|dimension| level.cube_axis(dimension))
                 .collect()
         };
+        let plane_levels: Vec<Coverage> = levels
+            .iter()
+            .map(Level::coverage)
+            .filter(|coverage| {
+                matches!(
+                    coverage,
+                    Coverage::Distribute(ComputeScope::Plane | ComputeScope::PlaneGroup { .. })
+                )
+            })
+            .collect();
+        assert!(
+            plane_levels.windows(2).all(|pair| pair[0] == pair[1]),
+            "Partitioning::new: a cube's planes are dealt singly or in groups of one size, by one \
+             level"
+        );
         for (i, level) in levels.iter().enumerate() {
             if let Some(scope) = level.coverage().scope() {
                 let cubes = Coverage::Distribute(ComputeScope::Cube);
@@ -186,7 +201,8 @@ impl Partitioning {
         self.space.leaf(&self.levels)
     }
 
-    /// Whether some level's edge fails to divide the extent of `dimension` handed to it.
+    /// Whether some level's tile reaches past the extent of `dimension` handed to it
+    /// ([`Level::overhangs`]).
     pub fn overhangs(&self, dimension: Dimension) -> bool {
         assert!(
             !self.space.is_dynamic(dimension),
@@ -262,13 +278,6 @@ impl Partitioning {
             }
         }
         held.unwrap_or_else(|| panic!("Partitioning::box_of: no level distributes over {scope:?}"))
-    }
-
-    /// The levels one instance walks, outermost first.
-    pub fn walks(&self) -> impl Iterator<Item = &Level> + '_ {
-        self.levels
-            .iter()
-            .filter(|level| level.coverage() == Coverage::Walk)
     }
 
     /// Instances `coverage` distributes the space to.
@@ -417,6 +426,19 @@ mod tests {
         assert_eq!(plain.fillers(), 0);
         assert_eq!(plain.planes_per_cube(), 4);
         assert_eq!(plain.cube_dim(32), CubeDim::new_2d(32, 4));
+    }
+
+    /// A cube's planes are dealt singly or in groups, not both.
+    #[test]
+    #[should_panic(expected = "dealt singly or in groups of one size")]
+    fn planes_beside_plane_groups_are_refused() {
+        Partitioning::new(
+            Space::new(&[(M, 16), (N, 16)]),
+            vec![
+                Levels::leaf(&[(N, 8)]).plane_groups(4, &[(N, 2)]).level(),
+                Levels::leaf(&[(M, 8)]).planes(&[(M, 2)]).level(),
+            ],
+        );
     }
 
     /// Filling planes widen the cube and change nothing else.
