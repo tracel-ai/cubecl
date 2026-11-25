@@ -239,8 +239,8 @@ pub fn test_abandoned_window_is_dropped<R: Runtime>(client: Client) {
 /// drain, so the outer measurement grows with the number of inner windows
 /// rather than with the work.
 ///
-/// The inner windows resolve after the outer one closes, which is how the
-/// profiling logger reads them: resolving one inside the outer window would
+/// The inner windows resolve after the outer one closes, which is how a
+/// deferred observer reads them: resolving one inside the outer window would
 /// stall the stream and put the stall in the outer measurement — real GPU idle
 /// time, correctly reported, but not what this is testing.
 pub fn test_nested_windows_are_contained_by_the_outer_one<R: Runtime>(client: Client) {

@@ -6,8 +6,6 @@ pub mod compilation;
 pub mod environment;
 /// The `[memory]` section of `cubecl.toml`.
 pub mod memory;
-/// The `[profiling]` section of `cubecl.toml`.
-pub mod profiling;
 /// The `[streaming]` section of `cubecl.toml`.
 pub mod streaming;
 /// The `[throughput]` section of `cubecl.toml`.

@@ -23,13 +23,6 @@ pub enum TimingRequest {
     /// Nothing waits, so the kernels around it keep running back to back and
     /// the observer reads them once the pass is over. Right for measuring where
     /// a pass spends its time.
-    ///
-    /// **Only while the profiling logger is off.** A measurement is read once,
-    /// and past [`ExecutionOnly`](super::ProfileLevel::ExecutionOnly) the logger
-    /// needs it too, so the launch path reads it there and delivers
-    /// [`Measurement::Read`] instead, which runs the kernels one at a time. An
-    /// observer whose figures only mean something on a pipelined pass should
-    /// say so when timings arrive that way.
     Deferred(TimedExecutions),
 }
 
@@ -90,9 +83,8 @@ pub enum Measurement {
     /// for the length of the kernel, which is the thing
     /// [`Deferred`](TimingRequest::Deferred) exists to avoid.
     Unread(ProfileDuration),
-    /// A kernel's, read back by the launch path: under
-    /// [`TimingRequest::Resolved`], and under [`TimingRequest::Deferred`]
-    /// whenever the profiling logger reads them as well.
+    /// A kernel's, read back by the launch path under
+    /// [`TimingRequest::Resolved`].
     Read {
         /// How long the kernel took.
         duration: Duration,

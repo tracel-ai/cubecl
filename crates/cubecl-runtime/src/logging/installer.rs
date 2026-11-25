@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use cubecl_common::profile::{ProfileTicks, TimingMethod};
@@ -123,53 +122,21 @@ impl ObserverInstaller {
     pub fn deliver_profile(&self, reported: &ReportedExecution, profile: ProfileDuration) {
         match reported.timing() {
             TimingRequest::Deferred(_) => self.deliver(reported, Measurement::Unread(profile)),
-            TimingRequest::Resolved => drop(self.read_and_deliver(reported, profile)),
+            TimingRequest::Resolved => self.read_and_deliver(reported, profile),
             TimingRequest::None => unreachable!("an untimed launch should not be profiled"),
         }
-    }
-
-    /// Reads `profile` for `reported`'s observer, and hands the reading back
-    /// for the profiling logger.
-    ///
-    /// Both want the same measurement and a measurement is read once, so the
-    /// launch path reads it here and passes on what it got. An observer that
-    /// asked to keep its measurements unread is told a duration instead, and
-    /// its kernels run one at a time: that is said once per process, since it
-    /// is a configuration mistake and not a per-launch event.
-    ///
-    /// # Guarantees
-    ///
-    /// The measurement it hands back carries the reading the observer was
-    /// told, and how it was taken.
-    pub fn read_for_logger(
-        &self,
-        reported: &ReportedExecution,
-        profile: ProfileDuration,
-    ) -> ProfileDuration {
-        if let TimingRequest::Deferred(_) = reported.timing() {
-            warn_logger_takes_deferred_measurements();
-        }
-        let method = profile.timing_method();
-        let ticks = self.read_and_deliver(reported, profile);
-        ProfileDuration::new(Box::pin(async move { ticks }), method)
     }
 }
 
 impl ObserverInstaller {
-    /// Reads `profile` with the slot's lock released, delivers the reading,
-    /// and hands it back.
-    fn read_and_deliver(
-        &self,
-        reported: &ReportedExecution,
-        profile: ProfileDuration,
-    ) -> Option<ProfileTicks> {
+    /// Reads `profile` with the slot's lock released, and delivers the reading, or warns when
+    /// the window carried none.
+    fn read_and_deliver(&self, reported: &ReportedExecution, profile: ProfileDuration) {
         let method = profile.timing_method();
-        let ticks = cubecl_environment::future::block_on(profile.resolve());
-        match &ticks {
-            Some(ticks) => self.deliver(reported, read(ticks, method)),
+        match cubecl_environment::future::block_on(profile.resolve()) {
+            Some(ticks) => self.deliver(reported, read(&ticks, method)),
             None => warn_unmeasured(reported.execution()),
         }
-        ticks
     }
 }
 
@@ -189,22 +156,6 @@ pub fn issue(kind: impl FnOnce() -> ExecutionKind) -> Option<ReportedExecution> 
 /// [`ObserverInstaller::timing`] on the process's observer.
 pub fn timing_requested() -> TimingRequest {
     OBSERVERS.timing()
-}
-
-/// Says once per process that the profiling logger is taking the measurements
-/// an observer asked to keep: it never receives [`Measurement::Unread`] and
-/// its kernels stop overlapping, which is a pass other than the one it asked
-/// to measure.
-fn warn_logger_takes_deferred_measurements() {
-    static SAID: AtomicBool = AtomicBool::new(false);
-    if SAID.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    log::warn!(
-        "The profiling logger is reading every launch's measurement, so this run's \
-         execution observer is told durations instead of keeping them, and its kernels \
-         run one at a time. Turn the profile logging off to measure the pass as it runs."
-    );
 }
 
 /// Says a measurement was skipped: the window carried none, and a zero would
@@ -257,7 +208,7 @@ mod small_tests {
     /// A measurement whose window carried none, as one a graph capture
     /// refused.
     fn unmeasured() -> ProfileDuration {
-        ProfileDuration::new(Box::pin(async { None }), TimingMethod::Device)
+        ProfileDuration::new(alloc::boxed::Box::pin(async { None }), TimingMethod::Device)
     }
 
     fn installed(observer: Arc<dyn ExecutionObserver>) -> ObserverInstaller {
@@ -330,18 +281,6 @@ mod small_tests {
         installer.deliver_profile(&reported, unmeasured());
 
         assert_eq!(*observer.1.lock(), 0);
-    }
-
-    #[test]
-    fn an_unmeasured_launch_hands_the_logger_nothing() {
-        let installer = installed(Counting::answering(TimingRequest::Resolved));
-        let reported = installer
-            .issue(kernel)
-            .expect("an observer should be installed");
-
-        let for_the_logger = installer.read_for_logger(&reported, unmeasured());
-
-        assert!(cubecl_environment::future::block_on(for_the_logger.resolve()).is_none());
     }
 
     #[test]

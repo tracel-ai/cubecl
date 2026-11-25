@@ -682,7 +682,7 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
     );
 }
 
-/// Checked against the launch: the profiling logger, when on, makes a deferred observer's wait too.
+/// Checked against the launch: only a resolved observer's launches wait for their kernel.
 #[test_log::test]
 #[serial_test::serial]
 fn launches_read_timing_exactly_when_their_observer_is_handed_a_read_duration() {

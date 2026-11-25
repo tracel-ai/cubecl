@@ -1,7 +1,7 @@
 use super::{
     autotune::AutotuneConfig, compilation::CompilationConfig, environment::EnvironmentConfig,
-    memory::MemoryConfig, profiling::ProfilingConfig, streaming::StreamingConfig,
-    throughput::ThroughputConfig, transport::TransportConfig,
+    memory::MemoryConfig, streaming::StreamingConfig, throughput::ThroughputConfig,
+    transport::TransportConfig,
 };
 use alloc::sync::Arc;
 use cubecl_environment::config::RuntimeConfig;
@@ -13,10 +13,6 @@ static CUBE_GLOBAL_CONFIG: Mutex<Option<Arc<CubeClRuntimeConfig>>> = Mutex::new(
 /// Every setting of `CubeCL`, as `cubecl.toml` holds them, one section per field.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CubeClRuntimeConfig {
-    /// The `[profiling]` section.
-    #[serde(default)]
-    pub profiling: ProfilingConfig,
-
     /// The `[autotune]` section.
     #[serde(default)]
     pub autotune: AutotuneConfig,

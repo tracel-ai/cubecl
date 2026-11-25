@@ -19,8 +19,6 @@ use cubecl_monitoring::{
     gpu_utilization::CardCounters,
 };
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
-#[cfg(not(feature = "vulkan-validate"))]
-use cubecl_server::logging::ProfileLevel;
 pub use cubecl_server::memory_management::MemoryConfiguration;
 use cubecl_server::runtime::{DeviceDescription, DeviceKind, Runtime};
 use cubecl_server::{client::Client, logging::ServerLogger};
@@ -983,10 +981,9 @@ async fn request_adapter(
         // Debug/validation layers cost real per-dispatch CPU time, so only
         // source-level compilation logging (`full`) opts into them — `basic`
         // is passive name-only logging and must not change how kernels run.
-        match (debug.profile_level(), debug.compilation_source_activated()) {
-            (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
-            (_, true) => InstanceFlags::debugging(),
-            (_, false) => InstanceFlags::default(),
+        match debug.compilation_source_activated() {
+            true => InstanceFlags::debugging(),
+            false => InstanceFlags::default(),
         }
     };
     #[cfg(feature = "vulkan-validate")]

@@ -156,11 +156,11 @@ fn a_measurement_is_read_back_for_an_observer_that_asked_for_it_resolved() {
 /// that could not tell would report it as device time.
 #[test]
 #[serial_test::serial]
-fn a_reading_for_the_logger_tells_the_observer_how_it_was_measured() {
+fn a_reading_tells_the_observer_how_it_was_measured() {
     let timed = Arc::new(ReadBack::default());
     let watching = ExecutionObservation::new(timed.clone());
     let reported = launch("a_kernel").expect("an observer should be installed");
-    let _for_the_logger = reported.read_for_logger(measured_on_device(7));
+    reported.deliver_profile(measured_on_device(7));
     drop(watching);
     assert_eq!(
         *timed.0.lock(),
@@ -187,35 +187,6 @@ fn an_observation_that_ended_mid_read_is_not_told_the_duration() {
     }));
 
     assert!(timed.0.lock().is_empty());
-}
-
-#[test]
-#[serial_test::serial]
-fn an_observation_that_ended_mid_read_is_not_told_the_loggers_reading() {
-    let timed = Arc::new(ReadBack::default());
-    let watching = Arc::new(Mutex::new(Some(ExecutionObservation::new(timed.clone()))));
-    let reported = launch("a_kernel").expect("an observer should be installed");
-    let ends_the_observation = watching.clone();
-
-    let _for_the_logger = reported.read_for_logger(measured_while(7, move || {
-        drop(ends_the_observation.lock().take())
-    }));
-
-    assert!(timed.0.lock().is_empty());
-}
-
-/// Read once, and handed on: the logger still gets the reading the observer
-/// was told.
-#[test]
-#[serial_test::serial]
-fn the_logger_gets_the_reading_its_observer_was_told() {
-    let watching = ExecutionObservation::new(Arc::new(ReadBack::default()));
-    let reported = launch("a_kernel").expect("an observer should be installed");
-    let for_the_logger = reported.read_for_logger(measured(7));
-    drop(watching);
-    let ticks = cubecl_environment::future::block_on(for_the_logger.resolve())
-        .expect("the reading should carry its ticks");
-    assert_eq!(ticks.duration(), Duration::from_micros(7));
 }
 
 /// Kept unread, the kernels around a timed launch keep running back to back.
