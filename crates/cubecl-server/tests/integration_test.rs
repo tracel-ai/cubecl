@@ -2283,6 +2283,49 @@ fn an_answer_past_the_end_of_the_candidate_list_is_tuned_again() {
     assert_eq!(answer.fastest_index, fastest_index);
 }
 
+/// A saved environment gives back the answer a tune measured in it, under the table and the key the
+/// tuner stores it by, without the measurements.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_saved_environment_gives_back_the_answer_a_tune_measured() {
+    use cubecl_environment::environment::{AutotuneAnswer, EnvironmentId, SaveOptions};
+    use cubecl_server::tune::{PersistentCacheKey, TuneCacheResult, TuneTableName, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let hardware = client.hardware_identity();
+    let tuner: Tuner<String> = Tuner::new("given-back", &hardware);
+
+    let TuneCacheResult::Hit { fastest_index } =
+        tuner.check_tune(&key, &handles, &set, &client, None)
+    else {
+        panic!("the tune answers inline");
+    };
+    let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
+
+    let table = TuneTableName {
+        hardware: &hardware.to_string(),
+        tuner: "given-back",
+    };
+    let stored = PersistentCacheKey {
+        key,
+        checksum: set.compute_checksum(),
+    };
+    assert_eq!(
+        saved.read_used_answers().unwrap(),
+        [AutotuneAnswer {
+            table: table.namespace().as_str().to_string(),
+            key: cubecl_environment::bytes::Bytes::from_bytes_vec(cbor(&stored)),
+            fastest_index,
+        }]
+    );
+}
+
 /// Shared in memory rather than through the store, so it holds with the cache disabled, and a key
 /// in flight on one device is pending on the other instead of tuned twice.
 #[test_log::test]

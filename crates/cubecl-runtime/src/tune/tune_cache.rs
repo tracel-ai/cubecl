@@ -9,6 +9,8 @@ use cubecl_environment::persistence::{CacheOption, Namespace, NamespaceRoot, Sto
 #[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
+#[cfg(persistence)]
+use super::used_answer_recorder::UsedAnswerRecorder;
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
@@ -128,6 +130,9 @@ pub struct TuneCache<K> {
     /// when [`Self::in_memory_cache`] misses, then lives there.
     #[cfg(persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// Told of every answer the table gives or takes.
+    #[cfg(persistence)]
+    used: UsedAnswerRecorder<K>,
     /// The namespace the table is stored under, whether or not it is
     /// persisted: what a [record](super::TuneRecord) names it by.
     #[cfg(persistence)]
@@ -196,13 +201,14 @@ impl<K: AutotuneKey> TuneCache<K> {
                 tuner: name,
             }
             .namespace();
-            let table = namespace.as_str().into();
+            let table: String = namespace.as_str().into();
 
             if config.autotune.disable_cache {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
                     lost: Vec::new(),
                     persistent_cache: None,
+                    used: UsedAnswerRecorder::disabled(),
                     table,
                     generation: cubecl_environment::environment::generation(),
                 };
@@ -220,6 +226,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                         .storage(namespace)
                         .cache(CacheOption::Lazy),
                 )),
+                used: UsedAnswerRecorder::new(&table),
                 table,
                 generation,
             }
@@ -362,7 +369,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// The store's answer for `key` under the set's `checksum`, read once memory missed. A miss
-    /// costs one read of the store, under the tuner mutex, and a key read counts as loaded.
+    /// costs one read of the store, under the tuner mutex, and a key read counts as loaded and is
+    /// recorded as used.
     ///
     /// An answer past the end of the set's `candidates` answers nothing. It is purged, so the
     /// answer measured in its place is stored whatever wrote it.
@@ -391,6 +399,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
+        self.used.record(stored);
         self.cache_insert(key.clone(), value.fastest_index);
         TuneCacheResult::Hit {
             fastest_index: value.fastest_index,
@@ -414,7 +423,11 @@ impl<K: AutotuneKey> TuneCache<K> {
             return false;
         };
 
-        let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) else {
+        let stored = PersistentCacheKey { key, checksum };
+        let inserted = persistent_cache.insert(stored.clone(), value);
+        // Whether the table took this answer or kept one it already held.
+        self.used.record(stored);
+        let Err(err) = inserted else {
             return true;
         };
         match err {
@@ -513,12 +526,57 @@ mod tests {
         assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
     }
 
+    /// An answer the table gives is one the work used, and so is one a tune
+    /// stores in it; one no lookup asks for is not.
+    #[test]
+    fn an_answer_loaded_or_stored_is_recorded_as_used() {
+        let table = "tune-cache-tests/used";
+        plant(table, "loaded", CURRENT, 1);
+        plant(table, "idle", CURRENT, 2);
+        let mut cache = cache_over(table);
+
+        cache.look_up(&"loaded".to_string(), CURRENT, CANDIDATES);
+        cache.look_up(&"missed".to_string(), CURRENT, CANDIDATES);
+        cache.persistent_cache_insert("measured".to_string(), CURRENT.into(), answer(0));
+
+        assert_eq!(
+            cache.used.recorded(),
+            [pair("loaded", CURRENT), pair("measured", CURRENT)]
+        );
+    }
+
+    /// An answer that names no candidate is not used: the work runs another.
+    #[test]
+    fn an_answer_past_the_end_of_the_list_is_not_recorded_as_used() {
+        let table = "tune-cache-tests/unused-past-the-end";
+        plant(table, KEY, CURRENT, CANDIDATES);
+        let mut cache = cache_over(table);
+
+        cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES);
+
+        assert_eq!(cache.used.recorded(), []);
+    }
+
+    /// The work runs what it measured, but the next process reads the answer
+    /// the table already held: that one is used.
+    #[test]
+    fn an_answer_the_table_kept_instead_is_recorded_as_used() {
+        let table = "tune-cache-tests/kept-instead";
+        plant(table, KEY, CURRENT, 1);
+        let mut cache = cache_over(table);
+
+        assert!(!cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
+
+        assert_eq!(cache.used.recorded(), [pair(KEY, CURRENT)]);
+    }
+
     /// A cache over the in-memory table `table`.
     fn cache_over(table: &str) -> TuneCache<String> {
         TuneCache {
             in_memory_cache: HashMap::new(),
             lost: Vec::new(),
             persistent_cache: Some(answers(table)),
+            used: UsedAnswerRecorder::in_memory(table),
             table: table.into(),
             generation: cubecl_environment::environment::generation(),
         }

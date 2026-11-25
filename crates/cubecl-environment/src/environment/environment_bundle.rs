@@ -2,6 +2,8 @@
 //! loading it.
 
 use alloc::string::String;
+#[cfg(native_cache)]
+use alloc::vec::Vec;
 
 #[cfg(native_cache)]
 use crate::bundle::SqliteBundle;
@@ -11,13 +13,15 @@ use crate::bytes::{OpenedFile, Reader};
 #[cfg(native_cache)]
 use crate::environment::scratch_file::ScratchFile;
 #[cfg(native_cache)]
-use crate::environment::{BuildStamp, EnvironmentError, EnvironmentSummary};
+use crate::environment::{
+    AutotuneAnswer, BuildStamp, EnvironmentError, EnvironmentSummary, UsedAnswers,
+};
 #[cfg(native_cache)]
 use std::path::Path;
 #[cfg(native_cache)]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// The stem of the scratch file a bundle held in memory is described through.
+/// The stem of the scratch file a bundle held in memory is read through.
 #[cfg(native_cache)]
 const SCRATCH_STEM: &str = "cubecl-bundle";
 
@@ -106,9 +110,37 @@ impl EnvironmentBundle {
     /// [`Storage`](EnvironmentError::Storage): the bytes do not read,
     /// they are not a bundle, or the bundle's entries cannot be counted.
     pub fn read_description(&self) -> Result<BundleDescription, EnvironmentError> {
+        self.read(|bundle| BundleDescription::try_from(bundle))
+    }
+
+    /// The autotune answers the work of the executable that saved the bundle
+    /// used, loaded or measured, each trimmed to its pick: what another
+    /// environment of that hardware is created from to run the same picks
+    /// without tuning. None when the manifest names no executable.
+    ///
+    /// Read as a [description](Self::read_description) is.
+    ///
+    /// # Errors
+    ///
+    /// [`Storage`](EnvironmentError::Storage): the bytes do not read, or
+    /// they are not a bundle.
+    pub fn read_used_answers(&self) -> Result<Vec<AutotuneAnswer>, EnvironmentError> {
+        self.read(|bundle| {
+            let saved_by = bundle.manifest().saved_by;
+            let used = saved_by.map(|build| UsedAnswers::read(bundle, build));
+            Ok(used.unwrap_or_default().answers(bundle))
+        })
+    }
+
+    /// What `read` answers of the bundle, opened where its file is or through
+    /// a scratch copy.
+    fn read<T>(
+        &self,
+        read: impl FnOnce(&SqliteBundle) -> Result<T, EnvironmentError>,
+    ) -> Result<T, EnvironmentError> {
         match self.whole_file() {
-            Some(path) => BundleDescription::try_from(&opened(path)?),
-            None => self.read_description_from_a_copy(),
+            Some(path) => read(&opened(path)?),
+            None => self.read_a_copy(read),
         }
     }
 
@@ -119,9 +151,11 @@ impl EnvironmentBundle {
             .whole_file_of_len(self.bytes.len() as u64)
     }
 
-    /// [`read_description`](Self::read_description), from the bytes
-    /// written to a scratch file.
-    fn read_description_from_a_copy(&self) -> Result<BundleDescription, EnvironmentError> {
+    /// [`read`](Self::read), from the bytes written to a scratch file.
+    fn read_a_copy<T>(
+        &self,
+        read: impl FnOnce(&SqliteBundle) -> Result<T, EnvironmentError>,
+    ) -> Result<T, EnvironmentError> {
         let bytes = self
             .bytes
             .read(Reader::new())
@@ -130,7 +164,7 @@ impl EnvironmentBundle {
         std::fs::write(scratch.path(), bytes).map_err(EnvironmentError::storage)?;
         // Declared after the scratch file, so closed before it is deleted.
         let bundle = opened(scratch.path())?;
-        BundleDescription::try_from(&bundle)
+        read(&bundle)
     }
 }
 
@@ -164,7 +198,6 @@ mod tests {
     use super::*;
     use crate::bundle::{BundleManifest, MANIFEST_SCHEMA};
     use crate::persistence::{Access, Database, Origin};
-    use alloc::vec::Vec;
     use std::path::PathBuf;
 
     /// Describing a bundle opened from its file reads the file in place:

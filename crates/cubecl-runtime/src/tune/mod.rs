@@ -53,6 +53,9 @@ mod tune_benchmark;
 mod tune_cache;
 mod tune_inputs;
 mod tuner;
+// Which answers the work used, kept beside them.
+#[cfg(persistence)]
+mod used_answer_recorder;
 mod util;
 
 pub use crate::local_tuner;

@@ -31,6 +31,9 @@ use crate::sync::{Arc, LazyLock, Mutex};
 
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
+mod autotune_answer;
+pub use autotune_answer::AutotuneAnswer;
+
 mod build_stamp;
 pub use build_stamp::*;
 
@@ -48,6 +51,9 @@ pub use prune::*;
 
 mod summary;
 pub use summary::*;
+
+mod used_answers;
+pub use used_answers::*;
 
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";

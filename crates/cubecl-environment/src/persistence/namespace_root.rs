@@ -19,8 +19,8 @@ pub enum NamespaceContent {
     AutotuneAnswers,
     /// How the environment was built.
     Records,
-    /// Anything else: the throughput measurements, the work's launches, an
-    /// application's own data.
+    /// Anything else: the throughput measurements, the work's launches, the
+    /// answers it used, an application's own data.
     Other,
 }
 
@@ -146,6 +146,7 @@ mod tests {
             "throughput/0.12.0/probe",
             "records/v1/sessions",
             "launched/0.12.0/00ff",
+            "used-answers/0.12.0/00ff/autotune/0.12.0/matmul",
             "my-application/0.1.0/settings",
         ] {
             assert!(

@@ -2,8 +2,8 @@
 
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
-    self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
-    EnvironmentSummary, SaveOptions,
+    self, AutotuneAnswer, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId,
+    EnvironmentOrigin, EnvironmentSummary, SaveOptions, UsedAnswersName,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -354,6 +354,48 @@ fn a_saved_bundle_reads_back_its_name_stamp_and_summary() {
     assert_eq!(&*opened.bytes, &*saved.bytes);
 }
 
+/// A saved bundle gives back the answers the work of its build used, trimmed
+/// to their picks: not the ones nothing used, nor those only another build
+/// did, nor a use whose answer is gone. Whether it is read from the file it
+/// was written to or held in memory.
+#[test]
+#[serial_test::serial]
+fn a_saved_bundle_gives_back_the_answers_its_build_used() {
+    let root = rooted();
+    let built = EnvironmentId::create("built", EnvironmentOrigin::Empty).unwrap();
+    built.activate().unwrap();
+    let (this_build, other_build) = builds();
+    for (key, fastest_index) in [
+        ("loaded", 1),
+        ("measured", 2),
+        ("idle", 3),
+        ("elsewhere", 4),
+    ] {
+        answers()
+            .insert(key.into(), measured_picking(fastest_index))
+            .unwrap();
+    }
+    for (build, key) in [
+        (this_build, "loaded"),
+        (this_build, "measured"),
+        (this_build, "gone"),
+        (other_build, "elsewhere"),
+    ] {
+        uses(build).insert(key.into(), ()).unwrap();
+    }
+    environment::activate(environment::DEFAULT);
+
+    let saved = built.save(SaveOptions::default()).unwrap();
+    let file = root.path().join("saved.cubecl");
+    std::fs::write(&file, &*saved.bytes).unwrap();
+
+    for bundle in [saved, EnvironmentBundle::open(&file).unwrap()] {
+        let mut answers = bundle.read_used_answers().unwrap();
+        answers.sort_by_key(|answer| answer.fastest_index);
+        assert_eq!(answers, [trimmed("loaded", 1), trimmed("measured", 2)]);
+    }
+}
+
 /// A bundle file that is not there fails to open, as every other environment
 /// call fails, rather than at its first use.
 #[test]
@@ -404,6 +446,58 @@ fn bytes_that_are_no_bundle_do_not_read() {
         bundle.read_description(),
         Err(EnvironmentError::Storage { .. })
     ));
+}
+
+/// The table the answers here are stored in.
+fn table() -> Namespace {
+    Namespace::scoped("autotune", "layout-v1/hardware/tuner")
+}
+
+/// This build, and another.
+fn builds() -> (BuildStamp, BuildStamp) {
+    let build = BuildStamp::current();
+    let hash = build.hash ^ 1;
+    (build, BuildStamp { hash })
+}
+
+/// The answers of [`table`].
+fn answers() -> Store<String, Answer> {
+    Store::new(StoreOptions::new().storage(table()))
+}
+
+/// The answers of [`table`] the work of `build` used.
+fn uses(build: BuildStamp) -> Store<String, ()> {
+    let table = table();
+    let name = UsedAnswersName {
+        build,
+        table: table.as_str(),
+    };
+    Store::new(StoreOptions::new().storage(name.namespace()))
+}
+
+/// A stored answer with what it was picked from, as a table keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Answer {
+    pub fastest_index: usize,
+    pub results: Vec<String>,
+}
+
+fn measured_picking(fastest_index: usize) -> Answer {
+    Answer {
+        fastest_index,
+        results: vec!["measured".into()],
+    }
+}
+
+/// The answer [`table`] holds under `key`, without what it was picked from.
+fn trimmed(key: &str, fastest_index: usize) -> AutotuneAnswer {
+    let mut stored = Vec::new();
+    ciborium::into_writer(key, &mut stored).unwrap();
+    AutotuneAnswer {
+        table: table().as_str().into(),
+        key: Bytes::from_bytes_vec(stored),
+        fastest_index,
+    }
 }
 
 /// What [`plant`] writes, counted.
