@@ -55,8 +55,12 @@ impl PageSizing {
     /// How an allocation of `size` bytes fits pages of `page_size`.
     ///
     /// A growth sizes the new pages to the allocation, a megabyte of slack
-    /// on top, rounded to the megabyte: never below the floor, never past
-    /// the device's largest page.
+    /// on top, rounded to the megabyte, never past the device's largest page.
+    ///
+    /// # Assumptions
+    ///
+    /// `page_size` is no smaller than the floor, so neither is a growth past
+    /// it.
     pub(crate) fn fit(&self, size: u64, page_size: u64) -> Fit {
         let Some(needed) = padded_size(size, self.alignment_bytes) else {
             return Fit::TooLarge;
@@ -72,7 +76,7 @@ impl PageSizing {
                 .saturating_add(PAGE_SLACK_BYTES)
                 .next_multiple_of(PAGE_GRANULE_BYTES)
                 .next_multiple_of(self.alignment_bytes)
-                .clamp(self.min_page_bytes, self.max_page_bytes),
+                .min(self.max_page_bytes),
         }
     }
 
@@ -136,19 +140,6 @@ mod tests {
     #[test]
     fn a_size_whose_padding_overflows_is_too_large() {
         assert_eq!(sizing().fit(u64::MAX, 2 * MIB), Fit::TooLarge);
-    }
-
-    /// A growth never sizes pages below the floor.
-    #[test]
-    fn a_growth_never_goes_below_the_floor() {
-        let sizing = PageSizing::new(8 * MIB, &MemoryDeviceProperties::new(16 * MIB, 32));
-
-        assert_eq!(
-            sizing.fit(2 * MIB, MIB),
-            Fit::Grow {
-                page_size_bytes: 8 * MIB
-            }
-        );
     }
 
     /// The floor never passes the device's largest page.

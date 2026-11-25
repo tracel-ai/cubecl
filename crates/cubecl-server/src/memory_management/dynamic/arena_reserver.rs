@@ -232,6 +232,9 @@ impl ArenaReserver {
         reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
+        if self.outdated.is_empty() {
+            return;
+        }
         let relocation = self.plan(reason.room(), storage, failures);
         if relocation.is_empty() {
             self.decider.stalled(&self.state());
@@ -722,5 +725,42 @@ mod tests {
         );
 
         assert_eq!(arena.relocation_need(capacity), RelocationNeed::Settled);
+    }
+
+    /// A copier that must never be waited on.
+    struct Unwaited;
+
+    // SAFETY: it never answers a wait, so no copy is ever made after one.
+    unsafe impl RelocationCopier<Bookkeeping> for Unwaited {
+        fn wait_device(&mut self) -> Result<(), ServerError> {
+            panic!("a relocation with nothing outdated should wait on nothing")
+        }
+
+        unsafe fn copy(
+            &mut self,
+            _storage: &mut Bookkeeping,
+            _copy: &StorageCopy,
+        ) -> Result<(), IoError> {
+            panic!("a relocation with nothing outdated should copy nothing")
+        }
+
+        fn wait_copies(&mut self) -> Result<(), ServerError> {
+            panic!("a relocation with nothing outdated should wait on nothing")
+        }
+    }
+
+    /// With nothing outdated, a relocation waits on nothing.
+    #[test]
+    fn a_relocation_with_nothing_outdated_waits_on_nothing() {
+        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut arena = arena(sizing());
+        let _held = reserve(&mut arena, &mut storage, MIB).expect("the arena should serve it");
+
+        arena.relocate(
+            &mut storage,
+            &mut Unwaited,
+            RelocationReason::Explicit,
+            &mut ErrorGraph::default(),
+        );
     }
 }

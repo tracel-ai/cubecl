@@ -193,9 +193,7 @@ where
         let submitted = unsafe { StreamsSubmitted::new() };
         for stream_id in stream_ids {
             let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-            if stream.relocation_state().need.has_outdated() {
-                stream.relocate(reason, &submitted, failures);
-            }
+            stream.relocate(reason, &submitted, failures);
         }
     }
 

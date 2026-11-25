@@ -11,7 +11,6 @@ use crate::{
     storage::StorageAllocator,
 };
 use alloc::vec::Vec;
-use cubecl_environment::backtrace::BackTrace;
 
 /// How fast the running average of the sizes served follows the latest one.
 const SIZE_AVG_DECAY: f64 = 0.01;
@@ -179,11 +178,6 @@ impl SliceReserver for ExclusiveSliceReserver {
     /// (staging/uniform/pinned) managers, whose buffers are written right
     /// after reservation — laziness would only move the same allocation one
     /// call later.
-    ///
-    /// # Guarantees
-    ///
-    /// A size [`accepts_bytes`](SliceReserver::accepts_bytes) refuses is
-    /// refused with [`IoError::BufferTooBig`] before the storage is asked.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -191,12 +185,6 @@ impl SliceReserver for ExclusiveSliceReserver {
         _mapping: PageMapping,
         _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        if size > self.max_alloc_size {
-            return Err(IoError::BufferTooBig {
-                size,
-                backtrace: BackTrace::capture(),
-            });
-        }
         let alloc_bytes = (self.cur_avg_size as u64)
             .max(size)
             .next_multiple_of(self.alignment);
@@ -341,17 +329,6 @@ mod tests {
     #[test_log::test]
     fn a_size_past_the_limit_is_not_accepted() {
         assert!(!pool(u64::MAX).accepts_bytes(1025));
-    }
-
-    /// A size past the largest allocation is refused rather than allocated.
-    #[test_log::test]
-    fn an_allocation_past_the_limit_is_refused() {
-        let mut storage = BytesStorage::default();
-
-        assert!(matches!(
-            alloc(&mut pool(u64::MAX), &mut storage, 1025),
-            Err(IoError::BufferTooBig { .. })
-        ));
     }
 
     /// A freed page serves any allocation it fits, reusing the page.

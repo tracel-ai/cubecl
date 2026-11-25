@@ -89,6 +89,8 @@ impl RelocationLander {
     ///
     /// # Guarantees
     ///
+    /// With nothing to move, waits on nothing.
+    ///
     /// The wait for the copies happens whether every one of them was enqueued
     /// or not, so a relocation abandoned here frees a target only once every
     /// later use of it runs after the copies: when that wait fails on a
@@ -104,6 +106,9 @@ impl RelocationLander {
         storage: &mut Storage,
         copier: &mut dyn RelocationCopier<Storage>,
     ) -> Result<LandedRelocation, ServerError> {
+        if self.moves.is_empty() {
+            return Ok(LandedRelocation::new(self.moves));
+        }
         copier.wait_device()?;
         let enqueued = self
             .moves
@@ -275,5 +280,20 @@ mod tests {
             target.is_free(),
             "the target is freed with the abandoned relocation"
         );
+    }
+
+    /// A relocation with nothing to move waits on nothing.
+    #[test]
+    fn landing_nothing_waits_on_nothing() {
+        let mut storage = BytesStorage::default();
+        // SAFETY: no moves, so no copy to make.
+        let relocation = unsafe { RelocationLander::new(Vec::new()) };
+        let mut copier = FailingCopier {
+            device: Err(()),
+            copy: Err(()),
+            wait: Err(()),
+        };
+
+        assert!(relocation.land(&mut storage, &mut copier).is_ok());
     }
 }

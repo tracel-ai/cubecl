@@ -21,6 +21,10 @@ pub trait StreamRelocator {
 
     /// Move what the stream's memory holds on outdated pages, with a copier
     /// whose wait covers the work `submitted` proves was handed to the device.
+    ///
+    /// # Guarantees
+    ///
+    /// With nothing outdated, moves nothing and waits on nothing.
     fn relocate(
         &mut self,
         reason: RelocationReason,

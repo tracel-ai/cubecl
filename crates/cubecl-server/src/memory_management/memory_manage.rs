@@ -199,6 +199,10 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// pages they held go back to the driver, with the copies on `copier`.
     /// `reason` decides whether a target may take a new page.
     ///
+    /// # Guarantees
+    ///
+    /// With nothing outdated, moves nothing and waits on nothing.
+    ///
     /// # Panics
     ///
     /// When `failures` is not the graph this memory's failures are in.

@@ -734,15 +734,7 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
             RelocationScope::Device => self.streams.stream_ids(),
         };
         for stream_id in stream_ids {
-            if self
-                .streams
-                .get(&stream_id)
-                .device_memory()
-                .relocation_need()
-                .has_outdated()
-            {
-                self.relocate_stream(stream_id, reason);
-            }
+            self.relocate_stream(stream_id, reason);
         }
     }
 }

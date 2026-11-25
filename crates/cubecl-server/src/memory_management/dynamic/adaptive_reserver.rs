@@ -96,7 +96,6 @@ impl AdaptiveReserver {
         logger: Arc<ServerLogger>,
         name: String,
     ) -> Self {
-        let min_page = MIN_PAGE_BYTES.min(properties.max_page_size);
         let small_layout = |pool| PagedLayout {
             page_size_bytes: SMALL_PAGE_BYTES.next_multiple_of(properties.alignment),
             max_slice_bytes: SMALL_SLICE_BYTES.next_multiple_of(properties.alignment),
@@ -116,13 +115,13 @@ impl AdaptiveReserver {
             small_separate: PagedSliceReserver::new(small_layout(SMALL_SEPARATE_POOL))
                 .up_to_max_slice(),
             arena: ArenaReserver::new(
-                PageSizing::new(min_page, properties),
+                PageSizing::new(MIN_PAGE_BYTES, properties),
                 ARENA_POOLS,
                 logger.clone(),
                 name.clone(),
             ),
             separate: ArenaReserver::new(
-                PageSizing::new(min_page, properties),
+                PageSizing::new(MIN_PAGE_BYTES, properties),
                 SEPARATE_POOLS,
                 logger.clone(),
                 name.clone(),
@@ -292,9 +291,6 @@ impl AdaptiveReserver {
             .map(|memory| self.plan_move_apart(storage, memory, failures))
             .filter_map(Result::transpose)
             .collect::<Result<Vec<_>, _>>()?;
-        if moves.is_empty() {
-            return Ok(());
-        }
         // SAFETY: each move's target is a fresh reservation on a pool kept
         // apart, of the moved allocation's size, padded like every slice of
         // the pools to the device's alignment, held by nobody but its move;

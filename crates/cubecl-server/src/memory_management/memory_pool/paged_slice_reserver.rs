@@ -50,7 +50,7 @@ pub(crate) struct PagedSliceReserver {
 pub(crate) struct PagedLayout {
     /// The size every page is allocated at.
     pub page_size_bytes: u64,
-    /// The largest allocation the pool accepts, capped at the page size.
+    /// The largest allocation the pool accepts, at most the page size.
     pub max_slice_bytes: u64,
     /// The alignment every slice starts at.
     pub alignment_bytes: u64,
@@ -60,13 +60,14 @@ pub(crate) struct PagedLayout {
 
 impl PagedSliceReserver {
     /// A pool carving pages as `layout` says.
+    ///
+    /// # Assumptions
+    ///
+    /// `layout`'s largest slice is no larger than its page.
     pub(crate) fn new(layout: PagedLayout) -> Self {
         Self {
             pages: Vec::new(),
-            layout: PagedLayout {
-                max_slice_bytes: layout.max_slice_bytes.min(layout.page_size_bytes),
-                ..layout
-            },
+            layout,
             near_page_size: true,
             location_base: pool_origin(layout.pool),
             peak_pages: 0,
@@ -425,19 +426,6 @@ mod tests {
     #[test_log::test]
     fn a_pool_kept_to_its_largest_slice_refuses_near_page_sizes() {
         assert!(!pool().up_to_max_slice().accepts_bytes(60 * KIB));
-    }
-
-    /// The largest slice never passes the page size.
-    #[test_log::test]
-    fn the_largest_slice_is_capped_at_the_page_size() {
-        let pool = PagedSliceReserver::new(PagedLayout {
-            page_size_bytes: 64 * KIB,
-            max_slice_bytes: 128 * KIB,
-            alignment_bytes: 32,
-            pool: 1,
-        });
-
-        assert!(!pool.accepts_bytes(65 * KIB));
     }
 
     /// Reservations share a page until it is full, then take a new one.

@@ -172,7 +172,8 @@ impl SliceReserver for PersistentSliceReserver {
 
     /// On an explicit cleanup, return every free slice and renumber the rest;
     /// a periodic one keeps everything, since weights are reused across the
-    /// whole life of a model.
+    /// whole life of a model. The deallocations stay queued in the storage,
+    /// for the caller's flush.
     fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -193,7 +194,6 @@ impl SliceReserver for PersistentSliceReserver {
                 .or_default()
                 .push(position);
         }
-        storage.flush();
     }
 
     fn bind(
