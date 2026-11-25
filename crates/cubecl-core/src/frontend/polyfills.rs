@@ -232,7 +232,7 @@ pub fn expand_byte_permute_polyfill(
 ) -> Value {
     scope.register_size::<SizeA>(low.vector_size(scope.ctx()));
     byte_permute_polyfill::expand::<SizeA>(scope, low.into(), high.into(), selectors.into())
-        .value(scope)
+        .read_value(scope)
 }
 
 #[cube]
