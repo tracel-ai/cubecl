@@ -33,15 +33,15 @@ pub struct StoragePartitioning {
     rest_counts: SmallVec<[Option<usize>; Space::MAX_RANK]>,
     /// How far apart the coarsest pieces start: back to back where `None`.
     stagger: Option<Stagger>,
-    /// The dimension of the finest piece that lies inside a finer one of its own, where a buffer's
-    /// order has one: the tiles and the order stop before it, as no tile holds it.
+    /// The dimension of the finest piece that some finer piece of its own lies outside of, where a
+    /// buffer's order has one: the tiles and the order stop before it, as no tile holds it.
     unnested: Option<Dimension>,
 }
 
 impl StoragePartitioning {
     /// The statement a bound buffer was written from, read off its axes by stride; `labels` name
-    /// the trailing axes. Read as far as a dimension's finer pieces lie inside its coarser ones,
-    /// which a tensor core's layout may stop right above its finest. `None` where the buffer's order
+    /// the trailing axes. Read as far as each dimension's finer pieces lie inside its coarser ones,
+    /// which in a tensor core's layout may be its finest piece alone. `None` where the buffer's order
     /// is no partitioning. Its
     /// [`stagger`](Self::stagger) is not read back: a padded coarsest stride orders the pieces as a
     /// dense one does, so the tiles and their order read the same, but a reader asking where runs
