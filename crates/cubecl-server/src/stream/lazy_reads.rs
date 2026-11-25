@@ -27,9 +27,13 @@ pub(crate) struct LazyReads {
     /// How many allocations `kept` named when it last let go of the reads nothing holds.
     swept_at: usize,
     /// Keyed usage, by read through a scan of the few held at once: the copies of started reads,
-    /// until an access takes one, or its read drops and the fence past it is reached, since
-    /// letting go of a copy in flight waits for it.
+    /// until an access takes one or its read drops.
     copies: Vec<StartedCopy>,
+    /// Arrival usage: the copies whose read dropped, until the fence past each is reached, since
+    /// letting go of a copy in flight waits for it.
+    abandoned: Vec<StartedCopy>,
+    /// What [`LazyReadCount::let_go_so_far`] said when `copies` was last scanned for dropped reads.
+    let_go_at_scan: usize,
 }
 
 /// The reads of one allocation.
@@ -105,7 +109,7 @@ impl LazyReads {
     /// Whether no read is kept, started or accessed and no copy is held, so a write has
     /// nothing to start or wait for.
     fn is_idle(&self) -> bool {
-        self.count.is_zero() && self.copies.is_empty()
+        self.count.is_zero() && self.copies.is_empty() && self.abandoned.is_empty()
     }
 
     /// Keep `read`, made on `stream` where `made_at` fences, until work about to write its
@@ -116,7 +120,6 @@ impl LazyReads {
         stream: StreamId,
         made_at: Option<Arc<dyn StreamFence>>,
     ) {
-        self.drop_done_copies();
         self.hold(
             read,
             KeptRead {
@@ -184,9 +187,19 @@ impl LazyReads {
         Some(self.copies.swap_remove(index).copy)
     }
 
-    /// Let go of the copies no access will take, once they are done.
+    /// Let go of the copies no access will take, once they are done, scanning the copies of
+    /// live reads only when a read was let go of since the last scan.
     fn drop_done_copies(&mut self) {
-        self.copies.retain(StartedCopy::is_wanted);
+        let let_go = self.count.let_go_so_far();
+        if let_go != self.let_go_at_scan {
+            self.let_go_at_scan = let_go;
+            let (abandoned, copies) = core::mem::take(&mut self.copies)
+                .into_iter()
+                .partition(StartedCopy::is_abandoned);
+            self.copies = copies;
+            self.abandoned.extend(abandoned);
+        }
+        self.abandoned.retain(StartedCopy::is_in_flight);
     }
 
     /// What work about to write `written` has to do first: the kept reads whose bytes it
@@ -306,9 +319,14 @@ impl StartedCopy {
         core::ptr::eq(self.read.as_ptr(), Arc::as_ptr(read)) && self.read.strong_count() > 0
     }
 
-    /// Whether an access may still take it, or letting go of it would wait for it.
-    fn is_wanted(&self) -> bool {
-        self.read.strong_count() > 0 || self.fence.as_ref().is_some_and(|fence| !fence.is_reached())
+    /// Whether its read dropped, so no access will take it.
+    fn is_abandoned(&self) -> bool {
+        self.read.strong_count() == 0
+    }
+
+    /// Whether letting go of it would wait for it.
+    fn is_in_flight(&self) -> bool {
+        self.fence.as_ref().is_some_and(|fence| !fence.is_reached())
     }
 }
 
@@ -356,7 +374,9 @@ pub(crate) fn keep<S: WriteScoped>(
     server
         .write_streams()
         .ensure_written(core::iter::once(&source.handle))?;
-    read.keep(&lazy_reads(server).count);
+    let reads = lazy_reads(server);
+    reads.drop_done_copies();
+    read.keep(&reads.count);
     if source.handle.memory.descriptor().is_shared_with_peers() {
         start(server, &read, stream);
         return Ok(());
@@ -459,10 +479,15 @@ fn copy_stream<S: WriteScoped>(server: &mut S, kept: &ReadToStart, writer: Strea
 
 /// `writer`, ordered after `made_at`.
 fn behind<S: WriteScoped>(server: &mut S, writer: StreamId, made_at: &dyn StreamFence) -> StreamId {
-    if !made_at.is_reached() {
-        server.wait_for_fence(writer, made_at);
-    }
+    wait_past(server, writer, made_at);
     writer
+}
+
+/// Order work on `stream` after `fence`, unless it is already reached.
+fn wait_past<S: WriteScoped>(server: &mut S, stream: StreamId, fence: &dyn StreamFence) {
+    if !fence.is_reached() {
+        server.wait_for_fence(stream, fence);
+    }
 }
 
 /// The reader's stream, unless it records a graph, where a copy would run at every replay
