@@ -100,9 +100,16 @@ impl ErrorGraph {
 
     /// The report a read of `memory` gets when `failure` claims its bytes:
     /// the root error, and the path from this buffer back toward it,
-    /// reconstructed by walking the skip records backwards. `None` once the
-    /// failure is no longer held.
-    pub fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> Option<ServerError> {
+    /// reconstructed by walking the skip records backwards.
+    ///
+    /// # Assumptions
+    ///
+    /// `failure` is still held.
+    ///
+    /// # Panics
+    ///
+    /// When `failure` is no longer held.
+    pub fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> ServerError {
         self.recorder.report(failure, memory)
     }
 
@@ -175,7 +182,7 @@ impl ErrorGraph {
         self.recorder.prune(failure);
     }
 
-    /// The error behind `failure`. Always `Some` for a held failure.
+    /// The error behind `failure`.
     ///
     /// # Assumptions
     ///
@@ -184,7 +191,7 @@ impl ErrorGraph {
     /// # Panics
     ///
     /// When `failure` is no longer held.
-    pub fn error(&self, failure: FailureId) -> Option<&ServerError> {
+    pub fn error(&self, failure: FailureId) -> &ServerError {
         self.recorder.error(failure)
     }
 
@@ -287,15 +294,15 @@ impl FailureRecorder {
         node.skipped.push_back(record);
     }
 
-    fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> Option<ServerError> {
-        let node = self.nodes.get(&failure)?;
-        Some(ServerError::Unwritten {
+    fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> ServerError {
+        let node = self.node(failure);
+        ServerError::Unwritten {
             failure: failure.to_u64(),
             claimed: node.tag_count,
             chain: node.skip_chain(memory),
             root: Box::new(node.error.clone()),
             backtrace: BackTrace::capture(),
-        })
+        }
     }
 
     fn reports(&self, claims: impl Iterator<Item = Claim>) -> Result<(), ServerError> {
@@ -314,8 +321,7 @@ impl FailureRecorder {
     }
 
     /// The report `claim` owes, with the failure it names: `None` when one
-    /// of `found` already names that failure, or the failure is no longer
-    /// held.
+    /// of `found` already names that failure.
     fn claim_report(
         &self,
         claim: Claim,
@@ -328,7 +334,7 @@ impl FailureRecorder {
         if found.iter().any(|(named, _)| *named == Some(failure)) {
             return None;
         }
-        Some((Some(failure), self.report(failure, memory)?))
+        Some((Some(failure), self.report(failure, memory)))
     }
 
     /// The failure `claim` names and the memory it claims, or the error of a
@@ -390,8 +396,8 @@ impl FailureRecorder {
         }
     }
 
-    fn error(&self, failure: FailureId) -> Option<&ServerError> {
-        Some(&self.node(failure).error)
+    fn error(&self, failure: FailureId) -> &ServerError {
+        &self.node(failure).error
     }
 
     fn len(&self) -> usize {
@@ -519,7 +525,7 @@ mod tests {
         assert_eq!(graph.len(), 1);
 
         graph.untag(Some(failure));
-        assert!(graph.error(failure).is_some(), "one carrier remains");
+        assert_eq!(graph.len(), 1, "one carrier remains");
 
         graph.untag(Some(failure));
         assert!(graph.is_empty(), "nothing carries it, so it is gone");
@@ -583,7 +589,7 @@ mod tests {
         graph.replace(failure, error("launch"));
 
         match graph.error(failure) {
-            Some(ServerError::Generic { reason, .. }) => assert_eq!(reason, "launch"),
+            ServerError::Generic { reason, .. } => assert_eq!(reason, "launch"),
             other => panic!("expected the replaced error, got {other:?}"),
         }
     }
@@ -633,9 +639,7 @@ mod tests {
         graph.skipped(failure, skip(KernelId::new::<Matmul>(), root_out, &[mid]));
         graph.skipped(failure, skip(KernelId::new::<Gelu>(), mid, &[last]));
 
-        let report = graph
-            .report(failure, last)
-            .expect("a held failure should report");
+        let report = graph.report(failure, last);
         let text = alloc::format!("{report}");
         let gelu = text.find("Gelu").expect("the newest hop should come first");
         let matmul = text.find("Matmul").expect("then the one it needed should");
@@ -661,9 +665,7 @@ mod tests {
             skip(KernelId::new::<Gelu>(), memory_id(1), &[memory_id(2)]),
         );
 
-        let report = graph
-            .report(failure, memory_id(555))
-            .expect("a held failure should report");
+        let report = graph.report(failure, memory_id(555));
 
         let text = alloc::format!("{report}");
         assert!(!text.contains("Gelu") && text.contains("fill_f32 failed to compile"));
@@ -686,9 +688,7 @@ mod tests {
         }
 
         let newest = memory_id(ErrorGraph::MAX_SKIPPED_LAUNCH_COUNT + 4);
-        let report = graph
-            .report(failure, newest)
-            .expect("a held failure should report");
+        let report = graph.report(failure, newest);
         let text = alloc::format!("{report}");
         assert!(
             text.contains("Fill"),
@@ -709,7 +709,7 @@ mod tests {
 
         graph.skipped(failure, skip(KernelId::new::<Fill>(), memory_id(1), &[]));
 
-        assert!(graph.report(failure, memory_id(1)).is_none());
+        assert!(graph.is_empty());
     }
 
     /// Pruning is only for the untainted case: a failure something carries
@@ -722,7 +722,7 @@ mod tests {
         graph.tag(failure);
         graph.prune(failure);
 
-        assert!(graph.error(failure).is_some());
+        assert_eq!(graph.len(), 1);
     }
 
     /// A read reports each failure once, however many buffers carry it.

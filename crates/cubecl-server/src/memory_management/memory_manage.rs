@@ -402,15 +402,22 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// The failure claiming any byte of `range` in the allocation behind
     /// `binding`, if one does.
     ///
-    /// A binding this memory does not hold answers `None`: lookup errors are
-    /// the lookup's to report, and a failed lookup carries no failure to name.
+    /// # Assumptions
+    ///
+    /// `binding` was placed, and names its allocation's current location: a
+    /// caller asks a buffer never allocated the error graph instead.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` was never placed, or names a location this memory does
+    /// not hold for it.
     pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
         self.reserver.failure(binding, range)
     }
 
     /// Point `range` of the allocation behind `binding` at `failure`. A
-    /// binding this memory does not hold is left alone, for the same reason
-    /// [`failure`](Self::failure) answers `None` for one.
+    /// binding never placed is left alone: it has no slice to carry a
+    /// failure, and its callers pass every binding unfiltered.
     ///
     /// # Assumptions
     ///
@@ -418,8 +425,9 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Panics
     ///
-    /// When `failure` is not one `failures` holds, or `failures` is not the
-    /// graph this memory's failures are in.
+    /// When `failure` is not one `failures` holds, `failures` is not the
+    /// graph this memory's failures are in, or a placed `binding` names a
+    /// location this memory does not hold for it.
     pub fn taint(
         &mut self,
         binding: &ManagedMemoryBinding,
@@ -432,12 +440,13 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// `range` of the allocation behind `binding` has a writer again: release
     /// every claim on those bytes — and only those bytes, since a partial
-    /// write says nothing about the rest of the buffer. A binding this memory
-    /// does not hold is left alone.
+    /// write says nothing about the rest of the buffer. A binding never
+    /// placed is left alone.
     ///
     /// # Panics
     ///
-    /// When `failures` is not the graph this memory's failures are in.
+    /// When `failures` is not the graph this memory's failures are in, or a
+    /// placed `binding` names a location this memory does not hold for it.
     pub fn written(
         &mut self,
         binding: &ManagedMemoryBinding,
@@ -938,8 +947,9 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
 
     fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
         self.find(binding)
-            .ok()
-            .and_then(|slice| slice.tainted.failure(&range))
+            .expect("a binding asked for its failure should be placed")
+            .tainted
+            .failure(&range)
     }
 
     fn taint(
@@ -1305,8 +1315,7 @@ mod tests {
         let _ = memory_management.get_cursor(handle.binding());
     }
 
-    /// A taint, a write and a failure read of a binding this memory does not
-    /// hold leave everything alone.
+    /// A taint and a write of a binding never placed leave everything alone.
     #[test_log::test]
     fn the_taint_bookkeeping_leaves_unknown_bindings_alone() {
         let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
@@ -1317,9 +1326,17 @@ mod tests {
         memory_management.taint(&unknown, 0..8, failure, &mut failures);
         memory_management.written(&unknown, 0..8, &mut failures);
 
-        assert_eq!(memory_management.failure(&unknown, 0..8), None);
         failures.prune(failure);
         assert!(failures.is_empty(), "nothing took the failure");
+    }
+
+    /// The failure of a binding never placed is a broken assumption.
+    #[test_log::test]
+    #[should_panic(expected = "a binding asked for its failure should be placed")]
+    fn the_failure_of_an_unplaced_binding_panics() {
+        let memory_management = memory(MemoryConfiguration::ExclusivePages);
+
+        memory_management.failure(&ManagedMemoryHandle::new().binding(), 0..8);
     }
 
     /// A taint claims the bytes it names until they are written again.

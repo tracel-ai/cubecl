@@ -131,7 +131,7 @@ pub trait FailureStore {
             Some(ReadFailure {
                 failure,
                 needed: handle.memory.id(),
-                error: failures.graph.error(failure)?.clone(),
+                error: failures.graph.error(failure).clone(),
             })
         })
     }
