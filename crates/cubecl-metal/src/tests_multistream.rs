@@ -143,3 +143,73 @@ fn cross_thread_dynamic_cube_count() {
         assert_eq!(actual, data.as_slice(), "mismatch on iteration {iter}");
     }
 }
+
+#[cube(launch_unchecked)]
+fn add_one_in_place(buffer: &mut [u32]) {
+    if ABSOLUTE_POS < buffer.len() {
+        buffer[ABSOLUTE_POS] += 1;
+    }
+}
+
+/// An overwrite from another stream copies a lazy read on the reader's stream, behind reader work
+/// queued after the read, and that work waits only on what the writer had already submitted.
+#[test]
+fn an_overwrite_copies_a_lazy_read_behind_later_reader_work() {
+    let client = client();
+    let (reader, writer) = (
+        cubecl_environment::stream::StreamId { value: 4_400_001 },
+        cubecl_environment::stream::StreamId { value: 4_400_002 },
+    );
+    let before = [1u32, 2, 3, 4];
+    let n = before.len();
+    let (buffer, input) = writer.executes(|| {
+        (
+            client.create_from_slice(u32::as_bytes(&before)),
+            client.create_from_slice(u32::as_bytes(&[10, 20, 30, 40])),
+        )
+    });
+    let (read, output) = reader.executes(|| {
+        let source = cubecl_core::server::CopyDescriptor::new(
+            buffer.clone(),
+            [n].into(),
+            [1].into(),
+            size_of::<u32>(),
+        );
+        let read = cubecl_environment::future::block_on(client.read_lazy_async(source))
+            .expect("the buffer should be readable");
+        let output = client.empty(n * size_of::<u32>());
+        unsafe {
+            add_one_kernel::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(n as u32),
+                BufferArg::from_raw_parts(input.clone(), n),
+                BufferArg::from_raw_parts(output.clone(), n),
+            );
+        }
+        client.flush().expect("the reader should submit");
+        (read, output)
+    });
+
+    let written = writer.executes(|| {
+        unsafe {
+            add_one_in_place::launch_unchecked(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(n as u32),
+                BufferArg::from_raw_parts(buffer.clone(), n),
+            );
+        }
+        client.read_one_unchecked(buffer)
+    });
+    let output = reader.executes(|| client.read_one_unchecked(output));
+
+    assert_eq!(
+        (
+            u32::from_bytes(&read),
+            u32::from_bytes(&written),
+            u32::from_bytes(&output)
+        ),
+        (&before[..], &[2, 3, 4, 5][..], &[11, 21, 31, 41][..])
+    );
+}
