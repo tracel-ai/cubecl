@@ -13,6 +13,8 @@ pub mod layout;
 pub mod ops;
 pub mod space;
 pub mod stage;
+#[cfg(test)]
+mod test_scope;
 pub(crate) mod tile;
 
 /// What a [`Tile`] can be in the kernel.

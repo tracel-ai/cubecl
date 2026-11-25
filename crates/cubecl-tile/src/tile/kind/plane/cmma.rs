@@ -421,18 +421,11 @@ mod fragment_drain_tests {
 
 #[cfg(test)]
 mod held_fragment_tests {
-    use cubecl::ir::{AddressType, Scope, settings};
     use half::f16;
 
     use super::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(settings::KernelSettings::new(
-            settings::Dim3::new_single(),
-            settings::ExecutionMode::Checked,
-            AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     /// A `16 × 16` accumulator fragment allocated at `H`, kept at [`Held`], and stored into a
     /// scratch of `N`.

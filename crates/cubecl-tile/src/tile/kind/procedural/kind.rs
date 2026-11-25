@@ -465,18 +465,12 @@ impl ProceduralExpand {
 
 #[cfg(test)]
 mod tests {
-    use cubecl::ir::{ExpandValue, Scope};
+    use cubecl::ir::ExpandValue;
 
     use crate::tile::kind::procedural::constant::{Constant, ConstantExpand};
     use crate::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(cubecl::ir::settings::KernelSettings::new(
-            cubecl::ir::settings::Dim3::new_single(),
-            cubecl::ir::settings::ExecutionMode::Checked,
-            cubecl::ir::AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     #[test]
     #[should_panic(expected = "the recipe states no separable factorization")]

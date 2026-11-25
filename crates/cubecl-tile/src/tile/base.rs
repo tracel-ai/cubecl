@@ -2043,13 +2043,7 @@ mod tests {
     const ROW: Dimension = Dimension(0);
     const COL: Dimension = Dimension(1);
 
-    fn test_scope() -> Scope {
-        Scope::root(cubecl::ir::settings::KernelSettings::new(
-            cubecl::ir::settings::Dim3::new_single(),
-            cubecl::ir::settings::ExecutionMode::Checked,
-            cubecl::ir::AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     /// A tile of shared memory over `space`, which varies along each of its dimensions.
     fn shared(scope: &Scope, space: &[(Dimension, usize)]) -> TileExpand {

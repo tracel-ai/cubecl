@@ -55,7 +55,10 @@ impl AxesBuilder {
             !self.physical.is_empty(),
             "Projection::axes: an operand has at least one axis"
         );
-        let (innermost, outer) = self.physical.split_last().expect("the axes should be non-empty, as checked");
+        let (innermost, outer) = self
+            .physical
+            .split_last()
+            .expect("the axes should be non-empty, as checked");
         let mut dimensions: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
         let mention =
             |dimension: Dimension, dimensions: &mut SmallVec<[Dimension; Space::MAX_RANK]>| {
