@@ -8,6 +8,7 @@ pub use cubecl_runtime::memory_management::*;
 pub(crate) mod memory_pool;
 
 mod error_graph;
+mod failure_id;
 mod taint;
 
 /// Export utilities to keep track of CPU buffers when performing async data copies.
@@ -15,6 +16,7 @@ mod taint;
 pub mod drop_queue;
 
 pub use error_graph::*;
+pub use failure_id::*;
 pub use taint::*;
 
 mod dynamic;
@@ -24,16 +26,11 @@ pub(crate) use dynamic::*;
 mod memory_manage;
 pub use memory_manage::*;
 
+mod options;
+pub use options::*;
+
 /// Moving live allocations off outdated pages.
 pub mod relocation;
 
-/// Release memory after a failed wait only when the device is poisoned and can no longer use it.
-/// Otherwise completion is unknown, so keep the allocations reserved by leaking their owners.
-pub(crate) fn release_or_leak<T>(memory: T, err: &crate::server::ServerError) {
-    if err.is_device_poisoned() {
-        core::mem::drop(memory);
-    } else {
-        core::mem::forget(memory);
-        log::error!("leaking memory the device may still be using, after a failed wait: {err}");
-    }
-}
+mod release;
+pub(crate) use release::release_or_leak;

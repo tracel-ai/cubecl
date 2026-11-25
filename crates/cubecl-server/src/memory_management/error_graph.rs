@@ -13,6 +13,7 @@
 //! itself, and what it prunes is exactly the failures nothing can still read:
 //! the graph leaks if and only if the program leaks memory.
 
+use super::FailureId;
 use crate::id::KernelId;
 use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryId, WeakMemoryBinding};
 use crate::server::{IoError, ServerError};
@@ -21,30 +22,6 @@ use alloc::vec::Vec;
 use core::num::NonZeroU64;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-
-/// The id a tainted allocation carries, naming the failure that left its
-/// bytes unwritten.
-///
-/// Opaque on purpose: a carrier gains a word and nothing else. It does not
-/// learn what an error is, it cannot report one, and it has no opinion about
-/// streams. `NonZero` so `Option<FailureId>` is that one word rather than two.
-///
-/// Wide because ids are never reused: one is minted for every write scope
-/// that claims anything, which is every launch and every host copy, and a
-/// narrower counter would run out. Reuse is what a 32-bit id would need, and
-/// reuse is unsound here — [`prune`](ErrorGraph::prune) drops a node whose tag
-/// count is zero, which a freshly minted node also has, so a recycled id lets
-/// one scope's prune delete another's failure. Free in the carrier either way:
-/// [`Tainted`](super::Taint) pads a `u32` out to eight bytes before its
-/// ranges, which `a_failure_id_is_free_in_the_carrier` pins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FailureId(NonZeroU64);
-
-impl core::fmt::Display for FailureId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "#{}", self.0)
-    }
-}
 
 /// Why the bytes of one buffer cannot be trusted, as a read finds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

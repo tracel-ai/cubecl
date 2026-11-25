@@ -2,8 +2,6 @@
 
 use super::StorageCopy;
 use crate::server::{IoError, ServerError};
-#[cfg(feature = "storage-bytes")]
-use crate::storage::BytesStorage;
 use crate::storage::StorageAllocator;
 
 /// Where a relocation's bytes are copied, and what it waits on.
@@ -40,31 +38,4 @@ pub trait CopyQueue<Storage: StorageAllocator> {
     ///
     /// The fault the wait revealed.
     fn wait_copies(&mut self) -> Result<(), ServerError>;
-}
-
-/// Copies between the allocations of a [`BytesStorage`]: host memory, so a
-/// copy is a `memcpy` and has landed by the time it returns.
-///
-/// Waits on nothing: whoever runs work against the memory waits for it before
-/// handing the relocation over.
-#[cfg(feature = "storage-bytes")]
-#[derive(Debug, Default)]
-pub struct HostCopies;
-
-#[cfg(feature = "storage-bytes")]
-impl CopyQueue<BytesStorage> for HostCopies {
-    fn wait_device(&mut self) -> Result<(), ServerError> {
-        Ok(())
-    }
-
-    fn copy(&mut self, storage: &mut BytesStorage, copy: &StorageCopy) -> Result<(), IoError> {
-        let source = storage.get(&copy.source);
-        let mut target = storage.get(&copy.target);
-        target.write().copy_from_slice(source.read());
-        Ok(())
-    }
-
-    fn wait_copies(&mut self) -> Result<(), ServerError> {
-        Ok(())
-    }
 }

@@ -6,7 +6,7 @@
 //! [`Landed`] relocation the copy step hands back: an allocation cannot move
 //! before its bytes are where it moves to.
 
-use super::CopyQueue;
+use super::{CopyQueue, Landed};
 use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
 use crate::server::ServerError;
 use crate::storage::StorageAllocator;
@@ -32,13 +32,6 @@ pub enum TargetRoom {
     /// New pages of the current size too, when the room held runs out. Memory
     /// is not what is short, so emptying every outdated page is worth a page.
     MayAllocate,
-}
-
-/// A [`Relocation`] whose copies have landed: what the pools commit, and only
-/// [`Relocation::copy`] makes.
-#[derive(Debug)]
-pub struct Landed {
-    moves: Vec<Move>,
 }
 
 /// One device copy a relocation needs, between two resolved storages of the
@@ -111,13 +104,6 @@ impl Relocation {
         }
         enqueued?;
         Ok(Landed { moves: self.moves })
-    }
-}
-
-impl Landed {
-    /// The moves, for the pools that planned them to commit.
-    pub(crate) fn into_moves(self) -> Vec<Move> {
-        self.moves
     }
 }
 

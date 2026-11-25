@@ -1,7 +1,7 @@
 use super::{
     DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
-    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, MemoryPoolsReport,
-    PERSISTENT_POOL_POS, PageGuard,
+    MemoryAllocationMode, MemoryAllocationOption, MemoryConfiguration, MemoryLocation,
+    MemoryManagementOptions, MemoryPoolsReport, PERSISTENT_POOL_POS, PageGuard,
     memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
@@ -110,41 +110,6 @@ pub struct MemoryManagement<Storage> {
     windows: Vec<MemoryAllocationMode>,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-}
-
-/// The options for creating a new [`MemoryManagement`] instance.
-#[derive(Debug)]
-pub struct MemoryManagementOptions {
-    /// The name of the memory management.
-    name: String,
-    /// The [`MemoryAllocationOption`] used by this instance.
-    memory: MemoryAllocationOption,
-}
-
-impl MemoryManagementOptions {
-    /// Creates a new [`MemoryManagementOptions`].
-    pub fn new<S: Into<String>>(name: S) -> Self {
-        Self {
-            name: name.into(),
-            memory: MemoryAllocationOption::FromConfig,
-        }
-    }
-
-    /// Forces the [`MemoryAllocationMode`] during execution to always be the provided one.
-    pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
-        self.memory = MemoryAllocationOption::Provided(mode);
-        self
-    }
-}
-
-#[derive(Default, Debug)]
-/// Determines which [`MemoryAllocationMode`] is used during allocations.
-enum MemoryAllocationOption {
-    #[default]
-    /// Uses the [`GlobalConfig`] to determine the mode of allocation.
-    FromConfig,
-    /// Use the provided [`MemoryAllocationMode`].
-    Provided(MemoryAllocationMode),
 }
 
 impl<Storage: StorageAllocator> MemoryManagement<Storage> {
@@ -1476,6 +1441,56 @@ mod tests {
             cache.can_mut(),
             "a graph replaying against a buffer must not stop it being updated in place"
         );
+    }
+
+    /// A dedicated allocation is its own device allocation, returned on the
+    /// tick after it is freed, whatever mode encloses it.
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn dedicated_allocations_are_released_once_freed() {
+        /// The floor the `Adaptive` preset carves its pages at.
+        const FLOOR: u64 = 2 * MIB;
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &MemoryDeviceProperties::new(1024 * MIB, 32),
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+        let reserve = |memory: &mut MemoryManagement<BytesStorage>, size| {
+            memory
+                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
+                .unwrap()
+        };
+
+        memory.mode(MemoryAllocationMode::Persistent);
+        memory.mode(MemoryAllocationMode::Dedicated);
+        let probe = reserve(&mut memory, 200 * MIB);
+        memory.mode(MemoryAllocationMode::Auto);
+        let weight = reserve(&mut memory, MIB);
+        memory.mode(MemoryAllocationMode::Auto);
+
+        assert_eq!(
+            memory.memory_report().persistent.usage.in_use_bytes,
+            MIB,
+            "closing the dedicated window restores the persistent one"
+        );
+        let report = memory.memory_report();
+        assert_eq!(report.usage().reserved_bytes, 200 * MIB + MIB);
+        assert_eq!(
+            (report.dedicated.kind, report.dedicated.page_count),
+            (MemoryPoolKind::Direct, 1),
+            "the dedicated allocation is reported as its own pool"
+        );
+
+        drop(probe);
+        let _tick = reserve(&mut memory, MIB);
+        assert_eq!(
+            memory.memory_report().usage().reserved_bytes,
+            MIB + FLOOR,
+            "the probe buffer is gone; the weight and one adaptive page remain"
+        );
+        drop(weight);
     }
 
     #[test_log::test]
