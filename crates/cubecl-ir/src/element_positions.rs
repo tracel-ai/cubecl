@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "amd", feature = "nvidia")))]
 use crate::types::matrix::{MatrixIdent, MatrixShape};
 
 /// Where each element that the lanes of a plane, or of a plane group, hold of a matrix operand lies
@@ -20,7 +20,7 @@ impl ElementPositions {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "amd", feature = "nvidia")))]
 impl ElementPositions {
     /// How many times each cell of an operand, in row-major order, is held by `lanes` lanes of
     /// `elems` elements each.
