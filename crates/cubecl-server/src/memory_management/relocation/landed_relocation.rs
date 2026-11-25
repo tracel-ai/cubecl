@@ -1,5 +1,7 @@
-use super::Move;
-use crate::memory_management::MemoryLocation;
+use super::{Move, RelocationCopier};
+use crate::memory_management::{MemoryLocation, release_or_leak};
+use crate::server::ServerError;
+use crate::storage::StorageAllocator;
 use alloc::vec::Vec;
 
 /// A [`Relocation`](super::Relocation) whose copies have landed: what the
@@ -23,9 +25,33 @@ impl LandedRelocation {
 }
 
 impl LandedRelocation {
-    /// The relocation of `moves`, whose copies landed.
-    pub(super) fn new(moves: Vec<Move>) -> Self {
-        Self { moves }
+    /// Copy the bytes of every one of `moves` with `copier`, waiting for the
+    /// device before the first copy and for the copies after the last, and
+    /// hand the moves back landed once every copy did. The wait for the
+    /// copies happens whether every one of them was enqueued or not, and when
+    /// it fails on a device that is not poisoned, the moves are leaked rather
+    /// than freed under a copy still writing.
+    ///
+    /// # Errors
+    ///
+    /// The first copy the device refused, or the fault a wait revealed.
+    pub(super) fn land<Storage: StorageAllocator>(
+        moves: Vec<Move>,
+        storage: &mut Storage,
+        copier: &mut dyn RelocationCopier<Storage>,
+    ) -> Result<Self, ServerError> {
+        copier.wait_device()?;
+        let enqueued = moves
+            .iter()
+            .filter_map(|relocated| relocated.copy.as_ref())
+            .try_for_each(|copy| copier.copy(storage, copy));
+        if let Err(err) = copier.wait_copies() {
+            release_or_leak(moves, &err);
+            enqueued?;
+            return Err(err);
+        }
+        enqueued?;
+        Ok(Self { moves })
     }
 }
 

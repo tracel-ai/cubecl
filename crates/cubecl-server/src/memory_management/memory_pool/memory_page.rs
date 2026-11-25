@@ -5,7 +5,7 @@ use crate::{
         memory_pool::{PageMapping, Slice, bind_slice, missing, padded_size, slices_usage},
     },
     server::IoError,
-    storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization},
+    storage::{StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::format;
 use alloc::string::String;
@@ -109,7 +109,7 @@ impl MemoryPage {
     ///
     /// When the page holds no slice at `index`.
     pub(crate) fn mapped_storage_at_index(&self, index: usize) -> Option<StorageHandle> {
-        self.mapped.then(|| self.slices[index].storage.clone())
+        mapped_storage(&self.slices, self.mapped, index)
     }
 
     /// The page-wide storage id, the one every slice on the page shares.
@@ -172,7 +172,7 @@ impl MemoryPage {
     ///
     /// [`IoError::NotFound`] when the page holds no slice there.
     pub(crate) fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        find_at(&self.slices, binding.descriptor().slice())
+        find_at(&self.slices, binding)
     }
 
     /// The slice `binding`'s location names, mutably.
@@ -184,7 +184,7 @@ impl MemoryPage {
         &mut self,
         binding: &ManagedMemoryBinding,
     ) -> Result<&mut Slice, IoError> {
-        find_at_mut(&mut self.slices, binding.descriptor().slice())
+        find_at_mut(&mut self.slices, binding)
     }
 
     /// Number the page `page_index` in every location its slices carry.
@@ -198,22 +198,16 @@ impl MemoryPage {
     /// failure it carried is released on the spot; nobody holds a handle to a
     /// free slice, so losing the tag costs nothing but the decrement.
     pub(crate) fn coalesce(&mut self, failures: &mut ErrorGraph) {
-        self.slices
-            .dedup_by(|later, earlier| merge_free(later, earlier, failures));
-        number_slices(&self.slices, self.location_base);
+        coalesce(&mut self.slices, self.location_base, failures);
     }
 
-    /// Give the page back, for a page about to be dropped whole: the failure
-    /// every slice still carries is released, since a tag must not outlive
-    /// its carrier, and the allocation goes back to the driver unless it was
-    /// never backed, in which case there is nothing behind its minted id.
-    pub(crate) fn release<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
-        failures: &mut ErrorGraph,
-    ) {
+    /// Release every failure the page's slices still carry, for a page about
+    /// to be dropped whole, since a tag must not outlive its carrier. Answers
+    /// the device allocation to give back, `None` when the page was never
+    /// backed and there is nothing behind its minted id.
+    pub(crate) fn release(&mut self, failures: &mut ErrorGraph) -> Option<StorageId> {
         shed(&mut self.slices, failures);
-        deallocate_mapped(self.mapped, self.storage.id, storage);
+        self.mapped.then_some(self.storage.id)
     }
 }
 
@@ -243,14 +237,31 @@ fn bind_at(
     bind_slice(slice, assigned, cursor, failures);
 }
 
-/// The slice of `slices` at `index`.
-fn find_at(slices: &[Slice], index: usize) -> Result<&Slice, IoError> {
+/// The storage of the slice of `slices` at `index`, when the page is `mapped`.
+fn mapped_storage(slices: &[Slice], mapped: bool, index: usize) -> Option<StorageHandle> {
+    mapped.then(|| slices[index].storage.clone())
+}
+
+/// The slice of `slices` `binding`'s location names.
+fn find_at<'a>(slices: &'a [Slice], binding: &ManagedMemoryBinding) -> Result<&'a Slice, IoError> {
+    let index = binding.descriptor().slice();
     slices.get(index).ok_or_else(|| missing("slice", index))
 }
 
-/// The slice of `slices` at `index`, mutably.
-fn find_at_mut(slices: &mut [Slice], index: usize) -> Result<&mut Slice, IoError> {
+/// The slice of `slices` `binding`'s location names, mutably.
+fn find_at_mut<'a>(
+    slices: &'a mut [Slice],
+    binding: &ManagedMemoryBinding,
+) -> Result<&'a mut Slice, IoError> {
+    let index = binding.descriptor().slice();
     slices.get_mut(index).ok_or_else(|| missing("slice", index))
+}
+
+/// Merge every run of neighbouring free slices of `slices` into one, and
+/// number them from `location_base` again.
+fn coalesce(slices: &mut Vec<Slice>, location_base: MemoryLocation, failures: &mut ErrorGraph) {
+    slices.dedup_by(|later, earlier| merge_free(later, earlier, failures));
+    number_slices(slices, location_base);
 }
 
 /// Give every slice of `slices` the location `location_base` with its index.
@@ -267,17 +278,6 @@ fn number_slices(slices: &[Slice], location_base: MemoryLocation) {
 fn shed(slices: &mut [Slice], failures: &mut ErrorGraph) {
     for slice in slices {
         slice.tainted.clear(failures);
-    }
-}
-
-/// Return the allocation `id` to the driver, when it is `mapped`.
-fn deallocate_mapped<Storage: StorageAllocator>(
-    mapped: bool,
-    id: StorageId,
-    storage: &mut Storage,
-) {
-    if mapped {
-        storage.deallocate(id);
     }
 }
 

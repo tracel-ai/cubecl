@@ -2,9 +2,7 @@ use crate::{
     memory_management::{
         BytesFormat, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage, PageGuard,
-        memory_pool::{
-            MemoryPage, PageMapping, Slice, SliceReserver, missing, page_storage, pool_origin,
-        },
+        memory_pool::{MemoryPage, PageMapping, Slice, SliceReserver, missing, pool_origin},
     },
     server::IoError,
     storage::{StorageAllocator, StorageHandle},
@@ -117,7 +115,7 @@ impl PagedSliceReserver {
         storage: &mut Storage,
         location: MemoryLocation,
     ) -> Result<StorageHandle, IoError> {
-        map_page(&mut self.pages[location.page as usize], storage)?;
+        Self::map_page(&mut self.pages[location.page as usize], storage)?;
         Ok(self.slice_at(location).storage.clone())
     }
 
@@ -173,7 +171,7 @@ impl PagedSliceReserver {
         failures: &mut ErrorGraph,
     ) {
         self.pages
-            .retain_mut(|page| keep_used(page, storage, failures));
+            .retain_mut(|page| Self::keep_used(page, storage, failures));
         for (index, page) in self.pages.iter_mut().enumerate() {
             page.set_page_index(index as u16);
         }
@@ -195,7 +193,7 @@ impl PagedSliceReserver {
             page: self.pages.len() as u16,
             ..self.location_base
         };
-        let handle = page_storage(mapping, storage, self.layout.page_size_bytes)?;
+        let handle = Self::page_storage(mapping, storage, self.layout.page_size_bytes)?;
         let mut page = MemoryPage::new(handle, self.layout.alignment_bytes, location_base, mapping);
         let reserved = page
             .try_reserve_bytes(size)
@@ -208,48 +206,54 @@ impl PagedSliceReserver {
     }
 }
 
+impl PagedSliceReserver {
+    /// Give `page` real device backing, if it was carved lazily.
+    ///
+    /// The virtual carving *is* the layout: the page is allocated for real and
+    /// rebound — every slice keeps its offset, the minted id ceases to exist (it
+    /// never reached the driver).
+    fn map_page<Storage: StorageAllocator>(
+        page: &mut MemoryPage,
+        storage: &mut Storage,
+    ) -> Result<(), IoError> {
+        if page.is_mapped() {
+            return Ok(());
+        }
+        let size = page.size();
+        let real = storage
+            .allocate_bytes(size)
+            .map_err(|err| IoError::StorageMappingFailed {
+                size,
+                source: alloc::boxed::Box::new(err),
+                backtrace: BackTrace::capture(),
+            })?;
+        page.rebind_storage(real.id);
+        Ok(())
+    }
+
+    /// Whether `page` stays: one nothing is live on and nothing guards goes back.
+    fn keep_used<Storage: StorageAllocator>(
+        page: &mut MemoryPage,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        page.coalesce(failures);
+        if !page.is_empty() || page.is_guarded() {
+            return true;
+        }
+        // An unmapped page has nothing behind its minted id: handing it to the
+        // driver's deferred-free queue would be garbage.
+        if let Some(id) = page.release(failures) {
+            storage.deallocate(id);
+        }
+        false
+    }
+}
+
 /// Whether graphs guard every page of `pages`, and there are some: room for
 /// work outside a capture comes only from a new page then.
 pub(crate) fn all_guarded(pages: &[MemoryPage]) -> bool {
     !pages.is_empty() && pages.iter().all(MemoryPage::is_guarded)
-}
-
-/// Give `page` real device backing, if it was carved lazily.
-///
-/// The virtual carving *is* the layout: the page is allocated for real and
-/// rebound — every slice keeps its offset, the minted id ceases to exist (it
-/// never reached the driver).
-fn map_page<Storage: StorageAllocator>(
-    page: &mut MemoryPage,
-    storage: &mut Storage,
-) -> Result<(), IoError> {
-    if page.is_mapped() {
-        return Ok(());
-    }
-    let size = page.size();
-    let real = storage
-        .allocate_bytes(size)
-        .map_err(|err| IoError::StorageMappingFailed {
-            size,
-            source: alloc::boxed::Box::new(err),
-            backtrace: BackTrace::capture(),
-        })?;
-    page.rebind_storage(real.id);
-    Ok(())
-}
-
-/// Whether `page` stays: one nothing is live on and nothing guards goes back.
-fn keep_used<Storage: StorageAllocator>(
-    page: &mut MemoryPage,
-    storage: &mut Storage,
-    failures: &mut ErrorGraph,
-) -> bool {
-    page.coalesce(failures);
-    if !page.is_empty() || page.is_guarded() {
-        return true;
-    }
-    page.release(storage, failures);
-    false
 }
 
 /// Whether `size` bytes leave little enough of a page of `page_size` unused,
@@ -315,7 +319,7 @@ impl SliceReserver for PagedSliceReserver {
         else {
             return Ok(());
         };
-        map_page(page, storage)
+        Self::map_page(page, storage)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {

@@ -1,6 +1,6 @@
 use super::{
     ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, missing, padded_size, pool_origin, release_slice, slices_usage,
+    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
 };
 use crate::{
     memory_management::{
@@ -112,6 +112,26 @@ impl ExclusiveSliceReserver {
     }
 }
 
+impl ExclusiveSliceReserver {
+    /// Whether `page` stays: a free one is counted as found free once more, and
+    /// released once found free often enough, or on an explicit `cleanup`.
+    fn keep_used<Storage: StorageAllocator>(
+        page: &mut ExclusivePage,
+        cleanup: Cleanup,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        page.free_count += u32::from(page.slice.is_free());
+        let unused = page.slice.is_free()
+            && (page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit);
+        if !unused {
+            return true;
+        }
+        Self::release_slice(&mut page.slice, storage, failures);
+        false
+    }
+}
+
 impl SliceReserver for ExclusiveSliceReserver {
     fn accepts_bytes(&self, size: u64) -> bool {
         self.max_alloc_size >= size
@@ -214,7 +234,7 @@ impl SliceReserver for ExclusiveSliceReserver {
         }
         self.last_dealloc_check = reservation_count;
         self.pages
-            .retain_mut(|page| keep_used(page, cleanup, storage, failures));
+            .retain_mut(|page| Self::keep_used(page, cleanup, storage, failures));
         for (index, page) in self.pages.iter().enumerate() {
             page.slice.descriptor().update_page(index as u16);
         }
@@ -250,24 +270,6 @@ impl SliceReserver for ExclusiveSliceReserver {
             .map(|page| &mut page.slice)
             .ok_or_else(|| missing("page", index))
     }
-}
-
-/// Whether `page` stays: a free one is counted as found free once more, and
-/// released once found free often enough, or on an explicit `cleanup`.
-fn keep_used<Storage: StorageAllocator>(
-    page: &mut ExclusivePage,
-    cleanup: Cleanup,
-    storage: &mut Storage,
-    failures: &mut ErrorGraph,
-) -> bool {
-    page.free_count += u32::from(page.slice.is_free());
-    let unused = page.slice.is_free()
-        && (page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit);
-    if !unused {
-        return true;
-    }
-    release_slice(&mut page.slice, storage, failures);
-    false
 }
 
 impl core::fmt::Display for ExclusiveSliceReserver {

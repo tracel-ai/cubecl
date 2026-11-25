@@ -1,8 +1,8 @@
-use super::{ManagedMemoryDescriptor, ManagedMemoryHandle, PageMapping, page_storage};
+use super::{ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
     memory_management::{ErrorGraph, MemoryLocation, MemoryUsage, Taint},
     server::IoError,
-    storage::{StorageAllocator, StorageHandle, StorageUtilization},
+    storage::{StorageHandle, StorageUtilization},
 };
 use alloc::format;
 use cubecl_environment::backtrace::BackTrace;
@@ -94,26 +94,6 @@ pub(crate) fn missing(kind: &str, index: usize) -> IoError {
     }
 }
 
-/// A slice that owns its whole device allocation of `padded_size` bytes,
-/// serving `size` of them at `location`, backed now or later as `mapping` says.
-///
-/// # Errors
-///
-/// Whatever the storage refuses.
-pub(crate) fn whole_slice<Storage: StorageAllocator>(
-    storage: &mut Storage,
-    size: u64,
-    padded_size: u64,
-    mapping: PageMapping,
-    location: MemoryLocation,
-) -> Result<Slice, IoError> {
-    let mut slice = Slice::new(page_storage(mapping, storage, padded_size)?, 0);
-    slice.mapped = mapping == PageMapping::Eager;
-    fit_whole_slice(&mut slice, size, padded_size);
-    slice.descriptor().update_location(location);
-    Ok(slice)
-}
-
 /// Serve `size` bytes from the start of a slice that owns its whole
 /// allocation, which `padded_size` bytes take once aligned.
 pub(crate) fn fit_whole_slice(slice: &mut Slice, size: u64, padded_size: u64) {
@@ -162,54 +142,6 @@ pub(crate) fn hand_over(source: &mut Slice, target: &mut Slice, failures: &mut E
     core::mem::swap(&mut target.tainted, &mut source.tainted);
 }
 
-/// Give a slice that owns its whole allocation, found for `binding`, real
-/// device backing if it was allocated [`PageMapping::Lazy`]: allocate for
-/// real and retire the minted id, which never reached the driver.
-///
-/// A missing slice, a mapped one and one `binding` has no claim on are left
-/// alone: lookup errors are the lookup's to report, and backing a slice
-/// nobody asked to resolve would allocate device memory for nothing.
-///
-/// # Errors
-///
-/// [`IoError::StorageMappingFailed`] when the storage refuses the allocation.
-pub(crate) fn materialize_whole<Storage: StorageAllocator>(
-    slice: Option<&mut Slice>,
-    binding: &super::ManagedMemoryBinding,
-    storage: &mut Storage,
-) -> Result<(), IoError> {
-    let Some(slice) =
-        slice.filter(|slice| !slice.mapped && slice.descriptor() == binding.descriptor())
-    else {
-        return Ok(());
-    };
-    let size = slice.effective_size();
-    let real = storage
-        .allocate_bytes(size)
-        .map_err(|err| IoError::StorageMappingFailed {
-            size,
-            source: alloc::boxed::Box::new(err),
-            backtrace: BackTrace::capture(),
-        })?;
-    slice.storage.id = real.id;
-    slice.mapped = true;
-    Ok(())
-}
-
-/// Release a slice that owns its whole allocation: the failure it carried
-/// goes with it, and its allocation goes back to the driver unless it was
-/// never backed, in which case there is nothing behind its minted id.
-pub(crate) fn release_slice<Storage: StorageAllocator>(
-    slice: &mut Slice,
-    storage: &mut Storage,
-    failures: &mut ErrorGraph,
-) {
-    slice.tainted.clear(failures);
-    if slice.mapped {
-        storage.deallocate(slice.storage.id);
-    }
-}
-
 /// What `slices` hold: the live ones' count, bytes and padding, and every
 /// slice's padded size as the bytes reserved.
 pub(crate) fn slices_usage<'a>(slices: impl Iterator<Item = &'a Slice>) -> MemoryUsage {
@@ -234,7 +166,7 @@ fn slice_usage(slice: &Slice) -> MemoryUsage {
 mod tests {
     use super::*;
     use crate::server::ServerError;
-    use crate::storage::{BytesStorage, StorageId};
+    use crate::storage::StorageId;
 
     fn slice(size: u64) -> Slice {
         Slice::new(
@@ -310,50 +242,6 @@ mod tests {
             (9, Some(failure))
         );
         assert!(source.is_free() && source.tainted.is_clean());
-    }
-
-    /// Backing is installed only for an unmapped slice the binding owns.
-    #[test]
-    fn only_an_unmapped_slice_the_binding_owns_is_backed() {
-        let mut storage = BytesStorage::default();
-        let mut owned = slice(64);
-        owned.mapped = false;
-        let binding = owned.handle.clone().binding();
-
-        materialize_whole(None, &binding, &mut storage).expect("nothing should be backed");
-        materialize_whole(
-            Some(&mut owned),
-            &ManagedMemoryHandle::new().binding(),
-            &mut storage,
-        )
-        .expect("a foreign binding should be left alone");
-        assert!(!owned.mapped);
-
-        materialize_whole(Some(&mut owned), &binding, &mut storage)
-            .expect("the storage should back the slice");
-        assert!(owned.mapped);
-        assert_eq!(storage.bytes_allocated(), 64);
-    }
-
-    /// A released slice returns its allocation only when it was backed.
-    #[test]
-    fn a_released_slice_returns_only_a_backed_allocation() {
-        let mut storage = BytesStorage::default();
-        let mut failures = ErrorGraph::default();
-        let mut backed = Slice::new(
-            storage
-                .allocate_bytes(64)
-                .expect("the host should have 64 bytes"),
-            0,
-        );
-        let mut minted = slice(64);
-        minted.mapped = false;
-
-        release_slice(&mut minted, &mut storage, &mut failures);
-        release_slice(&mut backed, &mut storage, &mut failures);
-        storage.flush();
-
-        assert_eq!(storage.bytes_allocated(), 0);
     }
 
     /// The usage of slices counts live ones only, and every slice's padded

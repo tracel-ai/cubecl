@@ -1,8 +1,4 @@
-use crate::{
-    execution::{ProcessMode, StreamMode},
-    server::IoError,
-    storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization},
-};
+use crate::execution::{ProcessMode, StreamMode};
 
 /// Whether a fresh device page gets real backing at allocation time.
 ///
@@ -55,50 +51,5 @@ impl PageMapping {
     /// [process mode](ProcessMode) in force asks.
     pub fn current() -> Self {
         Self::from(ProcessMode::current())
-    }
-}
-
-/// A storage handle for `size` bytes honoring `mapping`: a real device
-/// allocation when [`Eager`](PageMapping::Eager), a minted id awaiting
-/// [`SliceReserver::materialize`](super::SliceReserver::materialize) when
-/// [`Lazy`](PageMapping::Lazy).
-///
-/// # Errors
-///
-/// Whatever the storage refuses, for an eager mapping.
-pub(crate) fn page_storage<Storage: StorageAllocator>(
-    mapping: PageMapping,
-    storage: &mut Storage,
-    size: u64,
-) -> Result<StorageHandle, IoError> {
-    match mapping {
-        PageMapping::Eager => storage.allocate_bytes(size),
-        PageMapping::Lazy => Ok(StorageHandle::new(
-            StorageId::new(),
-            StorageUtilization {
-                offset_bytes: 0,
-                size_bytes: size,
-            },
-        )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::storage::BytesStorage;
-
-    /// A lazy page mints an id the storage never allocated, and an eager one
-    /// is allocated now.
-    #[test]
-    fn only_an_eager_page_is_allocated_now() {
-        let mut storage = BytesStorage::default();
-
-        let lazy = page_storage(PageMapping::Lazy, &mut storage, 64)
-            .expect("a minted id should never fail");
-        assert_eq!((lazy.size(), storage.bytes_allocated()), (64, 0));
-
-        page_storage(PageMapping::Eager, &mut storage, 64).expect("the host should have 64 bytes");
-        assert_eq!(storage.bytes_allocated(), 64);
     }
 }

@@ -1,7 +1,6 @@
 use super::{
     ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, materialize_whole, missing, padded_size, pool_origin, release_slice,
-    slices_usage, whole_slice,
+    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -52,6 +51,21 @@ impl PersistentSliceReserver {
     pub(crate) fn has_size_bytes(&self, size_bytes: u64) -> bool {
         padded_size(size_bytes, self.alignment)
             .is_some_and(|effective_size| self.sizes.contains_key(&effective_size))
+    }
+}
+
+impl PersistentSliceReserver {
+    /// Whether `slice` stays, releasing it when it is free.
+    fn keep_live<Storage: StorageAllocator>(
+        slice: &mut Slice,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        if !slice.is_free() {
+            return true;
+        }
+        Self::release_slice(slice, storage, failures);
+        false
     }
 }
 
@@ -119,7 +133,7 @@ impl SliceReserver for PersistentSliceReserver {
             slice: position as u32,
             ..self.location_base
         };
-        let slice = whole_slice(storage, size, effective_size, mapping, location)?;
+        let slice = Self::whole_slice(storage, size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         self.sizes.entry(effective_size).or_default().push(position);
         self.slices.push(slice);
@@ -159,7 +173,7 @@ impl SliceReserver for PersistentSliceReserver {
             return;
         }
         self.slices
-            .retain_mut(|slice| keep_live(slice, storage, failures));
+            .retain_mut(|slice| Self::keep_live(slice, storage, failures));
         self.sizes.clear();
         for (position, slice) in self.slices.iter().enumerate() {
             slice.descriptor().update_slice(position as u32);
@@ -194,21 +208,8 @@ impl SliceReserver for PersistentSliceReserver {
         binding: &ManagedMemoryBinding,
     ) -> Result<(), IoError> {
         let slice = self.slices.get_mut(binding.descriptor().slice());
-        materialize_whole(slice, binding, storage)
+        Self::materialize_whole(slice, binding, storage)
     }
-}
-
-/// Whether `slice` stays, releasing it when it is free.
-fn keep_live<Storage: StorageAllocator>(
-    slice: &mut Slice,
-    storage: &mut Storage,
-    failures: &mut ErrorGraph,
-) -> bool {
-    if !slice.is_free() {
-        return true;
-    }
-    release_slice(slice, storage, failures);
-    false
 }
 
 impl core::fmt::Display for PersistentSliceReserver {

@@ -1,7 +1,6 @@
 use super::{
     ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, materialize_whole, missing, padded_size, pool_origin, release_slice,
-    slices_usage, whole_slice,
+    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -133,7 +132,7 @@ impl DirectSliceReserver {
             let mut slice = self.slices[index]
                 .take()
                 .expect("a slice marked for release should be held");
-            release_slice(&mut slice, storage, failures);
+            Self::release_slice(&mut slice, storage, failures);
             self.vacant.push(index);
         }
         released
@@ -200,7 +199,7 @@ impl SliceReserver for DirectSliceReserver {
             slice: index as u32,
             ..self.location_base
         };
-        let slice = whole_slice(storage, size, effective_size, mapping, location)?;
+        let slice = Self::whole_slice(storage, size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         place(&mut self.slices, index, slice);
         self.peak_pages = self.peak_pages.max(self.live().count() as u64);
@@ -217,7 +216,7 @@ impl SliceReserver for DirectSliceReserver {
             .slices
             .get_mut(binding.descriptor().slice())
             .and_then(Option::as_mut);
-        materialize_whole(slice, binding, storage)
+        Self::materialize_whole(slice, binding, storage)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {

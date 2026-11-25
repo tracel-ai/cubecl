@@ -7,7 +7,7 @@
 //! before its bytes are where it moves to.
 
 use super::{LandedRelocation, RelocationCopier};
-use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, release_or_leak};
+use crate::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle};
 use crate::server::ServerError;
 use crate::storage::StorageAllocator;
 use crate::storage::StorageHandle;
@@ -92,7 +92,7 @@ impl Relocation {
         storage: &mut Storage,
         copier: &mut dyn RelocationCopier<Storage>,
     ) -> Result<LandedRelocation, ServerError> {
-        land(self.moves, storage, copier)
+        LandedRelocation::land(self.moves, storage, copier)
     }
 }
 
@@ -101,27 +101,6 @@ impl Relocation {
     pub(crate) fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }
-}
-
-/// Copy the bytes of every one of `moves` with `copier`, and hand the moves
-/// back landed once every copy did.
-fn land<Storage: StorageAllocator>(
-    moves: Vec<Move>,
-    storage: &mut Storage,
-    copier: &mut dyn RelocationCopier<Storage>,
-) -> Result<LandedRelocation, ServerError> {
-    copier.wait_device()?;
-    let enqueued = moves
-        .iter()
-        .filter_map(|relocated| relocated.copy.as_ref())
-        .try_for_each(|copy| copier.copy(storage, copy));
-    if let Err(err) = copier.wait_copies() {
-        release_or_leak(moves, &err);
-        enqueued?;
-        return Err(err);
-    }
-    enqueued?;
-    Ok(LandedRelocation::new(moves))
 }
 
 #[cfg(all(test, feature = "storage-bytes"))]
