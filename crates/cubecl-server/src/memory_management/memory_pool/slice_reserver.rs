@@ -38,7 +38,7 @@ pub trait SliceReserver {
     ///
     /// # Panics
     ///
-    /// When `reserved` names no slice the pool holds.
+    /// When `reserved` did not come from this pool.
     fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,

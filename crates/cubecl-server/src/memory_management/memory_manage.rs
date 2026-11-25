@@ -77,7 +77,8 @@ pub enum Cleanup {
 /// - `failures`, in every function that takes it, is the [`ErrorGraph`] that
 ///   holds the failures this memory's allocations carry.
 /// - Every handle and binding handed to a function was placed by this
-///   memory's reservations, or was never placed at all.
+///   memory's reservations and names its allocation's current location, or
+///   was never placed at all.
 ///
 /// # Guarantees
 ///
@@ -135,10 +136,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// The stream cursor the allocation behind `binding` was bound at.
     ///
-    /// # Assumptions
-    ///
-    /// A placed `binding` names its allocation's current location.
-    ///
     /// # Guarantees
     ///
     /// A binding that never had an allocation is refused with
@@ -158,10 +155,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// The storage behind `binding`, which always refers to mapped memory: the
     /// funnel every buffer dereference passes through, so it is where a
     /// lazily-carved allocation gets its real device backing.
-    ///
-    /// # Assumptions
-    ///
-    /// A placed `binding` names its allocation's current location.
     ///
     /// # Guarantees
     ///
@@ -261,10 +254,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// allocation in place, and leaves the rest of its page to other
     /// allocations.
     ///
-    /// # Assumptions
-    ///
-    /// A placed `binding` names its allocation's current location.
-    ///
     /// # Guarantees
     ///
     /// A binding that never had an allocation is refused with
@@ -288,10 +277,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     }
 
     /// The resource behind `binding`, trimmed by its offsets.
-    ///
-    /// # Assumptions
-    ///
-    /// A placed `binding` names its allocation's current location.
     ///
     /// # Guarantees
     ///
@@ -408,8 +393,8 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Assumptions
     ///
-    /// `binding` was placed, and names its allocation's current location: a
-    /// caller asks a buffer never allocated the error graph instead.
+    /// `binding` was placed: a caller asks the error graph about a buffer
+    /// never allocated.
     ///
     /// # Panics
     ///
@@ -419,13 +404,16 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         self.reserver.failure(binding, range)
     }
 
-    /// Point `range` of the allocation behind `binding` at `failure`. A
-    /// binding never placed is left alone: it has no slice to carry a
-    /// failure, and its callers pass every binding unfiltered.
+    /// Point `range` of the allocation behind `binding` at `failure`.
     ///
     /// # Assumptions
     ///
     /// `failure` is one `failures` holds.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding never placed is left alone: it has no slice to carry a
+    /// failure, and the callers pass every binding unfiltered.
     ///
     /// # Panics
     ///
@@ -444,8 +432,11 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// `range` of the allocation behind `binding` has a writer again: release
     /// every claim on those bytes — and only those bytes, since a partial
-    /// write says nothing about the rest of the buffer. A binding never
-    /// placed is left alone.
+    /// write says nothing about the rest of the buffer.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding never placed is left alone.
     ///
     /// # Panics
     ///
@@ -679,7 +670,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
             .expect("a location should name a pool of the memory that placed it")
     }
 
-    /// The pool `location` names, mutably, if this memory has it.
+    /// [`pool_mut`](Self::pool_mut), `None` where it panics.
     fn try_pool_mut(&mut self, location: MemoryLocation) -> Option<&mut dyn SliceReserver> {
         match PoolPosition::from_pool_index(location.pool) {
             PoolPosition::Persistent => Some(&mut self.persistent),

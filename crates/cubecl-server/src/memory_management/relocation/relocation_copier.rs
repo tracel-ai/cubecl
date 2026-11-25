@@ -16,7 +16,7 @@ use crate::storage::StorageAllocator;
 ///
 /// An implementation promises what [`wait_device`](Self::wait_device) and
 /// [`wait_copies`](Self::wait_copies) guarantee, for the device it was built
-/// from, establishing it itself rather than assuming it of its caller: the
+/// from, establishing it itself or from a proof it is built with: the
 /// copies a relocation enqueues rely on both, so a copier that answers `Ok`
 /// early lets a copy race the work that reads or writes its memory. A host
 /// copier meets both by having the work finished when it answers.

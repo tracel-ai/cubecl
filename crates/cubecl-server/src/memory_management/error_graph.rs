@@ -182,7 +182,8 @@ impl ErrorGraph {
         self.recorder.prune(failure);
     }
 
-    /// The error behind `failure`.
+    /// The error `failure` was inserted with, or the one that last replaced
+    /// it.
     ///
     /// # Assumptions
     ///

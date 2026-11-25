@@ -20,18 +20,17 @@ use cubecl_environment::bytes::Bytes;
 /// This double-buffer scheme means host memory is held for at most two flush
 /// cycles, while avoiding any unnecessary stalls on the hot path.
 ///
-/// Dropping the queue leaks what it still holds, and the fence it waits
-/// behind, without waiting on the device or calling it: whether the device is
-/// done reading it is unknown then, and memory leaked at teardown costs less
-/// than memory freed under a read.
-///
 /// # Guarantees
 ///
 /// - Nothing the queue holds is freed before the fence of the batch it was
 ///   staged in signals, unless that fence's wait failed on a poisoned device,
 ///   which reads nothing any more. After a wait that failed on a device that
 ///   is not poisoned, the batch is leaked, since the device may still be
-///   reading it, and so is whatever the queue holds when it is dropped.
+///   reading it.
+/// - Dropping the queue leaks what it still holds and the fence it waits
+///   behind, without waiting on the device or calling it: peer bindings
+///   included, which keeps their allocations on the owner device for that
+///   device's lifetime.
 /// - A queue that holds nothing mints no fence: a fence is recorded on the
 ///   stream, which an open capture window cannot tolerate.
 pub struct PendingDropQueue<F: DeviceWaiter> {
@@ -130,11 +129,9 @@ struct DropFlusher<F: DeviceWaiter> {
 }
 
 impl<F: DeviceWaiter> Drop for DropFlusher<F> {
-    /// Leak whatever is still held, fence included: nothing waits on the
-    /// device at teardown, so the device may still be reading it.
     fn drop(&mut self) {
-        core::mem::forget(core::mem::take(&mut self.staged));
-        core::mem::forget(self.pending.take());
+        self.staged.drain(..).for_each(core::mem::forget);
+        self.pending.take().into_iter().for_each(core::mem::forget);
     }
 }
 

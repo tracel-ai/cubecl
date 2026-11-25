@@ -94,8 +94,8 @@ impl<'a, D: Driver> Command<'a, D> {
     }
 
     /// The device allocation `binding` names, for a caller outside the server
-    /// that keeps its raw address: it holds the allocation and a guard on its
-    /// page for as long as it lives.
+    /// that keeps its raw address: it holds the allocation's binding for as
+    /// long as it lives.
     ///
     /// # Errors
     ///

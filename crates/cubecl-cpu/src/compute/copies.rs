@@ -24,9 +24,9 @@ impl<'a> CpuCopies<'a> {
     }
 }
 
-// SAFETY: every stream's work was submitted, as the `StreamsSubmitted` `new`
-// takes proves, and `wait_device` waits on the stream's launch progress, so
-// every launch issued before it has run when it answers. A copy is a `memcpy`
+// SAFETY: the `StreamsSubmitted` `new` takes proves the scheduler flushed every
+// stream, and a CPU stream's flush waits for its launch progress: every launch
+// of every stream issued before the relocation has run. A copy is a `memcpy`
 // that has landed by the time `copy` returns, so `wait_copies` has nothing
 // left to wait for.
 unsafe impl RelocationCopier<BytesStorage> for CpuCopies<'_> {

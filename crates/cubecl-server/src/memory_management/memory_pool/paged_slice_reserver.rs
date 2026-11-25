@@ -50,7 +50,7 @@ pub(crate) struct PagedSliceReserver {
 pub(crate) struct PagedLayout {
     /// The size every page is allocated at.
     pub page_size_bytes: u64,
-    /// The largest allocation the pool accepts, at most the page size.
+    /// The largest allocation the pool accepts.
     pub max_slice_bytes: u64,
     /// The alignment every slice starts at.
     pub alignment_bytes: u64,
