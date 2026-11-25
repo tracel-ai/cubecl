@@ -1,7 +1,7 @@
 use alloc::format;
 
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
     INLINE_DIMS, MetadataError,
@@ -14,7 +14,7 @@ use crate::{
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
-    /// How many fragments each logical dim is stored as; untiled by default.
+    /// The fragments each logical dim is stored as; untiled by default.
     /// The shape and strides stay physical. See [`Tiling`].
     pub tiling: Tiling,
 }
@@ -40,7 +40,7 @@ impl Metadata {
     ///
     /// # Errors
     ///
-    /// When `tiling` does not describe this rank: see [`Tiling::new`].
+    /// When `tiling` does not describe this rank: see [`Tiling::logical_rank`].
     pub fn with_tiling(mut self, tiling: Tiling) -> Result<Self, MetadataError> {
         tiling.logical_rank(self.rank())?;
         self.tiling = tiling;
@@ -190,9 +190,9 @@ impl Metadata {
     }
 
     /// Reorder the logical dims according to the permutation of `axes`. On a storage-tiled
-    /// tensor each logical dim moves with all its fragments, and the physical dims stay
-    /// level-major in the new logical order: the tiling is reordered with them, and no value
-    /// moves.
+    /// tensor each logical dim moves with all its fragments, and the physical dims keep the order
+    /// the tiling lists them in, relative to level-major: the tiling is reordered with them, and no
+    /// value moves.
     pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
         if !self.is_tiled() {
             self.shape.permute(axes)?;
@@ -206,10 +206,7 @@ impl Metadata {
                 right: axes.len(),
             });
         }
-        let fragments = self.tiling.fragments(rank);
-        let permuted: SmallVec<[usize; MAX_LOGICAL_DIMS]> =
-            axes.iter().map(|&axis| fragments[axis]).collect();
-        let tiling = Tiling::new(&permuted)?;
+        let tiling = self.tiling.permuted(axes)?;
         let from = self.tiling.physical_dims(rank);
         let to = tiling.physical_dims(rank);
         let mut physical = SmallVec::<[usize; INLINE_DIMS]>::from_elem(0, self.rank());
@@ -230,20 +227,25 @@ impl Metadata {
     }
 
     /// Insert a logical dimension of `shape` with `stride` at logical position `index`. On a
-    /// storage-tiled tensor it is one fragment, placed among the coarsest.
+    /// storage-tiled tensor it is one fragment, the physical dim `index`.
+    ///
+    /// # Panics
+    ///
+    /// On a storage-tiled tensor with one more dim than a tiling describes: see
+    /// [`Tiling::from_physical_dims`].
     pub fn insert(&mut self, index: usize, shape: usize, stride: usize) {
-        let physical = match self.is_tiled() {
-            false => index,
-            true => {
-                let mut fragments = self.tiling.fragments(self.known_logical_rank());
-                fragments.insert(index, 1);
-                self.tiling = Tiling::new(&fragments)
-                    .expect("a tiled tensor has room for one more untiled dim");
-                self.tiling.physical_dims(fragments.len())[index][0]
-            }
-        };
-        self.shape.insert(physical, shape);
-        self.strides.insert(physical, stride);
+        if self.is_tiled() {
+            let mut dims = self.tiling.physical_dims(self.known_logical_rank());
+            let physical = dims.iter_mut().flatten();
+            physical
+                .filter(|physical| **physical >= index)
+                .for_each(|physical| *physical += 1);
+            dims.insert(index, smallvec![index]);
+            self.tiling = Tiling::from_physical_dims(&dims)
+                .expect("a tiled tensor has room for one more untiled dim");
+        }
+        self.shape.insert(index, shape);
+        self.strides.insert(index, stride);
     }
 
     /// Remove and return the logical dimension at position `index` from the metadata.
@@ -254,23 +256,29 @@ impl Metadata {
     pub fn remove(&mut self, index: usize) -> (usize, usize) {
         let physical = match self.is_tiled() {
             false => index,
-            true => {
-                let rank = self.known_logical_rank();
-                let mut fragments = self.tiling.fragments(rank);
-                assert_eq!(
-                    fragments.remove(index),
-                    1,
-                    "Metadata::remove of a storage-tiled dim: {:?}",
-                    self.tiling
-                );
-                let physical = self.tiling.physical_dims(rank)[index][0];
-                self.tiling = Tiling::new(&fragments).expect("fewer dims fit a tiling");
-                physical
-            }
+            true => self.remove_fragment(index),
         };
         let shape = self.shape.remove(physical);
         let stride = self.strides.remove(physical);
         (shape, stride)
+    }
+
+    /// Take logical dim `index` out of the tiling, and return the physical dim it was.
+    fn remove_fragment(&mut self, index: usize) -> usize {
+        let mut dims = self.tiling.physical_dims(self.known_logical_rank());
+        let removed = dims.remove(index);
+        assert_eq!(
+            removed.len(),
+            1,
+            "Metadata::remove of a storage-tiled dim: {:?}",
+            self.tiling
+        );
+        let physical = dims.iter_mut().flatten();
+        physical
+            .filter(|physical| **physical > removed[0])
+            .for_each(|physical| *physical -= 1);
+        self.tiling = Tiling::from_physical_dims(&dims).expect("fewer dims fit a tiling");
+        removed[0]
     }
 
     /// Appends a logical dimension of `shape` with `stride` to the back of the metadata.
@@ -423,6 +431,81 @@ mod tests {
     #[should_panic(expected = "storage-tiled dim")]
     fn a_tiled_dim_is_not_removed() {
         tiled_matrix().remove(1);
+    }
+
+    /// `[m, k] = [48, 80]` stored `[m/16, k/16, m%8, k/2%4, k/8%2, m/8%2, k%2]`, back to back.
+    fn tensor_core_matrix() -> Metadata {
+        Metadata::new([3, 5, 8, 4, 2, 2, 2], [5 * 256, 256, 32, 8, 4, 2, 1])
+            .with_tiling(Tiling::from_physical_dims(&[&[0, 5, 2][..], &[1, 4, 3, 6]]).unwrap())
+            .unwrap()
+    }
+
+    /// Where the tensor core's layout puts the value at `m`, `k`.
+    fn tensor_core_offset(m: usize, k: usize) -> usize {
+        let pieces = [
+            (m / 16, 3),
+            (k / 16, 5),
+            (m % 8, 8),
+            (k / 2 % 4, 4),
+            (k / 8 % 2, 2),
+            (m / 8 % 2, 2),
+            (k % 2, 2),
+        ];
+        let mut offset = 0;
+        for (at, extent) in pieces {
+            offset = offset * extent + at;
+        }
+        offset
+    }
+
+    /// Pieces listed in any order reach every value where the layout puts it.
+    #[test]
+    fn a_tensor_core_layout_reaches_every_value() {
+        let meta = tensor_core_matrix();
+
+        assert_eq!(meta.logical_shape(), Ok(Shape::new([48, 80])));
+        for m in 0..48 {
+            for k in 0..80 {
+                assert_eq!(offset(&meta, &[m, k]), tensor_core_offset(m, k));
+            }
+        }
+    }
+
+    #[test]
+    fn a_swap_of_a_tensor_core_layout_keeps_every_value_in_place() {
+        let swapped = tensor_core_matrix().swapped(0, 1);
+
+        assert_eq!(swapped.logical_shape(), Ok(Shape::new([80, 48])));
+        for m in 0..48 {
+            for k in 0..80 {
+                assert_eq!(offset(&swapped, &[k, m]), tensor_core_offset(m, k));
+            }
+        }
+    }
+
+    /// A dim inserted among the pieces moves none of them relative to one another.
+    #[test]
+    fn a_dim_goes_in_and_out_of_a_tensor_core_layout() {
+        let meta = tensor_core_matrix();
+        let mut batched = meta.clone();
+        batched.insert(1, 7, 0);
+
+        assert_eq!(batched.logical_shape(), Ok(Shape::new([48, 7, 80])));
+        assert_eq!(offset(&batched, &[33, 2, 71]), tensor_core_offset(33, 71));
+        assert_eq!(batched.remove(1), (7, 0));
+        assert_eq!(batched, meta);
+    }
+
+    #[test]
+    fn rows_restated_in_a_tensor_core_layout_reach_the_same_values() {
+        let rows = Metadata::new([48, 80], [80, 1]);
+        let restated = rows.tiled_like(&tensor_core_matrix()).unwrap();
+
+        for m in 0..48 {
+            for k in 0..80 {
+                assert_eq!(offset(&restated, &[m, k]), m * 80 + k);
+            }
+        }
     }
 
     /// A matrix in rows restated in a tiled matrix's layout reaches each value where its rows
