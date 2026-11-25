@@ -2017,3 +2017,62 @@ impl Tile {
         panic!("Tile::cells: a window of memory holds the cells every unit of its holder reads")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use cubecl::ir::Scope;
+
+    use crate::*;
+
+    const ROW: Dimension = Dimension(0);
+    const COL: Dimension = Dimension(1);
+
+    fn test_scope() -> Scope {
+        Scope::root(cubecl::ir::settings::KernelSettings::new(
+            cubecl::ir::settings::Dim3::new_single(),
+            cubecl::ir::settings::ExecutionMode::Checked,
+            cubecl::ir::AddressType::U32,
+        ))
+    }
+
+    /// A tile of shared memory over `space`, which varies along each of its dimensions.
+    fn shared(scope: &Scope, space: &[(Dimension, usize)]) -> TileExpand {
+        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::Strided)
+    }
+
+    #[test]
+    fn factor_takes_back_the_last_scale_multiplied_in() {
+        let scope = test_scope();
+        let values = shared(&scope, &[(ROW, 4), (COL, 8)]);
+        let inner = shared(&scope, &[(ROW, 4), (COL, 8)]);
+        let outer = shared(&scope, &[(COL, 8)]);
+        let scaled = values
+            .__expand_mul_method(&scope, &inner)
+            .__expand_mul_method(&scope, &outer);
+
+        let (under, scale) = scaled.__expand_factor_method(&scope);
+
+        assert_eq!(scale.place.space, outer.place.space);
+        assert_eq!(under.factor.each_alone().len(), 1);
+    }
+
+    #[test]
+    fn factor_of_a_tile_under_no_scale_is_one() {
+        let scope = test_scope();
+        let values = shared(&scope, &[(ROW, 4)]);
+
+        let (_, scale) = values.__expand_factor_method(&scope);
+
+        assert!(scale.is_one());
+    }
+
+    #[test]
+    #[should_panic(expected = "a scale is looked up at the value's coordinates")]
+    fn mul_refuses_a_scale_varying_where_the_values_do_not() {
+        let scope = test_scope();
+        let values = shared(&scope, &[(ROW, 4)]);
+        let scale = shared(&scope, &[(COL, 8)]);
+
+        values.__expand_mul_method(&scope, &scale);
+    }
+}
