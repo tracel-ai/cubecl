@@ -22,7 +22,7 @@ impl LazyReadPlan<'_> {
         let len = source.shape.iter().product::<usize>() * source.elem_size;
         let plan = LazyReadPlan {
             source,
-            held: vec![0..len],
+            held: core::iter::once(0..len).collect(),
         };
         match plan.is_contiguous() {
             true => plan.narrowed(&(0..len)),
