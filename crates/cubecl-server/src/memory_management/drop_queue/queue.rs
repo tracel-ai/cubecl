@@ -19,11 +19,17 @@ use cubecl_environment::bytes::Bytes;
 /// This double-buffer scheme means host memory is held for at most two flush
 /// cycles, while avoiding any unnecessary stalls on the hot path.
 ///
+/// # Assumptions
+///
+/// The queue is dropped only once the device is done with what it holds: a
+/// stream drops it with itself, at teardown, after its work completed.
+///
 /// # Guarantees
 ///
-/// Nothing is freed before the fence of the batch it was staged in signals,
-/// or while a fence's wait failed on a device that is not poisoned: it is
-/// leaked then, since the device may still be reading it.
+/// - Nothing is freed before the fence of the batch it was staged in signals,
+///   or while a fence's wait failed on a device that is not poisoned: it is
+///   leaked then, since the device may still be reading it.
+/// - A queue that holds nothing mints no fence.
 pub struct PendingDropQueue<F: DeviceWaiter> {
     flusher: DropFlusher<F>,
 }
@@ -100,13 +106,7 @@ impl<F: DeviceWaiter> PendingDropQueue<F> {
 impl<F: DeviceWaiter> core::fmt::Debug for PendingDropQueue<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PendingDropQueue")
-            .field(
-                "pending",
-                &self.flusher.pending.as_ref().map(|(_, held)| held),
-            )
-            .field("staged", &self.flusher.staged)
-            .field("policy", &self.flusher.policy)
-            .field("tracker", &self.flusher.tracker)
+            .field("flusher", &self.flusher)
             .finish()
     }
 }
@@ -128,6 +128,17 @@ struct DropFlusher<F: DeviceWaiter> {
     staged: Vec<HeldMemory>,
     policy: FlushingPolicy,
     tracker: FlushTracker,
+}
+
+impl<F: DeviceWaiter> core::fmt::Debug for DropFlusher<F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DropFlusher")
+            .field("pending", &self.pending.as_ref().map(|(_, held)| held))
+            .field("staged", &self.staged)
+            .field("policy", &self.policy)
+            .field("tracker", &self.tracker)
+            .finish()
+    }
 }
 
 /// What the queue keeps alive until the device is done with it.
@@ -171,8 +182,17 @@ impl<F: DeviceWaiter> DropFlusher<F> {
         self.tracker.should_flush(&self.policy)
     }
 
+    /// Whether nothing is staged and nothing waits behind the last fence.
+    fn holds_nothing(&self) -> bool {
+        self.staged.is_empty()
+            && self
+                .pending
+                .as_ref()
+                .is_none_or(|(_, held)| held.is_empty())
+    }
+
     fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
-        if self.pending.is_none() && self.staged.is_empty() {
+        if self.holds_nothing() {
             return;
         }
         let mut batch = self
@@ -342,7 +362,7 @@ mod tests {
         assert_eq!(pending_len(&queue), None);
     }
 
-    /// Two flushes free everything held, and a third finds nothing to do.
+    /// Two flushes free everything held.
     #[test]
     fn a_drain_frees_everything_held() {
         let sync_count = Cell::new(0u32);
@@ -353,6 +373,20 @@ mod tests {
 
         assert_eq!(pending_len(&queue), Some(0));
         assert_eq!(sync_count.get(), 1);
+    }
+
+    /// A flush after a drain finds nothing held: it waits on no fence and
+    /// mints none.
+    #[test]
+    fn a_flush_after_a_drain_waits_on_nothing() {
+        let sync_count = Cell::new(0u32);
+        let (mut queue, factory) = make_queue(&sync_count);
+        queue.push(sample_bytes());
+        queue.drain(&factory);
+
+        queue.flush(|| panic!("a drained queue should mint no fence"));
+
+        assert_eq!(sync_count.get(), 1, "the last fence was not waited on");
     }
 
     /// Memory of another device is held, and counts toward the policy as an

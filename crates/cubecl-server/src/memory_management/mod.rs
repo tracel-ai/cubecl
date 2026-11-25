@@ -11,7 +11,7 @@ mod error_graph;
 mod failure_id;
 mod taint;
 
-/// Export utilities to keep track of CPU buffers when performing async data copies.
+/// Holding host memory, and memory of other devices, until the device is done reading it.
 #[cfg(multi_threading)]
 pub mod drop_queue;
 
