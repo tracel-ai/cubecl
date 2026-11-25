@@ -603,7 +603,7 @@ impl QuantScheme {
     pub fn from_code(code: u64) -> Option<Self> {
         let fields = PackedFields {
             bits: code,
-            used: 0,
+            used_bits: 0,
         };
         let (value, fields) = fields.split_bits(4)?;
         let (store, fields) = fields.split_bits(2)?;
@@ -650,11 +650,11 @@ impl QuantScheme {
             let rank = axes.len();
             let packed_axis = rank
                 .checked_sub(*packed_dim + 1)
-                .expect("the packing dim to be one of the permuted axes");
+                .expect("the packing dim should be one of the permuted axes");
             let new_axis = axes
                 .iter()
                 .position(|axis| *axis == packed_axis)
-                .expect("the permutation to contain the packed axis");
+                .expect("the permutation should contain the packed axis");
             *packed_dim = rank - new_axis - 1;
         }
     }
