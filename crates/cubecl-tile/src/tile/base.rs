@@ -371,10 +371,7 @@ impl Tile {
     /// Whether this tile is zero everywhere ([`Procedural::zero`]): a bias an op may skip.
     pub fn is_zero(&self) -> comptime_type!(bool) {
         match &self.kind {
-            TileKind::Procedural(recipe) => {
-                let identity = recipe.identity();
-                comptime!(identity == Some(Identity::Zero))
-            }
+            TileKind::Procedural(recipe) => recipe.is_zero(),
             TileKind::Memory(_)
             | TileKind::PlaneTile(_)
             | TileKind::PlanePartition(_)
@@ -1530,6 +1527,13 @@ impl TileExpand {
 
     pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
         FactorExpand::of(self).__expand_whole_method(scope)
+    }
+
+    /// These values under `factor` in place of their own.
+    pub(crate) fn with_factor(&self, factor: FactorExpand) -> TileExpand {
+        let mut under = self.clone();
+        under.factor = factor;
+        under
     }
 
     /// Whether these values vary along `dimension`: they span it and their projection addresses

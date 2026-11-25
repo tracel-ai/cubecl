@@ -151,6 +151,12 @@ impl Procedural {
         self.recipe.identity()
     }
 
+    /// Whether this source is zero everywhere ([`zero`](Self::zero)).
+    pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
+        let identity = self.identity();
+        comptime!(identity == Some(Identity::Zero))
+    }
+
     #[allow(dead_code)] // Reached through its expand, from [`Tile::factor_dependencies`].
     pub(crate) fn factor_reads(
         &self,

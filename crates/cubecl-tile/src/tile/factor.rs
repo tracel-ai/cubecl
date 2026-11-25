@@ -240,11 +240,7 @@ impl FactorExpand {
     /// Every scale tile, the innermost first, under no scale of its own.
     pub(crate) fn each_alone(&self) -> Vec<TileExpand> {
         self.leaves()
-            .map(|scale| {
-                let mut alone = scale.clone();
-                alone.factor = FactorExpand::default();
-                alone
-            })
+            .map(|scale| scale.with_factor(FactorExpand::default()))
             .collect()
     }
 
@@ -332,11 +328,7 @@ impl FactorExpand {
     ) -> FactorExpand {
         self.mapped(|scale| match scale.place.space.contains(dimension) {
             true => place(scale),
-            false => {
-                let mut kept = scale.clone();
-                kept.factor = scale.factor.spanning(dimension, place);
-                kept
-            }
+            false => scale.with_factor(scale.factor.spanning(dimension, place)),
         })
     }
 
