@@ -139,6 +139,12 @@ impl ClientGroup {
         self.clients.iter().any(Client::skips_communication)
     }
 
+    /// Whether any member discards communication ([`Client::discards_communication`]), which
+    /// makes every collective over the group skip it.
+    pub fn discards_communication(&self) -> bool {
+        self.clients.iter().any(Client::discards_communication)
+    }
+
     /// Whether the members reduce elements of `dtype` together. Every other collective moves bytes,
     /// whatever their type.
     pub fn reduces(&self, dtype: ElemType) -> bool {
@@ -341,7 +347,7 @@ impl ClientGroup {
     /// records it with `bytes` per member.
     fn record(&self, collective: Collective, bytes: u64) -> CollectiveRun {
         let first = &self.clients[0];
-        if self.skips_communication() {
+        if self.discards_communication() {
             first.record_collective(collective, &self.device_ids, bytes, CollectivePath::Skipped);
             return CollectiveRun::Skipped;
         }

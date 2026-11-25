@@ -200,6 +200,7 @@ fn a_transfer_without_a_device_transport_panics_on_the_caller() {
 
 #[test_log::test]
 #[should_panic(expected = "no transport between its devices")]
+#[serial_test::parallel]
 fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
     let mut client = test_client(&DummyDevice);
     let handle = client.create_from_slice(&[1u8, 2, 3, 4]);
@@ -215,6 +216,7 @@ fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_refuses_devices_out_of_ascending_order() {
     let clients = |indices: [u16; 2]| {
         indices
@@ -249,6 +251,7 @@ fn handles_overlap_only_where_their_bytes_meet() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_needs_a_client() {
     assert!(matches!(
         ClientGroup::new(Vec::new()),
@@ -257,6 +260,7 @@ fn a_client_group_needs_a_client() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_refuses_mixed_runtimes() {
     let clients = vec![
         Client::load::<DummyServer>(DeviceId::new(0, 0)),
@@ -270,6 +274,7 @@ fn a_client_group_refuses_mixed_runtimes() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_needs_a_device_transport() {
     let clients = [0, 1]
         .map(|index| Client::load::<DummyServer>(DeviceId::new(0, index)))
@@ -282,6 +287,7 @@ fn a_client_group_needs_a_device_transport() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
     let client = test_client(&DummyDevice);
     client.sync_collective();
@@ -290,6 +296,7 @@ fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
 const F32: ElemType = ElemType::Float(FloatKind::F32);
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_refuses_buffers_of_the_wrong_size_on_the_caller() {
     let group = transported_group();
 
@@ -321,6 +328,7 @@ fn a_client_group_refuses_buffers_of_the_wrong_size_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_refuses_overlapping_buffers_on_the_caller() {
     let group = transported_group();
     let overlapping = |src_of: fn(&Handle) -> Handle| -> Vec<MemberBuffers> {
@@ -359,6 +367,7 @@ fn a_client_group_refuses_overlapping_buffers_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_client_group_refuses_a_buffer_off_its_member_on_the_caller() {
     let group = transported_group();
     let mut buffers = member_buffers(&group, 8, 16);
@@ -368,6 +377,7 @@ fn a_client_group_refuses_a_buffer_off_its_member_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_broadcast_refuses_a_source_on_no_member_on_the_caller() {
     let group = transported_group();
     let outsider = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 2));
@@ -383,6 +393,7 @@ fn a_broadcast_refuses_a_source_on_no_member_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
     let mut client = Client::load::<DummyServer<Transported>>(DeviceId::new(0, 0));
     let device_ids = vec![DeviceId::new(0, 0), DeviceId::new(0, 1)];
@@ -404,6 +415,7 @@ fn a_per_device_all_reduce_refuses_mismatched_buffers_on_the_caller() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_group_skipping_communication_checks_every_part_and_queues_none() {
     let clients = [0, 1]
         .map(|index| Client::load::<DummyServer<CountedTransport>>(DeviceId::new(0, index)))
@@ -499,6 +511,7 @@ fn a_group_skipping_communication_checks_every_part_and_queues_none() {
 }
 
 #[test_log::test]
+#[serial_test::parallel]
 fn a_part_refuses_a_source_of_another_size_than_its_collective_on_the_caller() {
     let group = transported_group();
     let mut parts = group.parts(SUM, 8).into_iter();
@@ -776,6 +789,92 @@ fn an_observed_skipped_collective_is_issued_as_skipped_with_no_part() {
         path: CollectivePath::Skipped,
     });
     assert_eq!(kinds, [skipped.clone(), skipped]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_group_collective_under_a_pass_discarding_launches_is_issued_as_skipped_with_no_part() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    let (group, devices) = transported_group_on([88, 89]);
+    let recorded = Recorded::on(&devices);
+    let collector = StatisticsCollector::new();
+
+    let gathering = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+    drop(gathering);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    let skipped = ExecutionKind::Communication(Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 8,
+        path: CollectivePath::Skipped,
+    });
+    assert_eq!(kinds, [skipped]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_device_collective_under_a_pass_discarding_launches_is_issued_as_skipped_with_no_part() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
+
+    let (group, devices) = transported_group_on([96, 97]);
+    let recorded = Recorded::on(&devices);
+    let mut member = group.clients()[0].clone();
+    let (src, dst) = (member.empty(8), member.empty(8));
+    let collector = StatisticsCollector::new();
+
+    let gathering = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
+    let watching = ExecutionObservation::new(recorded.clone());
+    member.all_reduce(src, dst, F32, devices.clone(), ReduceOperation::Sum);
+    drop(watching);
+    drop(gathering);
+
+    let kinds: Vec<_> = recorded.issued().into_iter().map(|it| it.kind).collect();
+    let skipped = ExecutionKind::Communication(Communication::Collective {
+        operation: Collective::AllReduce,
+        members: services(&group),
+        bytes: 8,
+        path: CollectivePath::Skipped,
+    });
+    assert_eq!(kinds, [skipped]);
+}
+
+#[test_log::test]
+#[serial_test::serial]
+fn a_collective_on_streams_executing_under_a_discarding_pass_is_still_skipped() {
+    use cubecl_server::execution::{
+        ProcessMode, ProcessModeOverride, StatisticsCollector, StreamMode, StreamModeOverride,
+    };
+
+    let (group, devices) = transported_group_on([90, 91]);
+    let recorded = Recorded::on(&devices);
+    let collector = StatisticsCollector::new();
+
+    let tuning = ProcessModeOverride::new(ProcessMode::CompileAndAutotune, &collector);
+    let measuring: Vec<_> = (group.clients().iter())
+        .map(|client| StreamModeOverride::new(StreamMode::Execute, client))
+        .collect();
+    let watching = ExecutionObservation::new(recorded.clone());
+    group.all_reduce(member_buffers(&group, 8, 8), F32, ReduceOperation::Sum);
+    drop(watching);
+    drop(measuring);
+    drop(tuning);
+
+    let issued = recorded.issued();
+    assert_eq!(issued.len(), 1, "no part is queued");
+    assert_eq!(
+        issued[0].kind,
+        ExecutionKind::Communication(Communication::Collective {
+            operation: Collective::AllReduce,
+            members: services(&group),
+            bytes: 8,
+            path: CollectivePath::Skipped,
+        })
+    );
 }
 
 #[test_log::test]

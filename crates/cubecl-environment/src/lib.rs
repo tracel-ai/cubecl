@@ -9,6 +9,8 @@
 //! The crate is organized in pillars:
 //! - Compatibility shims mirroring `std` module names: [`sync`], [`collections`],
 //!   [`time`], [`thread`], [`future`], plus [`rand`] and [`backtrace`].
+//! - [`bytes`]: byte payloads, [`bytes::Bytes`], which with `std` read lazily
+//!   from a path or from an `OpenedFile`, a `FileReadCounter` following the reads.
 //! - [`stream`]: stream identity and policies, including tokio task-stable streams.
 //! - [`config`]: global configuration loading (`cubecl.toml` and friends).
 //! - [`persistence`]: key-value caches kept up to date in memory and synced to the

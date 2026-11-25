@@ -1126,6 +1126,23 @@ impl Client {
         self.utilities.communication_skips.any()
     }
 
+    /// Whether a collective issued now queues nothing: the device skips communication, or the
+    /// process discards its launches to gather, compile or tune kernels. A stream's own mode
+    /// never decides it: stream modes are per device and per thread, and a member that queues
+    /// its part waits on its peers forever.
+    ///
+    /// # Assumptions
+    ///
+    /// The process mode does not change between the members' calls of one collective.
+    ///
+    /// # Guarantees
+    ///
+    /// Every member of a collective answers alike.
+    pub fn discards_communication(&self) -> bool {
+        self.skips_communication()
+            || crate::execution::ProcessMode::current() != crate::execution::ProcessMode::Execute
+    }
+
     /// Whether launches on this device read their kernel's duration before returning, which waits
     /// for the kernel to end: an observer asks for each one read, or the profiling logger reads
     /// those it keeps. A discarded launch, or one whose profile the device refuses, reads none.
@@ -1205,8 +1222,9 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it. It queues nothing while this device skips communication,
-    /// whatever its peers do, since reading theirs would load their clients on every call.
+    /// queueing them stops with it. It queues nothing while this client discards communication
+    /// ([`discards_communication`](Self::discards_communication)), whatever its peers do, since
+    /// reading theirs would load their clients on every call.
     pub fn all_reduce(
         &mut self,
         src: Handle,
@@ -1223,7 +1241,7 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
-        if self.skips_communication() {
+        if self.discards_communication() {
             self.record_collective(collective, &device_ids, size, CollectivePath::Skipped);
             return;
         }

@@ -26,7 +26,8 @@ static REGISTRY: CounterRegistry = CounterRegistry {
 /// before its bytes are read, then read [`read`](Self::read) from any thread.
 ///
 /// The file is matched by the path [`Bytes::from_file`](super::Bytes::from_file)
-/// was given, compared as given and never canonicalized. Two counters of one
+/// or [`OpenedFile::new`](super::OpenedFile::new) was given, compared as given
+/// and never canonicalized. Two counters of one
 /// file each count every read of it.
 pub struct FileReadCounter {
     counted: Arc<Counted>,
