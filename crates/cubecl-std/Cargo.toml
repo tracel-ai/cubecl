@@ -24,11 +24,6 @@ workspace = true
 default = []
 export_tests = ["dep:approx", "test-log/trace"]
 
-tracing = [
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-    "cubecl-runtime/tracing",
-]
 
 
 [dependencies]

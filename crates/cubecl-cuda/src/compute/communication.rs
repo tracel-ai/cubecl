@@ -211,7 +211,6 @@ impl CollectiveDriver for Cuda {
         nccl_dtype(dtype)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_reduce(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -240,7 +239,6 @@ impl CollectiveDriver for Cuda {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_gather(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -264,7 +262,6 @@ impl CollectiveDriver for Cuda {
         .map_err(|err| nccl_error("all_gather", err))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn reduce_scatter(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -290,7 +287,6 @@ impl CollectiveDriver for Cuda {
         .map_err(|err| nccl_error("reduce_scatter", err))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn broadcast(
         comm: &Self::Communicator,
         src: Option<&GpuResource>,
@@ -318,7 +314,6 @@ impl CollectiveDriver for Cuda {
         .map_err(|err| nccl_error("broadcast", err))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_to_all(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -370,7 +365,6 @@ impl CollectiveDriver for Cuda {
         queued.and(closed.map(|_| ()))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn send(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -397,7 +391,6 @@ impl CollectiveDriver for Cuda {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn recv(
         comm: &Self::Communicator,
         dst: &GpuResource,

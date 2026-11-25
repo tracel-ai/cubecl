@@ -37,17 +37,10 @@ cpp = []
 pliron-dump = ["cubecl-cpp/pliron-dump", "cubecl-llvm/pliron-dump"]
 rocwmma = []
 
-tracing = [
-    "dep:tracing",
-    "cubecl-server/tracing",
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-]
 
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { workspace = true, default-features = true, features = [
     "std",

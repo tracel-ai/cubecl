@@ -194,5 +194,4 @@ If a tool does not find the source, run the program from the workspace, or set
 ## Worker Threads
 
 The `cpu` runtime runs kernels on its worker threads. Thus a kernel stack does not start at the
-host function that launched the kernel. To connect them, build with the `tracing` feature: each
-launch is a `tracing` span with the host call site.
+host function that launched the kernel.

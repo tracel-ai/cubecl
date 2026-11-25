@@ -348,7 +348,6 @@ impl<B: EventStreamBackend> MultiStream<B> {
     ///
     /// Returns a [`ServerError`] when the stream, or the stream that releases memory shared
     /// between streams, has to be created and cannot be, e.g. on a poisoned device.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,

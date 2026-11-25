@@ -159,10 +159,6 @@ impl StorageAllocator for GpuStorage {
         )
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         // CubeCL pools these allocations itself, so the synchronous allocator is
@@ -211,12 +207,10 @@ impl StorageAllocator for GpuStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn flush(&mut self) {
         self.perform_deallocations();
     }

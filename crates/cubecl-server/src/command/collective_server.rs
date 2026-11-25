@@ -95,7 +95,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_reduce(
         &mut self,
         src: BufferBinding,
@@ -138,7 +137,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_gather(
         &mut self,
         src: BufferBinding,
@@ -179,7 +177,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn reduce_scatter(
         &mut self,
         src: BufferBinding,
@@ -221,7 +218,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn broadcast(
         &mut self,
         src: Option<BufferBinding>,
@@ -307,7 +303,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `dst` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_to_all(
         &mut self,
         src: BufferBinding,
@@ -387,7 +382,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A source some failure left unwritten, and the driver's refusal to join or send.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn send(
         &mut self,
         desc: CopyDescriptor,
@@ -405,7 +399,6 @@ pub trait CollectiveServer: Sized {
     /// # Errors
     ///
     /// A refusal, which `handle` carries as well.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn recv(
         &mut self,
         handle: Handle,
@@ -461,7 +454,6 @@ fn connect<S: CollectiveServer>(server: &mut S, id: &CommunicationId) -> Result<
 /// Runs `collective` over `group`, which reads `reads` and writes `dst`, under the
 /// tainted-buffer rules: a broken group, a tainted read, a failed `checked` or any later
 /// refusal leaves `dst` carrying the failure and breaks the group.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
 fn settle<S: CollectiveServer, const N: usize, Plan>(
     server: &mut S,
     group: &CommunicationId,
@@ -505,7 +497,6 @@ fn settle<S: CollectiveServer, const N: usize, Plan>(
 ///
 /// A group never joined, a binding that names no live allocation, a wait the driver refuses,
 /// and whatever `collective` returns.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
 fn run<S: CollectiveServer, const N: usize>(
     server: &mut S,
     stream_id: StreamId,
@@ -558,7 +549,6 @@ fn run<S: CollectiveServer, const N: usize>(
 /// # Errors
 ///
 /// A source some failure left unwritten, and the driver's refusal to join or send.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
 fn post_send<S: CollectiveServer>(
     server: &mut S,
     desc: CopyDescriptor,
@@ -611,7 +601,6 @@ fn post_send<S: CollectiveServer>(
 ///
 /// A reservation the device cannot back, a group never joined, a peer outside it, and the
 /// driver's refusal to enqueue.
-#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
 fn receive<S: CollectiveServer>(
     server: &mut S,
     handle: Handle,
@@ -672,7 +661,6 @@ struct CommunicationMarks<S: CollectiveServer> {
 
 impl<S: CollectiveServer> CommunicationMarks<S> {
     /// The marks `timing` asks for, reaching for `server`'s profiler only when it asks for any.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn new(server: &mut S, timing: Option<CommunicationTiming>) -> Self {
         let Some(timing) = timing else {
             return Self::untimed();
@@ -724,7 +712,6 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
     /// # Errors
     ///
     /// The driver's refusal to order the two.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn hand_over(
         &mut self,
         part_stream: StreamSignal<S::Driver>,
@@ -826,7 +813,6 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
     /// # Errors
     ///
     /// The driver's refusal to order the two.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn ended(
         &mut self,
         part_stream: StreamSignal<S::Driver>,

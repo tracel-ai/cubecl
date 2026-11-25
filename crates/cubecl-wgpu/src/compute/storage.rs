@@ -129,10 +129,6 @@ impl StorageAllocator for WgpuStorage {
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
 
@@ -156,7 +152,6 @@ impl StorageAllocator for WgpuStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn deallocate(&mut self, id: StorageId) {
         if let Some(memory) = self.memory.remove(&id) {
             self.allocated -= memory.buffer.size();
