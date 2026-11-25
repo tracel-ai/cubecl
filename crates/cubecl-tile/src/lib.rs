@@ -69,13 +69,13 @@ pub use ops::matmul::instruction::{
 pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use ops::matmul::step::{ProductStep, StepCost};
 pub use space::base::Space;
+pub use space::base_region::BaseRegion;
 pub use space::dimension::Dimension;
-pub use space::macro_region::MacroRegion;
-pub use space::micro_region::MicroRegion;
 pub use space::partition::base::Partitioning;
 pub use space::partition::level::Level;
 pub use space::partition::levels::Levels;
 pub use space::region::{Leaves, Planes, Region};
+pub use space::vector_region::VectorRegion;
 pub use space::walk::base::Walk;
 pub use stage::base::StageStorage;
 pub use stage::pipeline::base::Stages;

@@ -1,26 +1,26 @@
 use crate::{Dimension, Space};
 
 /// The smallest region that units can read and write in: the one every operand's
-/// [`MicroTile`](crate::MicroTile) divides.
+/// [`VectorTile`](crate::layout::VectorTile) divides.
 ///
 /// NVFP4 values read `{k 16, n 2}`, their scales `{k 16, n 16}` and an `f16` activation `{k 8}`
-/// have the micro region `{k 16, n 16}`. Reading one value wide divides any region, so an operand
+/// have the vector region `{k 16, n 16}`. Reading one value wide divides any region, so an operand
 /// read so constrains nothing.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct MicroRegion {
+pub struct VectorRegion {
     region: Space,
 }
 
-impl MicroRegion {
-    /// The micro region of operands whose micro tiles cover `micro_tiles`.
+impl VectorRegion {
+    /// The vector region of operands whose vector tiles cover `vector_tiles`.
     ///
     /// # Panics
     ///
     /// On a dynamic extent, which has no multiple.
-    pub fn new(micro_tiles: impl IntoIterator<Item = Space>) -> Self {
-        let micro_tiles: Vec<Space> = micro_tiles.into_iter().collect();
+    pub fn new(vector_tiles: impl IntoIterator<Item = Space>) -> Self {
+        let vector_tiles: Vec<Space> = vector_tiles.into_iter().collect();
         Self {
-            region: Space::new(&[]).counts_whole_for(&micro_tiles),
+            region: Space::new(&[]).counts_whole_for(&vector_tiles),
         }
     }
 
@@ -58,34 +58,34 @@ mod tests {
     /// Reads of different shapes have the smallest region each divides.
     #[test]
     fn reads_of_different_shapes_each_divide_their_region() {
-        let region = MicroRegion::new(nvfp4());
+        let region = VectorRegion::new(nvfp4());
         assert_eq!((region.along(K), region.along(N)), (16, 16));
     }
 
     /// Reads that do not nest along a dimension meet at their least common multiple.
     #[test]
     fn reads_that_do_not_nest_meet_at_their_multiple() {
-        let region = MicroRegion::new([Space::new(&[(K, 4)]), Space::new(&[(K, 3)])]);
+        let region = VectorRegion::new([Space::new(&[(K, 4)]), Space::new(&[(K, 3)])]);
         assert_eq!(region.along(K), 12);
     }
 
     /// Nothing reads several values of a dimension no operand names.
     #[test]
     fn a_dimension_nothing_reads_several_of_is_one_wide() {
-        assert_eq!(MicroRegion::new(nvfp4()).along(Dimension(0)), 1);
+        assert_eq!(VectorRegion::new(nvfp4()).along(Dimension(0)), 1);
     }
 
     /// A region divides a space whole along every dimension it reaches.
     #[test]
     fn a_region_divides_the_space_it_is_whole_in() {
-        let region = MicroRegion::new(nvfp4());
+        let region = VectorRegion::new(nvfp4());
         assert!(region.divides(&Space::new(&[(N, 48), (K, 5120)])));
     }
 
     /// A region does not divide a space it overhangs along one dimension.
     #[test]
     fn a_region_does_not_divide_a_space_it_overhangs() {
-        let region = MicroRegion::new(nvfp4());
+        let region = VectorRegion::new(nvfp4());
         assert!(!region.divides(&Space::new(&[(N, 24), (K, 5120)])));
     }
 }
