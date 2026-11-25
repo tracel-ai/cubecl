@@ -49,17 +49,10 @@ pliron-dump = ["std", "cubecl-cpp/pliron-dump", "cubecl-spirv?/pliron-dump"]
 vulkan-validate = []
 
 renderdoc = ["std", "dep:renderdoc"]
-tracing = [
-    "dep:tracing",
-    "cubecl-server/tracing",
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-]
 
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { workspace = true }
 cubecl-core = { workspace = true }

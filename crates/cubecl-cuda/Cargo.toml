@@ -34,18 +34,11 @@ std = [
     "cubecl-cpp/std",
 ]
 
-tracing = [
-    "dep:tracing",
-    "cubecl-server/tracing",
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-]
 
 
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
 cubecl-common = { workspace = true, features = [

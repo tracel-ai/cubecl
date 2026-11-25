@@ -20,7 +20,6 @@ workspace = true
 default = ["std", "cubecl-common/default", "cubecl-ir/default"]
 std = ["cubecl-common/std"]
 
-tracing = ["cubecl-common/tracing", "cubecl-ir/tracing"]
 
 
 [dependencies]

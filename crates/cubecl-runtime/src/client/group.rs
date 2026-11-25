@@ -153,28 +153,16 @@ impl ClientGroup {
 
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
     /// its `dst`.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, buffers))
-    )]
     pub fn all_reduce(&self, buffers: Vec<MemberBuffers>, dtype: ElemType, op: ReduceOperation) {
         self.exchange(Exchange::AllReduce(Reduction { dtype, op }), buffers);
     }
 
     /// Every member's `dst` receives every member's `src`, concatenated in member order.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, buffers))
-    )]
     pub fn all_gather(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllGather, buffers);
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src` reduced by `op`.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, buffers))
-    )]
     pub fn reduce_scatter(
         &self,
         buffers: Vec<MemberBuffers>,
@@ -186,10 +174,6 @@ impl ClientGroup {
 
     /// Every member's `dst` receives `src`, sent by the member whose device holds it. That
     /// member's `dst` may be `src`.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst))
-    )]
     pub fn broadcast(&self, src: Handle, dst: Vec<Handle>) {
         let collective = Collective::Broadcast;
         self.expect_parts(collective, dst.len());
@@ -224,10 +208,6 @@ impl ClientGroup {
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
     /// order.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, buffers))
-    )]
     pub fn all_to_all(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllToAll, buffers);
     }

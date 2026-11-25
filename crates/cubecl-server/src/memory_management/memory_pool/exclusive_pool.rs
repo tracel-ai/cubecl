@@ -202,10 +202,6 @@ impl MemoryPool for ExclusiveMemoryPool {
         handle
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, storage))
-    )]
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,

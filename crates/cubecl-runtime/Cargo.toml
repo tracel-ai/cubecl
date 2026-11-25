@@ -43,12 +43,10 @@ std = [
 ]
 tokio = ["cubecl-environment/tokio"]
 
-tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
 
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
