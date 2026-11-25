@@ -16,6 +16,7 @@ use crate::{
     storage::{ManagedResource, StorageAllocator},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use alloc::vec;
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
 use core::{
     fmt::{Debug, Display},
@@ -891,27 +892,33 @@ pub trait Server:
     /// An implementation whose reads copy keeps it and starts it, with [`LazyRead::start`],
     /// ahead of any work it queues to write that memory, and at once when the memory is shared
     /// with peers. One whose reads alias its memory only checks, since a lazy read there is as
-    /// live as an eager one.
+    /// live as an eager one, which is what it defaults to.
     ///
     /// # Errors
     ///
     /// What [`check`](Self::check) returns. An implementation that keeps it also refuses it on
     /// a stream recording a graph, where its copy would be recorded rather than run.
-    fn read_lazy(&mut self, read: Arc<LazyRead>, stream_id: StreamId) -> Result<(), ServerError>;
+    fn read_lazy(&mut self, read: Arc<LazyRead>, stream_id: StreamId) -> Result<(), ServerError> {
+        self.check(vec![read.to_source().handle], stream_id)
+    }
 
     /// Read `source`, bytes of `read` accessed before any write started it, as
     /// [`read`](Self::read) does. While this server keeps `read`, work it queues to write
-    /// those bytes afterwards waits for this copy too.
+    /// those bytes afterwards waits for this copy too. Defaults to the read alone, for a server
+    /// that keeps no lazy read.
     ///
     /// # Errors
     ///
     /// What [`read`](Self::read) returns for `source`.
+    #[allow(unused_variables)]
     fn read_lazy_bytes(
         &mut self,
         read: Arc<LazyRead>,
         source: CopyDescriptor,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, ServerError>>;
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        self.read(vec![source], stream_id)
+    }
 
     /// The copy this server started of `read` ahead of work writing its memory, which it kept
     /// until now: the pieces [`LazyRead::to_held_sources`] named when it started, in order.
@@ -923,8 +930,17 @@ pub trait Server:
     /// # Errors
     ///
     /// What [`read`](Self::read) returns for those pieces. An implementation that keeps no
-    /// lazy read, or that holds no copy of `read`, returns an error saying so.
-    fn take_lazy_copy(&mut self, read: &Arc<LazyRead>) -> DynFut<Result<Vec<Bytes>, ServerError>>;
+    /// lazy read, which is what it defaults to, or that holds no copy of `read`, returns an
+    /// error saying so.
+    #[allow(unused_variables)]
+    fn take_lazy_copy(&mut self, read: &Arc<LazyRead>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        Box::pin(async {
+            Err(ServerError::Generic {
+                reason: "this server keeps no lazy read".into(),
+                backtrace: BackTrace::capture(),
+            })
+        })
+    }
 
     /// Executes the `kernel` over the given memory `handles`.
     ///

@@ -512,38 +512,6 @@ impl Server for CpuServer {
         self.scheduler.ensure_written(handles.iter())
     }
 
-    fn read_lazy(
-        &mut self,
-        read: Arc<cubecl_core::server::LazyRead>,
-        _stream_id: StreamId,
-    ) -> Result<(), ServerError> {
-        // A read aliases host memory, so a lazy one is as live as an eager one.
-        self.scheduler
-            .ensure_written(core::iter::once(&read.to_source().handle))
-    }
-
-    fn read_lazy_bytes(
-        &mut self,
-        _read: Arc<cubecl_core::server::LazyRead>,
-        source: CopyDescriptor,
-        stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        self.read(vec![source], stream_id)
-    }
-
-    fn take_lazy_copy(
-        &mut self,
-        _read: &Arc<cubecl_core::server::LazyRead>,
-    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        // It never starts a lazy read: a read aliases host memory.
-        Box::pin(async {
-            Err(ServerError::Generic {
-                reason: "this server keeps no lazy read".into(),
-                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-            })
-        })
-    }
-
     fn compile_queued(&mut self) {
         self.kernels.compile_queued(&self.scheduler.logger);
     }
