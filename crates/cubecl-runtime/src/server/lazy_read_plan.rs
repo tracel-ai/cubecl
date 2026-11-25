@@ -54,12 +54,37 @@ impl LazyReadPlan<'_> {
                 .is_ok()
     }
 
-    /// A copy of the bytes `range` of the read, as bytes.
+    /// A copy of the bytes `range` of the read, as bytes, never past where its binding ends, so
+    /// a read longer than its binding fails as an eager one would.
     fn narrowed(&self, range: &Range<usize>) -> CopyDescriptor {
         let mut handle = self.source.clone().binding().handle;
         let base = handle.offset_start.unwrap_or(0);
-        handle.offset_end = Some(handle.size - (base + range.end as u64));
+        let end = handle.size.saturating_sub(base + range.end as u64);
+        handle.offset_end = Some(end.max(handle.offset_end.unwrap_or(0)));
         handle.offset_start = Some(base + range.start as u64);
         CopyDescriptor::new(handle, [range.len()].into(), [1].into(), 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_common::device::{DeviceId, ServiceId};
+    use cubecl_environment::stream::StreamId;
+
+    #[test]
+    fn a_piece_never_reaches_past_where_its_binding_ends() {
+        let service = ServiceId::of::<()>(DeviceId::new(0, 0));
+        let mut handle = Handle::new(service, StreamId { value: 0 }, 16);
+        handle.offset_end = Some(8);
+        let source = CopyDescriptor::new(handle, [12].into(), [1].into(), 1);
+        let plan = LazyReadPlan {
+            source: &source,
+            held: core::iter::once(0..12).collect(),
+        };
+
+        let (pieces, _) = plan.to_sources();
+
+        assert_eq!(pieces[0].handle.offset_end, Some(8));
     }
 }

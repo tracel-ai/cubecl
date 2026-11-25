@@ -116,6 +116,7 @@ impl LazyReads {
         stream: StreamId,
         made_at: Option<Arc<dyn StreamFence>>,
     ) {
+        self.drop_done_copies();
         self.hold(
             read,
             KeptRead {
@@ -211,7 +212,6 @@ impl LazyReads {
     }
 
     fn hold(&mut self, read: &Arc<LazyRead>, kept: KeptRead) {
-        self.drop_done_copies();
         let reads = self
             .kept
             .entry(read.to_source().handle.memory.id())
@@ -409,7 +409,7 @@ pub(crate) fn start_overwritten_reads<S: WriteScoped>(
     written: &[BufferBinding],
 ) {
     let reads = lazy_reads(server);
-    if reads.is_idle() {
+    if written.is_empty() || reads.is_idle() {
         return;
     }
     reads.drop_done_copies();

@@ -232,6 +232,9 @@ impl StartedPieces {
     /// The bytes in `range` of the read: a whole piece shared, and an aligned copy of less,
     /// since a window that starts inside a piece loses the alignment typed reads rely on.
     fn window(&self, range: Range<usize>) -> Bytes {
+        if range.is_empty() {
+            return Bytes::from_bytes_vec(Vec::new());
+        }
         let (offset, bytes) = self
             .pieces
             .iter()
@@ -257,5 +260,35 @@ impl core::fmt::Debug for LazyRead {
         f.debug_struct("LazyRead")
             .field("source", &self.source.handle)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use cubecl_common::device::{DeviceId, ServiceId};
+    use cubecl_environment::stream::StreamId;
+
+    #[test]
+    fn an_empty_view_of_a_started_read_is_empty() {
+        let service = ServiceId::of::<()>(DeviceId::new(0, 0));
+        let handle = Handle::new(service, StreamId { value: 0 }, 4);
+        let read = Arc::new(LazyRead::new(CopyDescriptor::new(
+            handle,
+            [4].into(),
+            [1].into(),
+            1,
+        )));
+        let (_front, _empty) = (read.hold(0..2), read.hold(4..4));
+        read.keep(&LazyReadCount::default());
+        let (_, offsets) = read.to_held_sources();
+        read.start(offsets);
+
+        let bytes = read
+            .started_bytes(4..4, || Ok(vec![Bytes::from_bytes_vec(vec![1, 2])]))
+            .expect("the started copy should resolve");
+
+        assert!(bytes.is_empty());
     }
 }

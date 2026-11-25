@@ -564,15 +564,16 @@ impl Client {
     /// Reads the buffer `source` describes lazily, async variant.
     ///
     /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
-    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy),
-    /// whose Assumptions and Guarantees it shares).
+    /// whose device-to-host copy waits for the first access, or for work writing the buffer or
+    /// sharing it with peers, which start it earlier (see [`read_lazy`](Self::read_lazy), whose
+    /// Assumptions and Guarantees it shares).
     ///
     /// # Errors
     ///
     /// Returns a [`ServerError`] if a an error occurred on the compute server leading to the read,
     /// and when this client's stream is recording a graph, where the copy would be recorded
-    /// rather than run. A device fault is not detected here: the copy is deferred, so it surfaces
-    /// as an error on first access to the returned [`Bytes`].
+    /// rather than run. A device fault is not detected here: it surfaces as an error on first
+    /// access to the returned [`Bytes`].
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy_async(
         &self,
