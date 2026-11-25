@@ -363,7 +363,10 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// The store's answer for `key` under the set's `checksum`, read once memory missed. A miss
     /// costs one read of the store, under the tuner mutex, and a key read counts as loaded.
-    pub fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+    ///
+    /// An answer past the end of the set's `candidates` answers nothing. It is purged, so the
+    /// answer measured in its place is stored whatever wrote it.
+    pub fn look_up(&mut self, key: &K, checksum: &str, candidates: usize) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return TuneCacheResult::Miss;
         };
@@ -374,6 +377,13 @@ impl<K: AutotuneKey> TuneCache<K> {
         let Some(value) = persistent_cache.remove(&stored) else {
             return TuneCacheResult::Miss;
         };
+        if value.fastest_index >= candidates {
+            log::warn!(
+                "The autotune answer for key {key:?} is past the end of its {candidates} candidates, it will be re-tuned"
+            );
+            persistent_cache.purge_key(&stored);
+            return TuneCacheResult::Miss;
+        }
         let gathered = match self.in_memory_cache.remove(key) {
             Some(CacheEntry::Compiled { registration, .. }) => registration,
             _ => None,
@@ -441,6 +451,8 @@ mod tests {
     /// Sorts before [`CURRENT`], so a table read in key order meets it first.
     const STALE: &str = "0000-older-list";
     const CURRENT: &str = "ffff-current-list";
+    /// How many candidates either list holds.
+    const CANDIDATES: usize = 3;
 
     /// An answer stored under an older candidate list is never served for
     /// the current one, even when it sorts first: the lookup asks for the key
@@ -452,15 +464,36 @@ mod tests {
         let mut cache = cache_over(table);
 
         assert!(matches!(
-            cache.look_up(&KEY.to_string(), CURRENT),
+            cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES),
             TuneCacheResult::Miss
         ));
 
         plant(table, KEY, CURRENT, 2);
         let mut cache = cache_over(table);
         assert!(matches!(
-            cache.look_up(&KEY.to_string(), CURRENT),
+            cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES),
             TuneCacheResult::Hit { fastest_index: 2 }
+        ));
+    }
+
+    /// An answer naming a candidate past the end of the list answers nothing:
+    /// the lookup misses, and the answer measured in its place is stored.
+    #[test]
+    fn an_answer_past_the_end_of_the_list_is_a_miss() {
+        let table = "tune-cache-tests/past-the-end";
+        plant(table, KEY, CURRENT, CANDIDATES);
+        let mut cache = cache_over(table);
+
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES),
+            TuneCacheResult::Miss
+        ));
+        assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(1)));
+
+        let mut cache = cache_over(table);
+        assert!(matches!(
+            cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES),
+            TuneCacheResult::Hit { fastest_index: 1 }
         ));
     }
 
@@ -473,7 +506,7 @@ mod tests {
         let table = "tune-cache-tests/kept";
         plant(table, KEY, STALE, 1);
         let mut cache = cache_over(table);
-        cache.look_up(&KEY.to_string(), CURRENT);
+        cache.look_up(&KEY.to_string(), CURRENT, CANDIDATES);
 
         assert!(cache.persistent_cache_insert(KEY.to_string(), CURRENT.into(), answer(2)));
 

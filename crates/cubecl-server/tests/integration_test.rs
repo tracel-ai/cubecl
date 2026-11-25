@@ -2234,6 +2234,55 @@ fn a_tuner_reads_only_the_answer_to_its_candidate_list() {
     );
 }
 
+/// A stored answer naming a candidate the list does not have answers nothing: the key is tuned, and
+/// what the tune measured takes the answer's place.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn an_answer_past_the_end_of_the_candidate_list_is_tuned_again() {
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::tune::{
+        PersistentCacheKey, PersistentCacheValue, TuneCacheResult, TuneTableName, Tuner,
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    let client = test_client(&DummyDevice);
+    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
+    let (handles, key) = addition_inputs(&client, &set);
+    let hardware = client.hardware_identity();
+    let table = TuneTableName {
+        hardware: &hardware.to_string(),
+        tuner: "past-the-end",
+    }
+    .namespace();
+    let stored = cbor(&PersistentCacheKey {
+        key: key.clone(),
+        checksum: set.compute_checksum(),
+    });
+    let past_the_end = PersistentCacheValue {
+        fastest_index: set.len(),
+        results: Vec::new(),
+        bounds: None,
+        limit: None,
+    };
+    let database = Database::open_active().unwrap();
+    database.insert(table.as_str(), &stored, &cbor(&past_the_end), Origin::Local);
+
+    let tuner: Tuner<String> = Tuner::new("past-the-end", &hardware);
+    let TuneCacheResult::Hit { fastest_index } =
+        tuner.check_tune(&key, &handles, &set, &client, None)
+    else {
+        panic!("the tune answers inline");
+    };
+
+    let answer: PersistentCacheValue =
+        ciborium::from_reader(&*database.get(table.as_str(), &stored).unwrap()).unwrap();
+    assert!(fastest_index < set.len());
+    assert_eq!(answer.fastest_index, fastest_index);
+}
+
 /// Shared in memory rather than through the store, so it holds with the cache disabled, and a key
 /// in flight on one device is pending on the other instead of tuned twice.
 #[test_log::test]

@@ -343,7 +343,7 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(persistence)]
             {
                 checksum = tunables.compute_checksum();
-                let stored = cache.look_up(key, &checksum);
+                let stored = cache.look_up(key, &checksum, tunables.len());
                 let mut log = self.logger.lock();
                 if let AutotuneLogLevel::Full = log.config().autotune.logger.level {
                     log.log_autotune(&format!(
