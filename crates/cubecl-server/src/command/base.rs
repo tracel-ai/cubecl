@@ -95,7 +95,9 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// The device allocation `binding` names, for a caller outside the server
     /// that keeps its raw address: it holds the allocation's binding for as
-    /// long as it lives.
+    /// long as it lives, with the Guarantees of
+    /// [`ManagedResource`](crate::storage::ManagedResource), a graph capture
+    /// moving what it keeps apart included.
     ///
     /// # Errors
     ///

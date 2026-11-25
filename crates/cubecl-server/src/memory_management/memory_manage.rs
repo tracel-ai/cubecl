@@ -214,16 +214,15 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Assumptions
     ///
-    /// - Every binding of `kept` names a page this memory holds.
-    /// - Nothing outside `kept` holds a moved allocation's raw address: what
-    ///   [`managed_resource`](Self::managed_resource) handed out for one is
-    ///   read by no one once it moves. A graph capture holds this, since it
-    ///   keeps apart only what its planning runs left alive and recorded
-    ///   nowhere.
+    /// Every binding of `kept` names a page this memory holds.
     ///
     /// # Guarantees
     ///
-    /// An allocation `kept` names more than once moves once.
+    /// - An allocation `kept` names more than once moves once.
+    /// - A resource [`managed_resource`](Self::managed_resource) handed out
+    ///   for a moved allocation names its old place from then on, as
+    ///   [`ManagedResource`](crate::storage::ManagedResource) states for an
+    ///   allocation a graph capture keeps apart.
     ///
     /// # Errors
     ///
@@ -251,7 +250,8 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// The resource behind `binding`, trimmed by its offsets, holding the
     /// allocation's binding for as long as it lives: what a caller that keeps
     /// the raw address past this call is handed. The binding keeps the
-    /// allocation in place, and leaves the rest of its page to other
+    /// allocation alive, and in place unless [`move_apart`](Self::move_apart)
+    /// moves it for a graph capture, and leaves the rest of its page to other
     /// allocations.
     ///
     /// # Guarantees

@@ -144,7 +144,7 @@ impl ErrorGraph {
     /// # Assumptions
     ///
     /// `failure`, when there is one, is still held, and is shed no more often
-    /// than it was [tagged](Self::tag).
+    /// than it was tagged.
     ///
     /// # Panics
     ///
