@@ -412,6 +412,35 @@ pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     )
 }
 
+/// A store to global memory and one to shared memory ahead of a cube barrier, and a load of each
+/// past it.
+#[cube(launch)]
+fn cube_meeting(stored: &mut [u32], read: &[u32], out: &mut [u32]) {
+    let mut handed = Shared::<[u32]>::new_slice(64usize);
+    let unit = UNIT_POS as usize;
+    stored[unit] = UNIT_POS;
+    handed[unit] = UNIT_POS;
+    sync_cube();
+    out[unit] = handed[63 - unit] + read[unit];
+}
+
+pub(crate) fn cube_meeting_kernel() -> impl CubeKernel {
+    // Two planes, or the barrier is a plane's own.
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(64),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    cube_meeting::CubeMeeting::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Plain stores into a peer's `data`, a fence of `order` at `sync`, then a flag store: a hand-off
 /// with no barrier.
 #[cube(launch)]

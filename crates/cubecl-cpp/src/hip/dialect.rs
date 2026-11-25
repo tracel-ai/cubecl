@@ -34,15 +34,21 @@ hip_op!(SyncOp, |op, ctx| {
         SyncScope::Plane => {
             // HIP has no `__syncwarp`. AMD wavefronts execute in lockstep, so the
             // execution half of the sync is a compiler scheduling barrier; the
-            // wavefront-scope fence supplies the memory ordering `__syncwarp`
-            // carries on CUDA (LDS/global writes by other lanes of the wave are
-            // visible past the sync).
+            // wavefront-scope fence makes LDS writes by other lanes of the wave
+            // visible past the sync.
 
             "
-__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
+__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\", \"local\");
 __builtin_amdgcn_wave_barrier();\n"
         }
-        SyncScope::Cube => "__syncthreads();\n",
+        // `__syncthreads` fences global memory as well, so the barrier and its fences are written
+        // out.
+        SyncScope::Cube => {
+            "
+__builtin_amdgcn_fence(__ATOMIC_RELEASE, \"workgroup\", \"local\");
+__builtin_amdgcn_s_barrier();
+__builtin_amdgcn_fence(__ATOMIC_ACQUIRE, \"workgroup\", \"local\");\n"
+        }
         // As on CUDA: `__syncthreads` is the block's own ordering, and the fence is what makes
         // this block's writes visible to the others.
         SyncScope::Device => "__threadfence();\n__syncthreads();\n",
@@ -74,7 +80,7 @@ hip_op!(ScheduleBarrierOp, |_, _| {
     "__builtin_amdgcn_sched_barrier(0);\n".into()
 });
 
-// The plane barrier's wavefront fence orders every address space, global included.
+// The plane barrier with its fence over every address space, global included.
 hip_op!(SyncPlaneStorageOp, |_, _| {
     "
 __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");

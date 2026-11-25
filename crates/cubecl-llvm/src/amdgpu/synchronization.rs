@@ -1,6 +1,7 @@
 //! AMDGPU synchronization.
 
 use crate::prelude::*;
+use pliron_llvm::metadata::{MdNodeAttr, MdOperandAttr, attach_new_metadata};
 
 const S_BARRIER: &str = "llvm.amdgcn.s.barrier";
 
@@ -31,6 +32,22 @@ fn fence_at(scope: &Scope, sync_scope: SyncScopeAttr, ordering: AtomicOrderingAt
     scope.register(&fence);
 }
 
+/// A fence on shared memory alone, which neither waits for the accesses to global memory nor
+/// touches their caches.
+fn shared_fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
+    let ctx = scope.ctx_mut();
+    let fence = llvm::FenceOp::new(ctx, ordering, SyncScopeAttr::NamedScope(sync_scope.into()));
+    scope.register(&fence);
+
+    let synchronize_as_local = MdNodeAttr::new_tuple(
+        ["amdgpu-synchronize-as", "local"]
+            .map(|word| MdOperandAttr::String(word.into()))
+            .to_vec(),
+    );
+    attach_new_metadata(ctx, fence.get_operation(), "mmra", synchronize_as_local)
+        .expect("a fence should be inside a module");
+}
+
 fn barrier(scope: &Scope, name: &str) {
     let void_ty = VoidType::get(scope.ctx_mut()).into();
     let op = call_op(scope.ctx_mut(), name, void_ty, vec![]);
@@ -39,15 +56,21 @@ fn barrier(scope: &Scope, name: &str) {
 
 /// Wavefront synchronization requires memory ordering and a scheduling barrier.
 pub fn lower_sync_plane(scope: &Scope) {
+    shared_fence(scope, "wavefront", AtomicOrderingAttr::AcqRel);
+    barrier(scope, WAVE_BARRIER);
+}
+
+/// [`lower_sync_plane`] fenced over every address space.
+pub fn lower_sync_plane_storage(scope: &Scope) {
     fence(scope, "wavefront", AtomicOrderingAttr::AcqRel);
     barrier(scope, WAVE_BARRIER);
 }
 
 /// Cube synchronization requires memory ordering and a workgroup barrier.
 pub fn lower_sync_cube(scope: &Scope) {
-    fence(scope, "workgroup", AtomicOrderingAttr::Release);
+    shared_fence(scope, "workgroup", AtomicOrderingAttr::Release);
     barrier(scope, S_BARRIER);
-    fence(scope, "workgroup", AtomicOrderingAttr::Acquire);
+    shared_fence(scope, "workgroup", AtomicOrderingAttr::Acquire);
 }
 
 /// A workgroup barrier fenced at the agent's scope on both sides: the fence ahead of it publishes

@@ -2,9 +2,10 @@
 
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, cdna_manual_product_kernel, cdna_quantized_product_kernel,
-    e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel, fence_send_kernel,
-    keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel,
-    relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
+    fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel,
+    plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -427,6 +428,33 @@ fn a_peer_buffer_is_promised_nothing() {
         "an atomic of a peer kernel may touch remote memory:\n{}",
         module.ir
     );
+}
+
+/// The cube barrier orders shared memory alone: it waits for the cube's own accesses to it, and
+/// neither for the stores to global memory ahead of it nor for a cache to be invalidated.
+#[test]
+fn a_cube_barrier_waits_for_shared_memory_alone() {
+    let asm = asm_of(cube_meeting_kernel(), "gfx1201");
+    let mut lines = asm.lines().map(str::trim_start);
+    let meeting: Vec<&str> = lines
+        .by_ref()
+        .skip_while(|line| !line.starts_with("ds_store"))
+        .take_while(|line| !line.starts_with("ds_load"))
+        .collect();
+    assert!(
+        meeting.iter().any(|line| line.starts_with("s_barrier")),
+        "the cube meets:\n{asm}"
+    );
+    assert!(
+        meeting.iter().any(|line| line.starts_with("s_wait_dscnt")),
+        "the store to shared memory is waited for:\n{asm}"
+    );
+    for global in ["s_wait_storecnt", "s_wait_loadcnt", "global_inv"] {
+        assert!(
+            !meeting.iter().any(|line| line.starts_with(global)),
+            "{global} at a barrier on shared memory:\n{asm}"
+        );
+    }
 }
 
 /// A release fence before a flag is a write-back of the caches and an acquire after it an
