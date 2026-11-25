@@ -14,7 +14,7 @@ use crate::server::{
     BufferBinding, CollectiveBuffer, CommunicationId, CommunicationTiming, ComputeWait,
     CopyDescriptor, Handle, ReduceOperation, Reduction, SendOutcome, SendReport, ServerError,
 };
-use crate::stream::{FailureStore, MultiStream};
+use crate::stream::{ExecuteScope, FailureStore, MultiStream, WriteScoped};
 use alloc::{format, vec, vec::Vec};
 use core::convert::Infallible;
 use cubecl_common::device::DeviceId;
@@ -29,7 +29,10 @@ const BYTES: ElemType = ElemType::UInt(UIntKind::U8);
 pub const CONNECT_ELEMENT_SIZE: u64 = 4;
 
 /// A server whose device runs collectives and transfers through a [`CollectiveDriver`].
-pub trait CollectiveServer: Sized {
+///
+/// A collective is device work like a launch, so it runs in the server's write scope: a graph
+/// recording it writes its destination on every replay.
+pub trait CollectiveServer: WriteScoped {
     /// The library collectives run through.
     type Driver: CollectiveDriver;
 
@@ -112,6 +115,7 @@ pub trait CollectiveServer: Sized {
         let group = CommunicationId::from(device_ids);
         settle(
             self,
+            stream_id,
             &group,
             [src],
             dst,
@@ -152,6 +156,7 @@ pub trait CollectiveServer: Sized {
         let group = CommunicationId::from(device_ids);
         settle(
             self,
+            stream_id,
             &group,
             [src],
             dst,
@@ -193,6 +198,7 @@ pub trait CollectiveServer: Sized {
         let group = CommunicationId::from(device_ids);
         settle(
             self,
+            stream_id,
             &group,
             [src],
             dst,
@@ -237,6 +243,7 @@ pub trait CollectiveServer: Sized {
                     .and(root_rank);
                 settle(
                     self,
+                    stream_id,
                     &group,
                     [src],
                     dst,
@@ -264,20 +271,28 @@ pub trait CollectiveServer: Sized {
                     },
                 )
             }
-            (None, false) => settle(self, &group, [], dst, root_rank, |server, [], dst, root| {
-                run(
-                    server,
-                    stream_id,
-                    &group,
-                    [dst],
-                    ComputeWait::Now,
-                    timing,
-                    |comm, [dst], stream| {
-                        let elements = Self::Driver::elements(BYTES, size)?;
-                        Self::Driver::broadcast(comm, None, dst, elements, root, stream)
-                    },
-                )
-            }),
+            (None, false) => settle(
+                self,
+                stream_id,
+                &group,
+                [],
+                dst,
+                root_rank,
+                |server, [], dst, root| {
+                    run(
+                        server,
+                        stream_id,
+                        &group,
+                        [dst],
+                        ComputeWait::Now,
+                        timing,
+                        |comm, [dst], stream| {
+                            let elements = Self::Driver::elements(BYTES, size)?;
+                            Self::Driver::broadcast(comm, None, dst, elements, root, stream)
+                        },
+                    )
+                },
+            ),
             // Only the root sends, so a source anywhere else, or none there, has nothing to send.
             _ => {
                 let refused = Err::<Infallible, _>(ServerError::Generic {
@@ -288,6 +303,7 @@ pub trait CollectiveServer: Sized {
                 });
                 settle(
                     self,
+                    stream_id,
                     &group,
                     [],
                     dst,
@@ -327,6 +343,7 @@ pub trait CollectiveServer: Sized {
         let group = CommunicationId::from(device_ids);
         settle(
             self,
+            stream_id,
             &group,
             [src],
             dst,
@@ -413,19 +430,22 @@ pub trait CollectiveServer: Sized {
         // Every failure from here leaves the destination holding whatever it
         // held, so a read of it has to fail on that rather than take those
         // bytes for a result.
-        match receive(self, handle, stream_id, device_id_src, outcome, timing) {
-            Ok(()) => {
-                // The data is on its way, so an earlier failure that left the
-                // destination stale has nothing left to say about it.
-                self.streams().written([&destination].into_iter());
-                Ok(())
-            }
-            Err(error) => {
-                self.streams()
-                    .taint(error.clone(), [&destination].into_iter());
-                Err(error)
+        let received = receive(self, handle, stream_id, device_id_src, outcome, timing);
+        match &received {
+            // The data is on its way, so an earlier failure that left the
+            // destination stale has nothing left to say about it.
+            Ok(()) => self.streams().written([&destination].into_iter()),
+            Err(error) => self
+                .streams()
+                .taint(error.clone(), [&destination].into_iter()),
+        }
+        if let Some(capture) = self.capturing(stream_id) {
+            match &received {
+                Ok(()) => capture.record([destination]),
+                Err(error) => capture.fail(error.clone()),
             }
         }
+        received
     }
 }
 
@@ -451,39 +471,33 @@ fn connect<S: CollectiveServer>(server: &mut S, id: &CommunicationId) -> Result<
     connected
 }
 
-/// Runs `collective` over `group`, which reads `reads` and writes `dst`, under the
-/// tainted-buffer rules: a broken group, a tainted read, a failed `checked` or any later
-/// refusal leaves `dst` carrying the failure and breaks the group.
+/// Runs `collective` over `group` in the write scope of `stream_id`, which reads `reads` and
+/// writes `dst`, under the tainted-buffer rules: a broken group, a tainted read, a failed
+/// `checked` or any later refusal leaves `dst` carrying the failure and breaks the group.
 fn settle<S: CollectiveServer, const N: usize, Plan>(
     server: &mut S,
+    stream_id: StreamId,
     group: &CommunicationId,
     reads: [BufferBinding; N],
     dst: BufferBinding,
     checked: Result<Plan, ServerError>,
     collective: impl FnOnce(&mut S, [BufferBinding; N], BufferBinding, Plan) -> Result<(), ServerError>,
 ) -> Result<(), ServerError> {
-    let destination = dst.clone();
-    let ran = server
+    // Checked before the scope claims `dst`, which an in-place collective also reads.
+    let planned = server
         .collectives()
         .ensure_intact(group)
         .and_then(|()| server.streams().ensure_written(reads.iter()))
-        .and(checked)
-        .and_then(|plan| collective(server, reads, dst, plan));
-    match ran {
-        Ok(()) => {
-            // The result is on its way, so an earlier failure that left the
-            // destination stale has nothing left to say about it.
-            server.streams().written([&destination].into_iter());
-            Ok(())
-        }
-        Err(error) => {
-            server.collectives().mark_broken(group, error.clone());
-            server
-                .streams()
-                .taint(error.clone(), [&destination].into_iter());
-            Err(error)
-        }
+        .and(checked);
+    let mut written = server.write_set();
+    written.push(dst.clone());
+    let ran = ExecuteScope::over(server, stream_id, written)
+        .execute(|server| collective(server, reads, dst, planned?))
+        .into_result();
+    if let Err(error) = &ran {
+        server.collectives().mark_broken(group, error.clone());
     }
+    ran
 }
 
 /// Runs `collective` over `bindings` once the compute stream has written them, keeping them
