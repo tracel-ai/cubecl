@@ -316,7 +316,8 @@ impl<'a, D: Driver> Command<'a, D> {
             true => self.reserve_as(size, AllocationKind::GraphOutput)?,
             false => self.reserve(size)?,
         };
-        self.bind(reserved, memory)
+        self.bind(reserved, memory);
+        Ok(())
     }
 
     fn allocate_at(
@@ -332,7 +333,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // Taken before the handle moves into the pool. A recorded output's binding outlives this
         // command: the graph it seals into writes the buffer on every replay, in stream order.
         let binding = memory.to_binding();
-        self.bind(reserved, memory)?;
+        self.bind(reserved, memory);
         let current = self.streams.current;
         self.streams
             .current()
@@ -360,18 +361,10 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `reserved`'s storage to `new`, so handles issued against `new`
     /// resolve to it.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError`] when the reservation has no initialized storage to give.
-    fn bind(
-        &mut self,
-        reserved: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
-    ) -> Result<(), IoError> {
+    fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
         let cursor = self.cursor();
         let (stream, failures) = self.streams.current_and_failures();
-        stream.device_memory().bind(reserved, new, cursor, failures)
+        stream.device_memory().bind(reserved, new, cursor, failures);
     }
 
     /// `size` bytes of host memory, pinned when the pool can serve it.

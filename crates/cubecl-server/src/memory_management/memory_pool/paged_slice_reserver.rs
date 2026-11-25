@@ -327,13 +327,12 @@ impl SliceReserver for PagedSliceReserver {
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
+    ) {
         let page = self
             .pages
             .get_mut(reserved.descriptor().page())
             .expect("a reserved page should be held by the pool that reserved it");
         page.bind(reserved, assigned, cursor, failures);
-        Ok(())
     }
 }
 

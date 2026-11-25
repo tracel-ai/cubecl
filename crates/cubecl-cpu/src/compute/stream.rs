@@ -207,9 +207,7 @@ impl CpuStream {
         new: ManagedMemoryHandle,
         failures: &mut ErrorGraph,
     ) {
-        self.memory_management
-            .bind(reserved, new, 0, failures)
-            .unwrap();
+        self.memory_management.bind(reserved, new, 0, failures);
     }
 
     pub fn read_async(

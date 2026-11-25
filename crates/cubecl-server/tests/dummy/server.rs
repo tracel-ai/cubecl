@@ -344,8 +344,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .reserve(size, PageUpdate::Allow, &mut self.failures)
             .unwrap();
         self.memory_management
-            .bind(reserved, memory, 0, &mut self.failures)
-            .unwrap();
+            .bind(reserved, memory, 0, &mut self.failures);
         Ok(())
     }
 

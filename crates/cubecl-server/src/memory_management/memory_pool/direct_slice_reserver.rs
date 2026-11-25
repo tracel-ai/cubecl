@@ -272,10 +272,11 @@ impl SliceReserver for DirectSliceReserver {
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
-        let slice = self.find_mut(&reserved.binding())?;
+    ) {
+        let slice = self
+            .find_mut(&reserved.binding())
+            .expect("a reserved slice should be held by the pool that reserved it");
         SliceBinder.bind(slice, assigned, cursor, failures);
-        Ok(())
     }
 }
 
@@ -406,9 +407,10 @@ mod tests {
         );
     }
 
-    /// A binding of a slice the pool released is refused.
+    /// Binding a slice the pool released panics.
     #[test_log::test]
-    fn a_binding_of_a_released_slice_is_not_found() {
+    #[should_panic(expected = "a reserved slice should be held by the pool that reserved it")]
+    fn binding_a_released_slice_panics() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
         let reserved = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
@@ -419,14 +421,12 @@ mod tests {
         core::mem::drop(reserved);
         pool.reclaim(&mut storage, &mut ErrorGraph::default());
 
-        let refused = pool.bind(
+        pool.bind(
             stale,
             ManagedMemoryHandle::new(),
             0,
             &mut ErrorGraph::default(),
         );
-
-        assert!(matches!(refused, Err(IoError::NotFound { .. })));
     }
 
     /// A refusal leaves the pool serving: the next allocation, exactly at the

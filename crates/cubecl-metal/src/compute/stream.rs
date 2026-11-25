@@ -755,7 +755,7 @@ impl EventStreamBackend for MetalStreamBackend {
 
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
-        // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
+        // to decide whether to wait. A binding never placed falls back to `u64::MAX`,
         // which conservatively forces a wait.
         stream
             .memory_management

@@ -257,13 +257,12 @@ impl SliceReserver for ExclusiveSliceReserver {
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
+    ) {
         let page = self
             .pages
             .get_mut(reserved.descriptor().page())
             .expect("a reserved page should be held by the pool that reserved it");
         SliceBinder.bind(&mut page.slice, assigned, cursor, failures);
-        Ok(())
     }
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {

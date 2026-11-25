@@ -36,21 +36,16 @@ pub trait SliceReserver {
     /// `reserved` came from this pool's [`try_reserve`](Self::try_reserve) or
     /// [`alloc`](Self::alloc).
     ///
-    /// # Errors
-    ///
-    /// An implementation may answer [`IoError::NotFound`] when it can tell
-    /// `reserved` names no slice it holds.
-    ///
     /// # Panics
     ///
-    /// An implementation may panic when `reserved` did not come from it.
+    /// When `reserved` names no slice the pool holds.
     fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError>;
+    );
 
     /// The slice `binding`'s location names.
     ///

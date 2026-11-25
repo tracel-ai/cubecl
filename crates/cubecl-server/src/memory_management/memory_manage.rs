@@ -4,7 +4,7 @@ use super::{
     MemoryConfiguration, MemoryLocation, MemoryManagementOptions, MemoryPoolReport,
     MemoryPoolsReport, PERSISTENT_POOL_POS, PageGuard,
     memory_pool::{
-        DirectSliceReserver, PageMapping, PersistentSliceReserver, Slice, SliceReserver, missing,
+        DirectSliceReserver, PageMapping, PersistentSliceReserver, Slice, SliceReserver,
     },
 };
 use crate::{
@@ -135,15 +135,22 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// The stream cursor the allocation behind `binding` was bound at.
     ///
+    /// # Assumptions
+    ///
+    /// A placed `binding` names its allocation's current location.
+    ///
     /// # Guarantees
     ///
-    /// A binding whose allocation is gone, or that never had one, is refused
-    /// with [`IoError::NotFound`], never resolved to another allocation.
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
     ///
-    /// [`IoError::NotFound`] when no allocation of this memory is behind
-    /// `binding`.
+    /// [`IoError::NotFound`] when `binding` was never placed.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
     pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
         self.reserver.get_cursor(&binding)
     }
@@ -152,16 +159,23 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// funnel every buffer dereference passes through, so it is where a
     /// lazily-carved allocation gets its real device backing.
     ///
+    /// # Assumptions
+    ///
+    /// A placed `binding` names its allocation's current location.
+    ///
     /// # Guarantees
     ///
-    /// A binding whose allocation is gone, or that never had one, is refused
-    /// with [`IoError::NotFound`], never resolved to another allocation.
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
     ///
-    /// [`IoError::NotFound`] when no allocation of this memory is behind
-    /// `binding`, and [`IoError::StorageMappingFailed`] when the storage
-    /// refuses the backing.
+    /// [`IoError::NotFound`] when `binding` was never placed, and
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
         self.reserver.get_storage(&binding)
     }
@@ -243,12 +257,20 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// allocation in place, and leaves the rest of its page to other
     /// allocations.
     ///
+    /// # Assumptions
+    ///
+    /// A placed `binding` names its allocation's current location.
+    ///
     /// # Guarantees
     ///
-    /// A binding whose allocation is gone, or that never had one, is refused
-    /// with [`IoError::NotFound`], never resolved to another allocation.
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
+    ///
+    /// As [`get_resource`](Self::get_resource).
+    ///
+    /// # Panics
     ///
     /// As [`get_resource`](Self::get_resource).
     pub fn managed_resource(
@@ -263,16 +285,24 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// The resource behind `binding`, trimmed by its offsets.
     ///
+    /// # Assumptions
+    ///
+    /// A placed `binding` names its allocation's current location.
+    ///
     /// # Guarantees
     ///
-    /// A binding whose allocation is gone, or that never had one, is refused
-    /// with [`IoError::NotFound`], never resolved to another allocation.
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
     ///
     /// # Errors
     ///
     /// [`IoError::BindingOutOfBounds`] when the offsets reach past the end of
     /// the binding's memory, and whatever [`get_storage`](Self::get_storage)
     /// refuses.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
     pub fn get_resource(
         &mut self,
         binding: ManagedMemoryBinding,
@@ -350,26 +380,22 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Assumptions
     ///
-    /// `reserved` was not bound since it was reserved: a second bind would
-    /// take the slice from the allocation the first bound to it.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError::NotFound`] when `reserved` was never placed, names no pool
-    /// of this memory, or names a dedicated slice that is gone.
+    /// `reserved` came from a reservation of this memory and was not bound
+    /// since: a second bind would take the slice from the allocation the
+    /// first bound to it.
     ///
     /// # Panics
     ///
     /// When `failures` is not the graph this memory's failures are in, or
-    /// `reserved` names a slice a pool other than the dedicated one does not
-    /// hold.
+    /// `reserved` was never placed or names a slice this memory does not
+    /// hold: binding it would overwrite another allocation's handle.
     pub fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
+    ) {
         self.reserver.bind(reserved, assigned, cursor, failures)
     }
 
@@ -596,8 +622,11 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
 
     /// The allocation behind `binding`.
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let slice = self.pool(allocated(binding.descriptor())?)?.find(binding)?;
-        owned_by(slice, binding)?;
+        let slice = self
+            .pool(allocated(binding.descriptor())?)
+            .find(binding)
+            .expect("a binding should name a slice its pool holds");
+        owned_by(slice, binding);
         Ok(slice)
     }
 
@@ -605,31 +634,44 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
     /// [`written`](Self::written) take to reach the slice.
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let slice = self
-            .pool_mut(allocated(binding.descriptor())?)?
-            .find_mut(binding)?;
-        owned_by(slice, binding)?;
+            .pool_mut(allocated(binding.descriptor())?)
+            .find_mut(binding)
+            .expect("a binding should name a slice its pool holds");
+        owned_by(slice, binding);
         Ok(slice)
     }
 
     /// The pool `location` names.
-    fn pool(&self, location: MemoryLocation) -> Result<&dyn SliceReserver, IoError> {
+    ///
+    /// # Panics
+    ///
+    /// When `location` names no pool of this memory.
+    fn pool(&self, location: MemoryLocation) -> &dyn SliceReserver {
         match PoolPosition::from_pool_index(location.pool) {
-            PoolPosition::Persistent => Ok(&self.persistent),
-            PoolPosition::Dedicated => Ok(&self.dedicated),
+            PoolPosition::Persistent => &self.persistent,
+            PoolPosition::Dedicated => &self.dedicated,
             PoolPosition::Dynamic(index) => self
                 .dynamic_pool_by_index(index)
-                .ok_or_else(|| missing("pool", index.into())),
+                .expect("a location should name a pool of the memory that placed it"),
         }
     }
 
     /// The pool `location` names, mutably.
-    fn pool_mut(&mut self, location: MemoryLocation) -> Result<&mut dyn SliceReserver, IoError> {
+    ///
+    /// # Panics
+    ///
+    /// When `location` names no pool of this memory.
+    fn pool_mut(&mut self, location: MemoryLocation) -> &mut dyn SliceReserver {
+        self.try_pool_mut(location)
+            .expect("a location should name a pool of the memory that placed it")
+    }
+
+    /// The pool `location` names, mutably, if this memory has it.
+    fn try_pool_mut(&mut self, location: MemoryLocation) -> Option<&mut dyn SliceReserver> {
         match PoolPosition::from_pool_index(location.pool) {
-            PoolPosition::Persistent => Ok(&mut self.persistent),
-            PoolPosition::Dedicated => Ok(&mut self.dedicated),
-            PoolPosition::Dynamic(index) => self
-                .dynamic_pool_by_index_mut(index)
-                .ok_or_else(|| missing("pool", index.into())),
+            PoolPosition::Persistent => Some(&mut self.persistent),
+            PoolPosition::Dedicated => Some(&mut self.dedicated),
+            PoolPosition::Dynamic(index) => self.dynamic_pool_by_index_mut(index),
         }
     }
 
@@ -678,7 +720,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
-        self.pool_mut(location).ok()?.guard(location)
+        self.try_pool_mut(location)?.guard(location)
     }
 
     /// Install real backing behind `binding` when its allocation was carved
@@ -887,10 +929,11 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
-        let location = allocated(reserved.descriptor())?;
-        self.pool_mut(location)?
-            .bind(reserved, assigned, cursor, failures)
+    ) {
+        let location = allocated(reserved.descriptor())
+            .expect("a reservation should be placed by the memory that reserved it");
+        self.pool_mut(location)
+            .bind(reserved, assigned, cursor, failures);
     }
 
     fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
@@ -1067,17 +1110,18 @@ fn allocated(descriptor: &ManagedMemoryDescriptor) -> Result<MemoryLocation, IoE
     Ok(descriptor.location())
 }
 
-/// Whether `slice` still holds the allocation behind `binding`. A stale
-/// location (a page deallocated since, whose index a later cleanup reassigned)
-/// must surface as `NotFound`, never as another allocation's slice.
-fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
-    if slice.descriptor() != binding.descriptor() {
-        return Err(IoError::NotFound {
-            backtrace: BackTrace::capture(),
-            reason: "Memory location points to a different allocation".into(),
-        });
-    }
-    Ok(())
+/// Check that `slice` still holds the allocation behind `binding`: a binding
+/// names its allocation's current location, so a slice holding another one
+/// is a broken assumption, never an answer.
+///
+/// # Panics
+///
+/// When `slice` holds another allocation than `binding`'s.
+fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) {
+    assert!(
+        slice.descriptor() == binding.descriptor(),
+        "a binding should name its allocation's current location"
+    );
 }
 
 impl<Storage: StorageAllocator> core::fmt::Display for MemoryReserver<Storage> {
@@ -1215,57 +1259,50 @@ mod tests {
         ));
     }
 
+    /// A binding naming a slice another allocation took is never resolved to
+    /// that allocation's data.
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
-    fn find_stale_descriptor_returns_not_found() {
+    #[should_panic(expected = "a binding should name its allocation's current location")]
+    fn a_stale_binding_panics() {
         let mut memory_management = memory(MemoryConfiguration::Adaptive);
-
         let reserved = reserve(&mut memory_management, 512);
         let stale = reserved.clone();
-        let assigned = ManagedMemoryHandle::new();
-        let assigned_binding = assigned.clone().binding();
-
-        memory_management
-            .bind(reserved, assigned, 0, &mut ErrorGraph::default())
-            .expect("the reservation should be this memory's");
-
-        // The slice's identity is now `assigned`; the stale reserved descriptor
-        // must surface as `NotFound`, not as the new allocation's data.
-        assert!(matches!(
-            memory_management.get_cursor(stale.binding()),
-            Err(IoError::NotFound { .. })
-        ));
-        assert!(memory_management.get_cursor(assigned_binding).is_ok());
-    }
-
-    /// Binding a handle no reservation placed is refused.
-    #[test_log::test]
-    fn binding_an_unplaced_handle_is_not_found() {
-        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
-
-        let refused = memory_management.bind(
-            ManagedMemoryHandle::new(),
+        memory_management.bind(
+            reserved,
             ManagedMemoryHandle::new(),
             0,
             &mut ErrorGraph::default(),
         );
 
-        assert!(matches!(refused, Err(IoError::NotFound { .. })));
+        let _ = memory_management.get_cursor(stale.binding());
     }
 
-    /// A location naming a dynamic pool the layout does not have is refused.
+    /// Binding a handle no reservation placed panics.
     #[test_log::test]
-    fn a_location_naming_no_pool_is_not_found() {
+    #[should_panic(expected = "a reservation should be placed by the memory that reserved it")]
+    fn binding_an_unplaced_handle_panics() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+
+        memory_management.bind(
+            ManagedMemoryHandle::new(),
+            ManagedMemoryHandle::new(),
+            0,
+            &mut ErrorGraph::default(),
+        );
+    }
+
+    /// A location naming a dynamic pool the layout does not have panics.
+    #[test_log::test]
+    #[should_panic(expected = "a location should name a pool of the memory that placed it")]
+    fn a_location_naming_no_pool_panics() {
         let memory_management = memory(MemoryConfiguration::ExclusivePages);
         let handle = ManagedMemoryHandle::new();
         handle
             .descriptor()
             .update_location(MemoryLocation::new(200, 0, 0));
 
-        assert!(matches!(
-            memory_management.get_cursor(handle.binding()),
-            Err(IoError::NotFound { .. })
-        ));
+        let _ = memory_management.get_cursor(handle.binding());
     }
 
     /// A taint, a write and a failure read of a binding this memory does not

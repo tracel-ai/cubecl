@@ -202,13 +202,12 @@ impl SliceReserver for PersistentSliceReserver {
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
+    ) {
         let slice = self
             .slices
             .get_mut(reserved.descriptor().slice())
             .expect("a reserved slice should be held by the pool that reserved it");
         SliceBinder.bind(slice, assigned, cursor, failures);
-        Ok(())
     }
 
     /// A stale location whose index a later cleanup reassigned names a live
