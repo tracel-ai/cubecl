@@ -136,10 +136,10 @@ impl Memory {
     pub(crate) fn loads_along(&self, #[comptime] length: usize) -> comptime_type!(usize) {
         let width = comptime!(self.store.vector_size);
         comptime!(assert!(
-            length % width == 0,
+            length.is_multiple_of(width),
             "Memory: a slice of {length} values is not a whole number of loads of {width}"
         ));
-        comptime!(length / width)
+        length / width
     }
 
     /// How a contraction into this window runs, as stated with
