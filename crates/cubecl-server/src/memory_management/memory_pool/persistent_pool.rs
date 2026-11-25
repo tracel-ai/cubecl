@@ -1,4 +1,4 @@
-use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, padded_size};
 use crate::memory_management::Cleanup;
 use crate::memory_management::{
     BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -79,15 +79,14 @@ impl PersistentPool {
     }
 
     pub fn has_size(&mut self, size: u64) -> bool {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-        self.sizes.contains_key(&effective_size)
+        padded_size(size, self.alignment)
+            .is_some_and(|effective_size| self.sizes.contains_key(&effective_size))
     }
 }
 
 impl MemoryPool for PersistentPool {
     fn accept(&self, size: u64) -> bool {
-        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
+        padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -117,8 +116,7 @@ impl MemoryPool for PersistentPool {
         size: u64,
         _failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
+        let effective_size = padded_size(size, self.alignment)?;
 
         if let Some(positions) = self.sizes.get_mut(&effective_size) {
             for pos in positions {
@@ -127,6 +125,7 @@ impl MemoryPool for PersistentPool {
                 if slice.is_free() {
                     slice.storage.utilization.size_bytes = size;
                     slice.storage.utilization.offset_bytes = 0;
+                    slice.padding = effective_size - size;
                     self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
                     return Some(slice.handle.clone());
                 }
@@ -143,18 +142,18 @@ impl MemoryPool for PersistentPool {
         mapping: PageMapping,
         _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-
         // Refused before the storage sees it: some backends (wgpu) treat a
         // buffer past the device's limit as a validation error that poisons
         // the device rather than as a failed allocation.
-        if effective_size > self.max_alloc_size {
+        let Some(effective_size) =
+            padded_size(size, self.alignment).filter(|padded| *padded <= self.max_alloc_size)
+        else {
             return Err(IoError::BufferTooBig {
                 size,
                 backtrace: BackTrace::capture(),
             });
-        }
+        };
+        let padding = effective_size - size;
 
         // Every persistent slice owns its whole buffer, so laziness is
         // per-slice: a minted id under a process mode that discards launches (a scratch
@@ -365,6 +364,50 @@ mod tests {
             pool.try_reserve(size, &mut ErrorGraph::default()).is_some(),
             "freed slice should be reusable"
         );
+    }
+
+    /// A reused slice takes the padding of the size it now serves, so its
+    /// padded size stays the bucket it is filed under.
+    #[test_log::test]
+    fn a_reused_slice_takes_the_padding_of_its_new_size() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentPool::new(1024, 32, 0);
+        let first = pool
+            .alloc(
+                &mut storage,
+                100,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
+            .expect("100 bytes fit");
+        core::mem::drop(first);
+
+        let _reused = pool
+            .try_reserve(97, &mut ErrorGraph::default())
+            .expect("97 bytes pad to the same 128");
+
+        let usage = pool.get_memory_usage();
+        assert_eq!((usage.reserved_bytes, usage.padding_bytes), (128, 31));
+    }
+
+    /// A size whose padding passes the largest `u64` is refused rather than
+    /// wrapped to a small allocation.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentPool::new(1024, 32, 0);
+
+        assert!(!pool.accept(u64::MAX));
+        assert!(!pool.has_size(u64::MAX));
+        assert!(matches!(
+            pool.alloc(
+                &mut storage,
+                u64::MAX,
+                PageMapping::Eager,
+                &mut ErrorGraph::default()
+            ),
+            Err(IoError::BufferTooBig { .. })
+        ));
     }
 
     #[test_log::test]

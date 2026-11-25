@@ -1,4 +1,4 @@
-use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, padded_size};
 use crate::memory_management::Cleanup;
 use crate::memory_management::{
     BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -154,7 +154,7 @@ impl DirectPool {
 
 impl MemoryPool for DirectPool {
     fn accept(&self, size: u64) -> bool {
-        size + calculate_padding(size, self.alignment) <= self.max_alloc_size
+        padded_size(size, self.alignment).is_some_and(|padded| padded <= self.max_alloc_size)
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
@@ -189,8 +189,7 @@ impl MemoryPool for DirectPool {
         size: u64,
         _failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
+        let effective_size = padded_size(size, self.alignment)?;
         let slice = self
             .slices
             .iter_mut()
@@ -200,7 +199,7 @@ impl MemoryPool for DirectPool {
         // Both, or `effective_size()` stops describing the device allocation:
         // the slice keeps its old padding while its utilization takes the new
         // size, and the next exact-fit lookup no longer recognizes it.
-        slice.padding = padding;
+        slice.padding = effective_size - size;
         slice.storage.utilization = StorageUtilization {
             offset_bytes: 0,
             size_bytes: size,
@@ -217,15 +216,15 @@ impl MemoryPool for DirectPool {
         mapping: PageMapping,
         _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-
-        if effective_size > self.max_alloc_size {
+        let Some(effective_size) =
+            padded_size(size, self.alignment).filter(|padded| *padded <= self.max_alloc_size)
+        else {
             return Err(IoError::BufferTooBig {
                 size,
                 backtrace: BackTrace::capture(),
             });
-        }
+        };
+        let padding = effective_size - size;
 
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
@@ -326,7 +325,7 @@ impl MemoryPool for DirectPool {
         &mut self,
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
-        _cursor: u64,
+        cursor: u64,
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let index = reserved.descriptor().slice();
@@ -342,6 +341,7 @@ impl MemoryPool for DirectPool {
         assigned
             .descriptor()
             .update_location(reserved.descriptor().location());
+        slice.cursor = cursor;
         slice.bind(assigned, failures);
 
         Ok(())
@@ -425,6 +425,42 @@ mod tests {
             MAX + 1,
             MAX + ALIGNMENT
         );
+    }
+
+    /// A size whose padding passes the largest `u64` is refused rather than
+    /// wrapped to a small allocation.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+
+        assert!(!pool.accept(u64::MAX));
+        assert!(matches!(
+            alloc(&mut pool, &mut storage, u64::MAX),
+            Err(IoError::BufferTooBig { .. })
+        ));
+        assert!(
+            pool.try_reserve(u64::MAX, &mut ErrorGraph::default())
+                .is_none()
+        );
+    }
+
+    /// A binding takes the cursor it is bound at, which the cross-stream
+    /// waits read.
+    #[test_log::test]
+    fn a_binding_takes_its_cursor() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let reserved = alloc(&mut pool, &mut storage, 64).expect("64 bytes fit");
+        let assigned = ManagedMemoryHandle::new();
+
+        pool.bind(reserved, assigned.clone(), 7, &mut ErrorGraph::default())
+            .expect("the reservation is the pool's");
+
+        let slice = pool
+            .find(&assigned.binding())
+            .expect("the binding resolves");
+        assert_eq!(slice.cursor, 7);
     }
 
     /// A refusal leaves the pool serving: the next allocation, exactly at the

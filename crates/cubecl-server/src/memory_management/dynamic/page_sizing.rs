@@ -1,4 +1,4 @@
-use crate::memory_management::memory_pool::{SlicedLayout, SlicedPool, calculate_padding};
+use crate::memory_management::memory_pool::{SlicedLayout, SlicedPool, padded_size};
 use cubecl_ir::MemoryDeviceProperties;
 
 /// Slack a page keeps past the largest allocation it was sized for, so that
@@ -56,7 +56,9 @@ impl PageSizing {
     /// on top, rounded to the megabyte: never below the floor, never past
     /// the device's largest page.
     pub fn fit(&self, size: u64, page_size: u64) -> Fit {
-        let needed = size + calculate_padding(size, self.alignment);
+        let Some(needed) = padded_size(size, self.alignment) else {
+            return Fit::TooLarge;
+        };
         if needed <= page_size {
             return Fit::Fits;
         }

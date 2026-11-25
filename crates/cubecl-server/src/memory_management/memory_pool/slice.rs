@@ -108,6 +108,13 @@ impl Slice {
     }
 }
 
+/// `size` bytes rounded up to `memory_alignment`, what an allocation of them
+/// takes: `None` past the largest size a `u64` holds, which no device
+/// allocates.
+pub(crate) fn padded_size(size: u64, memory_alignment: u64) -> Option<u64> {
+    size.checked_add(calculate_padding(size, memory_alignment))
+}
+
 /// Calculates the padding required to store the given size in a buffer given the memory alignment.
 pub(crate) fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
     let remainder = size % memory_alignment;

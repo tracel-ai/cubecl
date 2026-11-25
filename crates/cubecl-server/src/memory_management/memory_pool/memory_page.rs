@@ -2,7 +2,7 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryUsage, PageGuard,
-        memory_pool::{PageMapping, Slice, calculate_padding},
+        memory_pool::{PageMapping, Slice, padded_size},
     },
     server::IoError,
     storage::{StorageHandle, StorageUtilization},
@@ -197,37 +197,30 @@ impl MemoryPage {
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
     /// you can call the [`Self::coalesce()`] function to merge those.
     pub fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
+        let effective_size = padded_size(size, self.alignment)?;
+        let index = self
+            .slices
+            .iter()
+            .position(|slice| slice.is_free() && slice.effective_size() >= effective_size)?;
 
-        for (index, slice) in self.slices.iter_mut().enumerate() {
-            let can_use_slice =
-                slice.storage.utilization.size_bytes >= effective_size && slice.handle.is_free();
+        // A free slice's room is its padded size: the padding its last
+        // allocation took is part of it.
+        let slice = &mut self.slices[index];
+        let capacity = slice.effective_size();
+        let mut rest = slice.storage.clone();
+        slice.storage.utilization.size_bytes = size;
+        slice.padding = effective_size - size;
+        let handle = slice.handle.clone();
 
-            if !can_use_slice {
-                continue;
-            }
-
-            let can_be_split = slice.storage.utilization.size_bytes > effective_size;
-            let handle = slice.handle.clone();
-            let storage_old = slice.storage.clone();
-
-            // Updates the current storage utilization.
-            slice.storage.utilization.size_bytes = size;
-            slice.padding = padding;
-
-            if can_be_split {
-                let rest = storage_old
-                    .trim_start_bytes(effective_size)
-                    .expect("a slice that can be split should outlast its first part");
-                let new_slice = Slice::new(rest, 0);
-                self.add_new_slice(index, size, new_slice);
-            }
-
-            return Some(handle);
+        if capacity > effective_size {
+            rest.utilization = StorageUtilization {
+                offset_bytes: rest.offset() + effective_size,
+                size_bytes: capacity - effective_size,
+            };
+            self.add_new_slice(index, Slice::new(rest, 0));
         }
 
-        None
+        Some(handle)
     }
 
     /// Gets the [storage handle](SliceHandle) with the correct offset and size using the slice
@@ -346,18 +339,11 @@ impl MemoryPage {
         core::mem::swap(&mut self.slices, &mut self.slices_tmp);
     }
 
-    /// Places `new_slice` right after the slice at `index_previous`, which keeps
-    /// `reserved_size_previous` of its storage. Only the slices after the new one
-    /// move, so only their descriptors learn a new position: a reservation splits
-    /// a slice on every launch that allocates, and a page holds many.
-    fn add_new_slice(
-        &mut self,
-        index_previous: usize,
-        reserved_size_previous: u64,
-        new_slice: Slice,
-    ) {
-        self.slices[index_previous].storage.utilization.size_bytes = reserved_size_previous;
-
+    /// Places `new_slice` right after the slice at `index_previous`. Only the
+    /// slices after the new one move, so only their descriptors learn a new
+    /// position: a reservation splits a slice on every launch that allocates,
+    /// and a page holds many.
+    fn add_new_slice(&mut self, index_previous: usize, new_slice: Slice) {
         let index_new = index_previous + 1;
         let mut location = self.location_base;
         location.slice = index_new as u32;
@@ -811,7 +797,41 @@ mod tests {
         );
     }
 
+    /// A freed slice's room includes the padding its last allocation took, so
+    /// the same allocation fits it again.
+    #[test_log::test]
+    fn a_freed_slice_serves_its_padded_size_again() {
+        let mut page = aligned_memory_page(128, 32);
+        let first = page.try_reserve(100).expect("the page fits 100 bytes");
+        core::mem::drop(first);
+
+        assert!(page.try_reserve(100).is_some(), "the slice is 128 bytes");
+    }
+
+    /// Splitting a freed slice leaves the rest of its padded room on the page.
+    #[test_log::test]
+    fn splitting_a_freed_slice_keeps_its_padding_on_the_page() {
+        let mut page = aligned_memory_page(128, 32);
+        core::mem::drop(page.try_reserve(100).expect("the page fits 100 bytes"));
+
+        let _split = page.try_reserve(32).expect("the freed slice fits 32 bytes");
+
+        assert_eq!(page.memory_usage().reserved_bytes, 128);
+    }
+
+    /// A size whose padding passes the largest `u64` fits no slice.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_fits_no_slice() {
+        let mut page = aligned_memory_page(128, 32);
+
+        assert!(page.try_reserve(u64::MAX).is_none());
+    }
+
     fn new_memory_page(size: u64) -> MemoryPage {
+        aligned_memory_page(size, 4)
+    }
+
+    fn aligned_memory_page(size: u64, alignment: u64) -> MemoryPage {
         let storage = StorageHandle::new(
             StorageId::new(),
             StorageUtilization {
@@ -820,6 +840,11 @@ mod tests {
             },
         );
 
-        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Eager)
+        MemoryPage::new(
+            storage,
+            alignment,
+            MemoryLocation::new(0, 0, 0),
+            PageMapping::Eager,
+        )
     }
 }

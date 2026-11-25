@@ -569,4 +569,11 @@ mod tests {
         );
         assert_eq!(sizing().fit(16 * MIB + 1, 2 * MIB), Fit::TooLarge);
     }
+
+    /// A size whose padding passes the largest `u64` is too large, rather than
+    /// wrapped to one that fits.
+    #[test]
+    fn a_size_whose_padding_overflows_is_too_large() {
+        assert_eq!(sizing().fit(u64::MAX, 2 * MIB), Fit::TooLarge);
+    }
 }
