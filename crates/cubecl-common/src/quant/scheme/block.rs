@@ -171,29 +171,23 @@ impl BlockSize {
         &self,
         rank: usize,
     ) -> impl DoubleEndedIterator<Item = BlockExtent> + ExactSizeIterator {
-        (0..rank).map(move |axis| self.extent_from_last(rank - 1 - axis))
+        (0..rank).map(move |axis| self.extent_along(axis, rank))
     }
 
     /// The block's extent along each axis of a tensor of `N` axes.
     pub fn extents_in<const N: usize>(&self) -> [BlockExtent; N] {
-        core::array::from_fn(|axis| self.extent_from_last(N - 1 - axis))
+        core::array::from_fn(|axis| self.extent_along(axis, N))
     }
 
     /// How many values the block covers along each axis of `shape`.
     pub fn values(&self, shape: &[usize]) -> Vec<usize> {
-        self.extents_in_rank(shape.len())
-            .zip(shape)
-            .map(|(extent, &len)| extent.values_of_axis(len))
-            .collect()
+        self.per_axis(shape, BlockExtent::values_of_axis)
     }
 
     /// How many blocks cover each axis of `shape`, which is the shape of the scale grid: one
     /// scale per block.
     pub fn num_blocks(&self, shape: &[usize]) -> Vec<usize> {
-        self.extents_in_rank(shape.len())
-            .zip(shape)
-            .map(|(extent, &len)| extent.blocks_of_axis(len))
-            .collect()
+        self.per_axis(shape, BlockExtent::blocks_of_axis)
     }
 
     /// This block over a tensor whose axes are permuted: `axes[i]` is the axis that becomes `i`.
@@ -211,6 +205,19 @@ impl BlockSize {
 impl BlockSize {
     fn extent_from_last(&self, axis: usize) -> BlockExtent {
         self.extents.get(axis).copied().unwrap_or(self.rest)
+    }
+
+    /// The block's extent along `axis` of a tensor of `rank` axes.
+    fn extent_along(&self, axis: usize, rank: usize) -> BlockExtent {
+        self.extent_from_last(rank - 1 - axis)
+    }
+
+    /// `count` of the block's extent along each axis of `shape` and that axis's length.
+    fn per_axis(&self, shape: &[usize], count: fn(BlockExtent, usize) -> usize) -> Vec<usize> {
+        self.extents_in_rank(shape.len())
+            .zip(shape)
+            .map(|(extent, &len)| count(extent, len))
+            .collect()
     }
 
     /// The extents of the last axes, the last one first, up to where they all say the rest.

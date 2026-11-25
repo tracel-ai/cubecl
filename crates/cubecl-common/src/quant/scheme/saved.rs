@@ -10,31 +10,31 @@ use super::{
 /// per-block levels it held before it listed blocks.
 #[derive(Deserialize)]
 pub(super) struct SavedScheme {
-    value: QuantValue,
-    store: QuantStore,
-    mode: QuantMode,
+    pub value: QuantValue,
+    pub store: QuantStore,
+    pub mode: QuantMode,
     #[serde(default)]
-    blocks: [Option<BlockScale>; 2],
+    pub blocks: [Option<BlockScale>; 2],
     #[serde(default)]
-    tensor: Option<ScaleDtype>,
+    pub tensor: Option<ScaleDtype>,
     #[serde(default)]
-    row: Option<ScaleDtype>,
+    pub row: Option<ScaleDtype>,
     #[serde(default)]
-    block: Option<SavedBlockScale>,
+    pub block: Option<SavedBlockScale>,
 }
 
 /// A per-block level.
 #[derive(Deserialize)]
-struct SavedBlockScale {
-    size: SavedBlockSize,
-    dtype: ScaleDtype,
+pub(super) struct SavedBlockScale {
+    pub size: SavedBlockSize,
+    pub dtype: ScaleDtype,
 }
 
 /// The values a block covers along the last axes, the last one at `len - 1`.
 #[derive(Deserialize)]
-struct SavedBlockSize {
-    storage: [NonZeroU8; BlockSize::MAX_DIMS],
-    len: usize,
+pub(super) struct SavedBlockSize {
+    pub storage: [NonZeroU8; BlockSize::MAX_DIMS],
+    pub len: usize,
 }
 
 impl TryFrom<SavedScheme> for QuantScheme {
