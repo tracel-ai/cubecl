@@ -186,7 +186,7 @@ impl Metadata {
             (0..self.known_logical_rank()).collect();
         axes.swap(dim0, dim1);
         self.permute(&axes)
-            .expect("two logical dims swapped are a permutation of them");
+            .expect("two logical dims swapped should be a permutation of them");
     }
 
     /// Reorder the logical dims according to the permutation of `axes`. On a storage-tiled
@@ -235,14 +235,7 @@ impl Metadata {
     /// [`Tiling::from_physical_dims`].
     pub fn insert(&mut self, index: usize, shape: usize, stride: usize) {
         if self.is_tiled() {
-            let mut dims = self.tiling.physical_dims(self.known_logical_rank());
-            let physical = dims.iter_mut().flatten();
-            physical
-                .filter(|physical| **physical >= index)
-                .for_each(|physical| *physical += 1);
-            dims.insert(index, smallvec![index]);
-            self.tiling = Tiling::from_physical_dims(&dims)
-                .expect("a tiled tensor has room for one more untiled dim");
+            self.insert_fragment(index);
         }
         self.shape.insert(index, shape);
         self.strides.insert(index, stride);
@@ -263,6 +256,15 @@ impl Metadata {
         (shape, stride)
     }
 
+    /// Put an untiled logical dim at `index` into the tiling, the physical dim `index`.
+    fn insert_fragment(&mut self, index: usize) {
+        let mut dims = self.tiling.physical_dims(self.known_logical_rank());
+        shift_physical_dims(dims.iter_mut().flatten(), index, 1);
+        dims.insert(index, smallvec![index]);
+        self.tiling = Tiling::from_physical_dims(&dims)
+            .expect("a tiled tensor should have room for one more untiled dim");
+    }
+
     /// Take logical dim `index` out of the tiling, and return the physical dim it was.
     fn remove_fragment(&mut self, index: usize) -> usize {
         let mut dims = self.tiling.physical_dims(self.known_logical_rank());
@@ -273,11 +275,8 @@ impl Metadata {
             "Metadata::remove of a storage-tiled dim: {:?}",
             self.tiling
         );
-        let physical = dims.iter_mut().flatten();
-        physical
-            .filter(|physical| **physical > removed[0])
-            .for_each(|physical| *physical -= 1);
-        self.tiling = Tiling::from_physical_dims(&dims).expect("fewer dims fit a tiling");
+        shift_physical_dims(dims.iter_mut().flatten(), removed[0] + 1, -1);
+        self.tiling = Tiling::from_physical_dims(&dims).expect("fewer dims should fit a tiling");
         removed[0]
     }
 
@@ -290,8 +289,19 @@ impl Metadata {
     /// checked it.
     fn known_logical_rank(&self) -> usize {
         self.logical_rank()
-            .expect("a metadata's tiling describes its own rank")
+            .expect("a metadata's tiling should describe its own rank")
     }
+}
+
+/// Move each of `physical` from `from` on by `offset`.
+fn shift_physical_dims<'a>(
+    physical: impl Iterator<Item = &'a mut usize>,
+    from: usize,
+    offset: isize,
+) {
+    physical
+        .filter(|physical| **physical >= from)
+        .for_each(|physical| *physical = physical.wrapping_add_signed(offset));
 }
 
 #[cfg(test)]
@@ -485,15 +495,22 @@ mod tests {
 
     /// A dim inserted among the pieces moves none of them relative to one another.
     #[test]
-    fn a_dim_goes_in_and_out_of_a_tensor_core_layout() {
-        let meta = tensor_core_matrix();
-        let mut batched = meta.clone();
+    fn a_dim_goes_into_a_tensor_core_layout() {
+        let mut batched = tensor_core_matrix();
+
         batched.insert(1, 7, 0);
 
         assert_eq!(batched.logical_shape(), Ok(Shape::new([48, 7, 80])));
         assert_eq!(offset(&batched, &[33, 2, 71]), tensor_core_offset(33, 71));
+    }
+
+    #[test]
+    fn a_dim_inserted_into_a_tensor_core_layout_comes_back_out() {
+        let mut batched = tensor_core_matrix();
+        batched.insert(1, 7, 0);
+
         assert_eq!(batched.remove(1), (7, 0));
-        assert_eq!(batched, meta);
+        assert_eq!(batched, tensor_core_matrix());
     }
 
     #[test]
@@ -537,12 +554,16 @@ mod tests {
     }
 
     #[test]
-    fn restating_refuses_another_shape_or_a_tiled_metadata() {
+    fn restating_refuses_another_shape() {
         assert!(
             Metadata::new([8, 6], [6, 1])
                 .tiled_like(&tiled_matrix())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn restating_refuses_a_tiled_metadata() {
         assert!(tiled_matrix().tiled_like(&tiled_matrix()).is_err());
     }
 }
