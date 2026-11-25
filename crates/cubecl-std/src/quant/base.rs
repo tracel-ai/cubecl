@@ -1,4 +1,4 @@
-use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
+use cubecl_common::quant::scheme::{BlockSize, QuantScheme, ScaleDtype};
 use cubecl_core::prelude::Scalar;
 
 /// Run an arbitrary function with the quantization types from the scheme.
@@ -19,7 +19,7 @@ pub trait RunWithQuantType {
 /// being read as f32 bytes. It has one scale for the whole tensor, so a narrower type saves
 /// nothing and only reintroduces rounding error.
 pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
-    let levels = scheme.num_levels();
+    let levels = scheme.levels().count();
     assert!(
         bindings == levels,
         "a scheme with {levels} scale level(s) takes as many scale bindings, but {bindings} were provided",
@@ -32,20 +32,18 @@ pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
 ///
 /// # Panics
 ///
-/// Where the scheme has a per-row level, which these readers would take for a global one: one
-/// value for the whole tensor.
+/// Where a level coarser than the finest is not one f32 scale for the whole tensor.
 pub fn check_global_levels(scheme: &QuantScheme) {
-    assert!(
-        scheme.row_scale().is_none(),
-        "a per-row scale level should be read where its rows are known, by a tile kernel; these \
-         readers take an outer level for one scale over the whole tensor"
-    );
-    if scheme.block_scale().is_some()
-        && let Some(tensor) = scheme.tensor_scale()
-    {
+    for global in scheme.levels().skip(1) {
         assert!(
-            tensor == ScaleDtype::F32,
-            "an global scale binds as f32, but the scheme stores it as {tensor:?}",
+            global.size == BlockSize::TENSOR,
+            "a global scale is one for the whole tensor, but the scheme has one per {:?}",
+            global.size
+        );
+        assert!(
+            global.dtype == ScaleDtype::F32,
+            "a global scale binds as f32, but the scheme stores it as {:?}",
+            global.dtype
         );
     }
 }
@@ -129,6 +127,12 @@ mod tests {
                 .per_tensor(ScaleDtype::BF16),
             2,
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "is one for the whole tensor, but")]
+    fn a_coarser_level_of_rows_is_rejected() {
+        check_scale_bindings(&QuantScheme::mxfp4_row_factored(), 2);
     }
 
     #[test]
