@@ -416,7 +416,13 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         Ok(ManagedResource::new(binding, resource))
     }
 
-    /// Returns the resource from the storage at the specified handle
+    /// The resource behind `binding`, trimmed by its offsets.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::BindingOutOfBounds`] when the offsets reach past the end of
+    /// the binding's memory, and whatever [`get_storage`](Self::get_storage)
+    /// refuses.
     pub fn get_resource(
         &mut self,
         binding: ManagedMemoryBinding,
@@ -425,15 +431,18 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ) -> Result<Storage::Resource, IoError> {
         let handle = self.get_storage(binding)?;
 
-        let handle = match offset_start {
-            Some(offset) => handle.trim_start_bytes(offset),
-            None => handle,
-        };
-        let handle = match offset_end {
-            Some(offset) => handle.trim_end_bytes(offset),
-            None => handle,
-        };
-        self.storage().get(&handle)
+        let size = handle.size();
+        let handle = handle
+            .trim_start_bytes(offset_start.unwrap_or(0))
+            .and_then(|handle| handle.trim_end_bytes(offset_end.unwrap_or(0)))
+            .ok_or_else(|| IoError::BindingOutOfBounds {
+                reason: alloc::format!(
+                    "offsets {offset_start:?} and {offset_end:?} on {size} bytes"
+                )
+                .into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        Ok(self.storage().get(&handle))
     }
 
     /// Reserve `size` bytes, changing the pages held only as far as `update`
@@ -787,6 +796,22 @@ mod tests {
             "served by {:?}",
             served.kind
         );
+    }
+
+    #[test_log::test]
+    fn a_binding_whose_offsets_reach_past_its_memory_is_refused() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+        let handle = memory_management
+            .reserve(16, PageUpdate::Allow, &mut ErrorGraph::default())
+            .unwrap();
+        let resource = memory_management.get_resource(handle.binding(), Some(12), Some(8));
+        assert!(matches!(resource, Err(IoError::BindingOutOfBounds { .. })));
     }
 
     // Test pools with slices.

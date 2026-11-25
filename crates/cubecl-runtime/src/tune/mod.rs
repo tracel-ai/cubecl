@@ -28,6 +28,7 @@
 
 mod base;
 mod bounds_generator;
+mod device_access;
 mod eviction;
 mod gathering;
 mod input_generator;
@@ -54,6 +55,7 @@ mod util;
 
 pub use base::*;
 pub use bounds_generator::*;
+pub use device_access::TuneDeviceAccess;
 pub use eviction::*;
 pub use input_generator::*;
 pub use key_generator::*;

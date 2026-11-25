@@ -120,7 +120,8 @@ impl Tile {
 #[cube]
 impl DimensionSlices {
     /// `self[i, s] = self[i, s] · scale + bias[i, s]`, the procedural `bias` read at each cell's
-    /// coordinates, windowed to the same region as the tile.
+    /// coordinates, windowed to the same region as the tile. A cmma fragment is drained first
+    /// into a window of shared memory the calling plane holds.
     pub fn scale_add<E: Float>(&mut self, scale: E, bias: &Tile) {
         let recipe = bias.recipe();
         match &mut self.kind {

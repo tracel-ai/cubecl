@@ -1823,15 +1823,10 @@ pub enum IoError {
         reason: Reason,
     },
 
-    /// The storage backend holds no allocation for a handle's storage id.
-    ///
-    /// One layer below [`IoError::NotFound`]: there the memory manager could
-    /// not route a binding to a slice, here the routing succeeded and the
-    /// allocation the slice names is gone. A handle outliving its page, or a
-    /// storage id a deallocation retired, reaches the storage this way.
-    #[error("the storage holds no allocation for that handle: {reason}\n{backtrace}")]
-    StorageHandleNotFound {
-        /// Which id was looked up, and in which storage.
+    /// A binding's offsets reach past the end of the memory it binds.
+    #[error("the binding reaches past the end of its memory: {reason}\n{backtrace}")]
+    BindingOutOfBounds {
+        /// The offsets, and the size of the memory they trim.
         reason: Reason,
         /// The backtrace.
         #[cfg_attr(serializable, serde(skip))]

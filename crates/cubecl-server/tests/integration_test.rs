@@ -1401,7 +1401,7 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.abandoned),
+        (autotune.registered_count, autotune.abandoned_count),
         (1, 1),
         "the stopped tune is abandoned, not left registered"
     );
@@ -1488,7 +1488,7 @@ fn a_lost_card_tunes_no_key_again() {
     core::mem::drop(counted);
     POISONED.store(false, Ordering::Relaxed);
 
-    assert_eq!(collector.statistics().autotune.registered, 0);
+    assert_eq!(collector.statistics().autotune.registered_count, 0);
 }
 
 /// A tune that unwinds leaves its key to the next caller, as a lost device does.
@@ -1555,15 +1555,38 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_candidate_that_panics_is_dropped_alone() {
-    use cubecl_server::tune::Tunable;
+    use cubecl_server::tune::TuneDeviceAccess;
 
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_candidate_that_panics_is_dropped_alone");
 
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Exclusive);
+}
+
+/// A candidate that panics on a device its tune never holds is dropped alone too.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_candidate_that_panics_on_a_shared_device_is_dropped_alone() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_candidate_that_panics_on_a_shared_device_is_dropped_alone");
+
+    assert_a_panicking_candidate_is_dropped_alone(&TUNER, TuneDeviceAccess::Shared);
+}
+
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn assert_a_panicking_candidate_is_dropped_alone(
+    tuner: &'static LocalTuner<String, String>,
+    access: cubecl_server::tune::TuneDeviceAccess,
+) {
+    use cubecl_server::tune::Tunable;
+
     let client = test_client(&DummyDevice);
     let key = fresh_tune_key_uid();
     let id = key.clone();
-    let set = TUNER.init(&id, move || {
+    let set = tuner.init(&id, move || {
         let client = test_client(&DummyDevice);
         let key = key.clone();
         let slow = OneKernelAutotuneOperation::new(
@@ -1584,11 +1607,12 @@ fn a_candidate_that_panics_is_dropped_alone() {
             |_: Vec<Handle>| -> Result<(), String> { panic!("the block divides the vector") },
         ))
         .with(Tunable::new("add", move |inputs| add.run(inputs)))
+        .with_device_access(access)
     });
     let (handles, _) = addition_inputs(&client, &set);
     let out = handles[2].clone();
 
-    TUNER.execute(&id, &client, set, handles);
+    tuner.execute(&id, &client, set, handles);
 
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
@@ -2029,7 +2053,11 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (2, 1, 1),
         "the other adapter measures, the same one reads"
     );
@@ -2136,7 +2164,11 @@ fn devices_of_the_same_hardware_share_a_tuner() {
 
     let autotune = collector.statistics().autotune;
     assert_eq!(
-        (autotune.registered, autotune.measured, autotune.loaded),
+        (
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count
+        ),
         (0, 0, 0),
         "answered from memory, neither measured nor read"
     );
@@ -2165,7 +2197,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
         let _compile = ProcessModeOverride::new(ProcessMode::CompileOnly, &collector);
         tune(&gathering);
     }
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     tune(&Tuner::new("gathered", &client.hardware_identity()));
     tune(&gathering);
@@ -2173,10 +2205,10 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     let autotune = reader.statistics().autotune;
     assert_eq!(
         (
-            autotune.registered,
-            autotune.measured,
-            autotune.loaded,
-            autotune.abandoned
+            autotune.registered_count,
+            autotune.measured_count,
+            autotune.loaded_count,
+            autotune.abandoned_count
         ),
         (1, 0, 1, 0)
     );
@@ -2545,6 +2577,37 @@ fn autotune_ends_its_stages_in_nesting_order() {
         (0, 0),
         "{trace:?}"
     );
+}
+
+/// A tune that holds no device measures candidates whose launches another thread makes and waits
+/// on: the device is free to serve that thread while the candidate waits for it.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_without_holding_the_device_serves_launches_from_another_thread() {
+    use cubecl_server::tune::TuneDeviceAccess;
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_shared_access");
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+    let uid = fresh_tune_key_uid();
+    let test_set = TUNER.init(&"test".to_string(), move || {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_launched_elsewhere(
+            test_client(&DummyDevice),
+            shapes,
+            uid.clone(),
+            TuneDeviceAccess::Shared,
+        )
+    });
+
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
@@ -3201,14 +3264,14 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     assert_eq!(evictions.load(Ordering::Relaxed), 0, "nothing was measured");
     let gathered = collector.statistics().autotune;
     assert_eq!(
-        (gathered.registered, gathered.settled()),
+        (gathered.registered_count, gathered.settled_count()),
         (1, 0),
         "gathered once"
     );
 
     // Measured with no override open, the tune still settles to the
     // collector that gathered it.
-    let reader = collector.reader();
+    let reader = collector.to_reader();
     drop(collector);
     TUNER.execute(&"test".to_string(), &client, test_set, handles());
     assert!(
@@ -3217,7 +3280,7 @@ fn a_compile_only_override_leaves_the_tune_to_the_next_pass() {
     );
     let measured = reader.statistics().autotune;
     assert_eq!(
-        (measured.registered, measured.measured),
+        (measured.registered_count, measured.measured_count),
         (1, 1),
         "the tune gathered is the one measured, counted where it was gathered"
     );
@@ -3282,7 +3345,7 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
         );
         core::mem::drop(compile);
     }
-    assert_eq!(collector.statistics().autotune.registered, 1);
+    assert_eq!(collector.statistics().autotune.registered_count, 1);
 }
 
 /// A key a `CompileOnly` pass reaches inside another key's candidates is not
@@ -3351,7 +3414,7 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "the outer key's candidates reached the inner key"
     );
     assert_eq!(
-        collector.statistics().autotune.registered,
+        collector.statistics().autotune.registered_count,
         1,
         "only the outer key is registered"
     );
@@ -3369,10 +3432,10 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         "measuring the outer key reached the inner one"
     );
     let tuned = collector.statistics().autotune;
-    assert_eq!(tuned.registered, 2);
+    assert_eq!(tuned.registered_count, 2);
     assert_eq!(
-        (tuned.measured, tuned.failed),
-        (tuned.registered, 0),
+        (tuned.measured_count, tuned.failed_count),
+        (tuned.registered_count, 0),
         "every tune registered was measured, once"
     );
 }

@@ -59,26 +59,36 @@ impl StorageHandle {
         self.utilization.offset_bytes
     }
 
-    /// The same allocation without its first `bytes` bytes.
-    pub fn trim_start_bytes(&self, bytes: u64) -> Self {
-        Self {
+    /// The same part without its first `bytes` bytes, or `None` when the part
+    /// is shorter than `bytes`.
+    ///
+    /// # Guarantees
+    ///
+    /// The part it returns lies within this one.
+    pub fn trim_start_bytes(&self, bytes: u64) -> Option<Self> {
+        Some(Self {
             id: self.id,
             utilization: StorageUtilization {
                 offset_bytes: self.offset() + bytes,
-                size_bytes: self.size() - bytes,
+                size_bytes: self.size().checked_sub(bytes)?,
             },
-        }
+        })
     }
 
-    /// The same allocation without its last `bytes` bytes.
-    pub fn trim_end_bytes(&self, bytes: u64) -> Self {
-        Self {
+    /// The same part without its last `bytes` bytes, or `None` when the part
+    /// is shorter than `bytes`.
+    ///
+    /// # Guarantees
+    ///
+    /// The part it returns lies within this one.
+    pub fn trim_end_bytes(&self, bytes: u64) -> Option<Self> {
+        Some(Self {
             id: self.id,
             utilization: StorageUtilization {
                 offset_bytes: self.offset(),
-                size_bytes: self.size() - bytes,
+                size_bytes: self.size().checked_sub(bytes)?,
             },
-        }
+        })
     }
 }
 
@@ -109,16 +119,28 @@ mod tests {
     #[test]
     fn trimming_the_start_moves_the_offset_and_shrinks_the_size() {
         assert_eq!(
-            handle(8, 24).trim_start_bytes(4).utilization,
-            handle(12, 20).utilization
+            handle(8, 24)
+                .trim_start_bytes(4)
+                .map(|part| part.utilization),
+            Some(handle(12, 20).utilization)
         );
+    }
+
+    #[test]
+    fn trimming_the_start_past_the_end_is_refused() {
+        assert!(handle(8, 24).trim_start_bytes(25).is_none());
+    }
+
+    #[test]
+    fn trimming_the_end_past_the_start_is_refused() {
+        assert!(handle(8, 24).trim_end_bytes(25).is_none());
     }
 
     #[test]
     fn trimming_the_end_keeps_the_offset() {
         assert_eq!(
-            handle(8, 24).trim_end_bytes(4).utilization,
-            handle(8, 20).utilization
+            handle(8, 24).trim_end_bytes(4).map(|part| part.utilization),
+            Some(handle(8, 20).utilization)
         );
     }
 

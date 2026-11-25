@@ -10,7 +10,7 @@ use cubecl_server::{
     server::Handle,
     tune::{
         AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
-        Tunable, TunableSet, TuneGroup, TuneStage,
+        Tunable, TunableSet, TuneDeviceAccess, TuneGroup, TuneStage,
     },
 };
 use std::sync::Mutex;
@@ -584,4 +584,46 @@ pub fn addition_set_with_stage_enterer(
             }
         },
     ))
+}
+
+/// Addition set whose candidates hand their launch to another thread and wait there for the device
+/// to finish it, as a candidate does whose work a lazy queue drains on a thread of its own. Its
+/// tune holds the device as `access` says.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
+pub fn addition_set_launched_elsewhere(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    access: TuneDeviceAccess,
+) -> TestSet {
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let elsewhere = move |op: OneKernelAutotuneOperation, inputs: Vec<Handle>| {
+        let waited = client.clone();
+        std::thread::spawn(move || {
+            let launched = op.run(inputs);
+            let synced = cubecl_environment::future::block_on(waited.sync());
+            launched.and(synced.map_err(|err| err.to_string()))
+        })
+        .join()
+        .expect("the launching thread should not panic")
+    };
+    let elsewhere_slow = elsewhere.clone();
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_elsewhere-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        elsewhere_slow(op_add_slow.clone(), inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| {
+        elsewhere(op_add.clone(), inputs)
+    }))
+    .with_device_access(access)
 }

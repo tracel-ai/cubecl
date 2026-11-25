@@ -218,7 +218,10 @@ impl MemoryPage {
             slice.padding = padding;
 
             if can_be_split {
-                let new_slice = Slice::new(storage_old.trim_start_bytes(effective_size), 0);
+                let rest = storage_old
+                    .trim_start_bytes(effective_size)
+                    .expect("a slice that can be split should outlast its first part");
+                let new_slice = Slice::new(rest, 0);
                 self.add_new_slice(index, size, new_slice);
             }
 
