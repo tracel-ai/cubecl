@@ -11,8 +11,8 @@ use cubecl_runtime::{
 
 use crate::throughput::{
     Arithmetic, CooperativeMatrix, LaunchConfig, PooledProbes, ShapeSweep, WorkerSweep,
-    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_probe, memory_read,
-    memory_write,
+    compute_cmma, compute_direct, cube_rate, launch_overhead, memory_direct, memory_probe,
+    memory_read, memory_write,
 };
 
 /// Measure peak throughput on `device` for each of the given `keys`.
@@ -186,6 +186,9 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
             .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
+        ThroughputMode::Cubes { units } => ShapeSweep::new(alloc::vec![launch_config])
+            .fastest(|_| Ok(cube_rate::build_kernel(client, units)))
+            .map(|(value, _)| value),
     }
 }
 
@@ -197,7 +200,7 @@ fn declined(features: &Features, key: ThroughputKey) -> bool {
         ThroughputMode::ComputeCmma { dtype, config } => {
             !CooperativeMatrix::implemented(features, dtype, config)
         }
-        ThroughputMode::Memory(_) | ThroughputMode::Launch => false,
+        ThroughputMode::Memory(_) | ThroughputMode::Launch | ThroughputMode::Cubes { .. } => false,
     }
 }
 
@@ -294,6 +297,18 @@ pub fn memory_bound(
         },
         threshold,
     }
+}
+
+/// Cubes of `units` units a second the device runs, each making one round trip to global
+/// memory: the ceiling of a grid of many cubes that each move or compute little. `NaN` where the device
+/// measured nothing, and on WASM.
+pub fn measure_cube_rate(client: &Client, units: u32) -> f64 {
+    let key = ThroughputKey {
+        mode: ThroughputMode::Cubes { units },
+    };
+    measure_peak_throughput(client, key)
+        .map(|value| value.ops_per_s())
+        .unwrap_or(f64::NAN)
 }
 
 /// What one launch costs on top of its kernel, which a time limit allows for.

@@ -79,6 +79,14 @@ pub enum ThroughputMode {
     Memory(MemorySpec),
     /// Launch overhead measurement.
     Launch,
+    /// How fast the device runs cubes of `units` units that each make one round trip to global
+    /// memory, a value a unit: the ceiling of a grid of many small cubes, however little each
+    /// of them moves or computes, set by how many of them the device keeps waiting on memory at
+    /// once. Counted in cubes.
+    Cubes {
+        /// The units of every cube the probe launches.
+        units: u32,
+    },
 }
 
 /// What a memory mode asks of a probe.
@@ -103,7 +111,10 @@ impl ThroughputMode {
     pub const fn memory_probe(&self) -> Option<MemorySpec> {
         match self {
             Self::Memory(spec) => Some(*spec),
-            Self::ComputeDirect { .. } | Self::ComputeCmma { .. } | Self::Launch => None,
+            Self::ComputeDirect { .. }
+            | Self::ComputeCmma { .. }
+            | Self::Launch
+            | Self::Cubes { .. } => None,
         }
     }
 }
@@ -147,8 +158,10 @@ impl ThroughputKey {
         match self.mode {
             ThroughputMode::ComputeDirect { dtype } => dtype,
             ThroughputMode::ComputeCmma { dtype, .. } => dtype,
-            // For memory and launch throughput, we use a default element type (F32).
-            ThroughputMode::Memory(_) | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
+            // For memory, launch and cube throughput, we use a default element type (F32).
+            ThroughputMode::Memory(_) | ThroughputMode::Launch | ThroughputMode::Cubes { .. } => {
+                ElemType::Float(FloatKind::F32)
+            }
         }
     }
 }
@@ -334,7 +347,7 @@ impl ThroughputValue {
     }
 
     /// The value written for a person, in the unit `key`'s mode counts: `1.2340 GOPS/s`,
-    /// `512.0000 Gbytes/s`, `3µs/launch`, or `N/A` where it measured nothing.
+    /// `512.0000 Gbytes/s`, `3µs/launch`, `20.0000 Mcubes/s`, or `N/A` where it measured nothing.
     pub fn format(&self, key: &ThroughputKey) -> String {
         match key.mode {
             ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => {
@@ -342,6 +355,7 @@ impl ThroughputValue {
             }
             ThroughputMode::Memory(_) => format_rate(self.bytes_per_s(key), "bytes"),
             ThroughputMode::Launch => format_per_launch(self.duration_per_op()),
+            ThroughputMode::Cubes { .. } => format_rate(self.ops_per_s(), "cubes"),
         }
     }
 }
