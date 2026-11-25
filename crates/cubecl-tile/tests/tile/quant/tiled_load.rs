@@ -99,7 +99,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, block)])
         .unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
     // Every code, cycled, laid down where the storage puts its value.
     let code = |n: usize, kb: usize, ki: usize| ((n * blocks + kb) * block + ki) % 16;
     let offset = |coords: [usize; 3]| {
@@ -141,8 +141,11 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
         .zeros()
         .generate_without_host_data();
 
-    let mut w_spec =
-        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
+    let mut w_spec = TileSpec::new(Projection::tiled(
+        &dimensions,
+        &geometry.pieces(&dimensions).unwrap(),
+    ))
+    .packed(QuantValue::E2M1);
     w_spec.stored_tiles = storage.tiles().to_vec();
     let space = Space::new(&[(N, cols), (KB, blocks), (KI, block)]);
     let (count, axis) = (CubeCount::new_single(), CubeDim::new_single());

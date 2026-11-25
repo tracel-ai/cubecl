@@ -221,7 +221,7 @@ impl<'a> Arg<'a, Labelled> {
             true => data.geometry.clone().in_stride_order(data.dimensions),
             false => (data.geometry.clone(), data.dimensions.to_vec()),
         };
-        let (storage, stored_tiles) = self.storage(&geometry, &dimensions);
+        let (storage, stored_tiles) = self.storage(&geometry, &dimensions)?;
         let labels = match data.projection.clone() {
             Some(projection) => Labels::stated(
                 &geometry,
@@ -305,12 +305,12 @@ impl<'a> Arg<'a, Labelled> {
         &self,
         geometry: &Geometry,
         dimensions: &[Dimension],
-    ) -> (Storage, Vec<(Dimension, usize)>) {
+    ) -> Result<(Storage, Vec<(Dimension, usize)>), Decline> {
         let launch = self.data.launch;
         if !(self.data.projection.is_none() && geometry.tiling().is_tiled()) {
-            return (Storage::Strided, Vec::new());
+            return Ok((Storage::Strided, Vec::new()));
         }
-        let labels = geometry.labels(dimensions);
+        let labels = geometry.labels(dimensions)?;
         let partitioning = StoragePartitioning::new(geometry, &labels);
         let stored_tiles = partitioning
             .as_ref()
@@ -360,7 +360,7 @@ impl<'a> Arg<'a, Labelled> {
             .iter()
             .rev()
             .find_map(|tile| windows.iter().position(|window| cuts_to(window, tile)));
-        (Storage::Tiled(level), stored_tiles)
+        Ok((Storage::Tiled(level), stored_tiles))
     }
 }
 

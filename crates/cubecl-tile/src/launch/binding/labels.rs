@@ -22,7 +22,7 @@ impl Labels {
         batches: &[Dimension],
     ) -> Result<Self, Decline> {
         let rank = geometry.rank();
-        let block = geometry.labels(dimensions);
+        let block = geometry.pieces(dimensions)?;
         if rank < block.len() {
             return Err(Decline::RankBelowLabels {
                 rank,
@@ -36,20 +36,20 @@ impl Labels {
                 dimensions: batches.len(),
             });
         }
-        let addressed: Vec<Dimension> = batches[batches.len() - batch_axes..]
+        let addressed: Vec<(Dimension, usize)> = batches[batches.len() - batch_axes..]
             .iter()
-            .chain(&block)
-            .copied()
+            .map(|&dimension| (dimension, 0))
+            .chain(block.iter().copied())
             .collect();
 
-        let mut kept: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
+        let mut kept: SmallVec<[(Dimension, usize); Space::MAX_RANK]> = SmallVec::new();
         let mut axes: SmallVec<[(usize, usize); Space::MAX_RANK]> = SmallVec::new();
-        for (&dimension, (extent, stride)) in addressed.iter().zip(geometry.axes()) {
+        for (&(dimension, piece), (extent, stride)) in addressed.iter().zip(geometry.axes()) {
             // A labelled dimension never drops out: the tile is shaped over it.
             if batches.contains(&dimension) && extent == 1 && !dimensions.contains(&dimension) {
                 continue;
             }
-            kept.push(dimension);
+            kept.push((dimension, piece));
             axes.push((extent, stride));
         }
         if !geometry.tiling().is_tiled() {
@@ -57,30 +57,45 @@ impl Labels {
             kept = order.iter().map(|&axis| kept[axis]).collect();
             axes = order.iter().map(|&axis| axes[axis]).collect();
         }
-        let maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> =
-            kept.iter().copied().map(PhysicalAxisMap::of).collect();
+        let maps: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]> = kept
+            .iter()
+            .map(|&(dimension, piece)| PhysicalAxisMap::piece_of(dimension, piece))
+            .collect();
         let mut logical: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
-        for &dimension in &kept {
+        for &(dimension, _) in &kept {
             if !logical.contains(&dimension) {
                 logical.push(dimension);
             }
         }
-        // The batch axes kept, one piece each, then each labelled dimension's pieces.
-        let pieces = dimensions
-            .iter()
-            .map(|&dimension| block.iter().filter(|&&a| a == dimension).count());
-        let fragments: Vec<usize> = core::iter::repeat_n(1, axes.len() - block.len())
-            .chain(pieces)
-            .collect();
         let tiling = match geometry.tiling().is_tiled() {
-            true => Tiling::new(&fragments).expect("the binding's own tiling, less plain axes"),
+            true => Labels::tiling_of(&kept, dimensions, axes.len() - block.len()),
             false => Tiling::UNTILED,
         };
         Ok(Labels {
             geometry: Geometry::new(&axes).with_tiling(tiling),
             projection: Projection::of_maps(&logical, maps),
-            addressed,
+            addressed: addressed
+                .into_iter()
+                .map(|(dimension, _)| dimension)
+                .collect(),
         })
+    }
+
+    /// The tiling of the axes `kept` of a tiled buffer, each the dimension it is a piece of and
+    /// which: `batches` batch axes, one each, then `dimensions`.
+    fn tiling_of(kept: &[(Dimension, usize)], dimensions: &[Dimension], batches: usize) -> Tiling {
+        let axes_of = |dimension: Dimension| {
+            let mut axes: Vec<usize> = (batches..kept.len())
+                .filter(|&axis| kept[axis].0 == dimension)
+                .collect();
+            axes.sort_by_key(|&axis| kept[axis].1);
+            axes
+        };
+        let dims: Vec<Vec<usize>> = (0..batches)
+            .map(|axis| vec![axis])
+            .chain(dimensions.iter().copied().map(axes_of))
+            .collect();
+        Tiling::from_physical_dims(&dims).expect("the binding's own tiling, less plain axes")
     }
 
     /// A stated gathered mapping, checked against the binding and the launch.
@@ -123,19 +138,19 @@ impl Labels {
     }
 }
 
-/// The order a plain buffer's axes are bound in, `kept` naming the dimension each carries: every
+/// The order a plain buffer's axes are bound in, `kept` naming the piece each is: every
 /// dimension's axes just before its innermost one, each axis placed by its dimension's innermost
 /// axis, in buffer order within a dimension. A dimension spanning several axes (`[a, k, c]`
 /// labelled `[B, K, B]`, bound `[k, a, c]` as `[K, B, B]`) then has its coordinate at its first
 /// axis in the order of the innermost axes, so the innermost axis carries the last dimension, the
 /// one a line runs along. Each axis keeps its stride, so the buffer is read as it lies.
-fn innermost_axis_order(kept: &[Dimension]) -> SmallVec<[usize; Space::MAX_RANK]> {
+fn innermost_axis_order(kept: &[(Dimension, usize)]) -> SmallVec<[usize; Space::MAX_RANK]> {
     let innermost = |dimension: Dimension| {
         kept.iter()
-            .rposition(|&other| other == dimension)
+            .rposition(|&(other, _)| other == dimension)
             .expect("a kept axis's dimension is kept")
     };
     let mut order: SmallVec<[usize; Space::MAX_RANK]> = (0..kept.len()).collect();
-    order.sort_by_key(|&axis| (innermost(kept[axis]), axis));
+    order.sort_by_key(|&axis| (innermost(kept[axis].0), axis));
     order
 }
