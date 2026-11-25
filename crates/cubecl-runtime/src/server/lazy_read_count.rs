@@ -17,6 +17,7 @@ pub struct LazyReadCount {
 
 impl LazyReadCount {
     /// Whether the device keeps no lazy read a write may have to start or wait for.
+    #[inline]
     pub fn is_zero(&self) -> bool {
         self.total.load(Ordering::Relaxed) == 0
     }
