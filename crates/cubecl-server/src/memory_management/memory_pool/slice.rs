@@ -106,6 +106,11 @@ pub(crate) fn slices_usage<'a>(slices: impl Iterator<Item = &'a Slice>) -> Memor
     sum_usage(slices.map(slice_usage))
 }
 
+/// How many of `slices` own an allocation the device never backed.
+pub(crate) fn unmapped_count<'a>(slices: impl Iterator<Item = &'a Slice>) -> u64 {
+    slices.filter(|slice| !slice.mapped).count() as u64
+}
+
 /// The usages `usages` add up to.
 pub(crate) fn sum_usage(usages: impl Iterator<Item = MemoryUsage>) -> MemoryUsage {
     usages.fold(MemoryUsage::default(), |total, usage| total.combine(usage))

@@ -70,6 +70,24 @@ pub(crate) struct ExclusiveLayout {
 }
 
 impl ExclusiveSliceReserver {
+    /// The pool's shape, usage and high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Exclusive {
+                max_alloc_size: self.max_alloc_size,
+            },
+            usage: MemoryUsage {
+                reserved_bytes: self.pages.iter().map(|page| page.alloc_bytes).sum(),
+                ..slices_usage(self.pages.iter().map(|page| &page.slice))
+            },
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
+            // This pool only allocates eagerly.
+            unmapped_page_count: 0,
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
     /// A pool serving what `layout` says.
     ///
     /// # Panics
@@ -161,6 +179,11 @@ impl SliceReserver for ExclusiveSliceReserver {
     /// (staging/uniform/pinned) managers, whose buffers are written right
     /// after reservation — laziness would only move the same allocation one
     /// call later.
+    ///
+    /// # Guarantees
+    ///
+    /// A size [`accepts_bytes`](SliceReserver::accepts_bytes) refuses is
+    /// refused with [`IoError::BufferTooBig`] before the storage is asked.
     fn alloc<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
@@ -206,23 +229,6 @@ impl SliceReserver for ExclusiveSliceReserver {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let page = self.pages.get(location.page as usize)?;
         Some(PageGuard::allocation(page.slice.handle.to_binding()))
-    }
-
-    fn report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Exclusive {
-                max_alloc_size: self.max_alloc_size,
-            },
-            usage: MemoryUsage {
-                reserved_bytes: self.pages.iter().map(|page| page.alloc_bytes).sum(),
-                ..slices_usage(self.pages.iter().map(|page| &page.slice))
-            },
-            page_count: self.pages.len() as u64,
-            peak_page_count: self.peak_pages,
-            // This pool only allocates eagerly.
-            unmapped_page_count: 0,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
     }
 
     /// Count every free page as found free once more, and return those found

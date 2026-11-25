@@ -27,8 +27,9 @@ use cubecl_environment::bytes::Bytes;
 ///
 /// - While the queue lives, a [flush](Self::flush) or a [drain](Self::drain)
 ///   frees nothing before the fence of the batch it was staged in signals,
-///   nor after a wait failed on a device that is not poisoned: it is leaked
-///   then, since the device may still be reading it.
+///   unless that fence's wait failed on a poisoned device, which reads
+///   nothing any more. After a wait that failed on a device that is not
+///   poisoned, the batch is leaked, since the device may still be reading it.
 /// - A queue that holds nothing mints no fence: a fence is recorded on the
 ///   stream, which an open capture window cannot tolerate.
 pub struct PendingDropQueue<F: DeviceWaiter> {

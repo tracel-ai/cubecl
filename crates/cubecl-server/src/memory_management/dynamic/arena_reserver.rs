@@ -7,14 +7,15 @@ use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
-        BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
+        BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolKind,
+        MemoryPoolReport,
         memory_pool::{
             PageCarver, PageMapping, PagedSliceReserver, PinnedRoom, SliceBinder, SliceReserver,
         },
         relocation::{
             ArenaShape, ArenaState, LandedRelocation, LiveAllocation, MovablePage, Move,
             OutdatedPages, RelocationCopier, RelocationDecider, RelocationLander, RelocationNeed,
-            RelocationReason, StorageCopy, TargetRoom,
+            RelocationReason, TargetRoom,
         },
     },
     server::{IoError, ServerError},
@@ -100,16 +101,32 @@ impl ArenaReserver {
         self.slots.get_mut(slot as usize)?.as_mut()
     }
 
+    /// Install real backing behind `binding` when its allocation was carved
+    /// lazily on one of the arena's pools; a binding of no pool it holds is
+    /// left alone.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    pub(crate) fn materialize<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        self.pool_by_index_mut(binding.descriptor().location().pool)
+            .map_or(Ok(()), |pool| pool.materialize(storage, binding))
+    }
+
     /// Whether a page of the size the arena carves now holds `size_bytes`: a
     /// new page for them would not outdate the current ones.
     pub(crate) fn fits_bytes(&self, size_bytes: u64) -> bool {
         self.sizing.fit(size_bytes, self.current_page_size) == Fit::Fits
     }
 
-    /// Whether graphs guard every page the current pool holds, and it holds
-    /// some: room for work outside a capture comes only from a new page then.
+    /// Whether the current pool is pinned (see
+    /// [`PagedView::is_pinned`](crate::memory_management::memory_pool::PagedView::is_pinned)).
     pub(crate) fn is_pinned(&self) -> bool {
-        self.current().is_pinned()
+        self.current().view().is_pinned()
     }
 
     /// Whether emptying the outdated pools is wanted, on a device that holds
@@ -134,9 +151,9 @@ impl ArenaReserver {
                 page_size: self.current_page_size,
                 outdated_pages: self.outdated_page_count(),
             },
-            ..self.current().report()
+            ..self.current().view().report()
         });
-        reports.extend(self.outdated().map(SliceReserver::report));
+        reports.extend(self.outdated().map(|pool| pool.view().report()));
     }
 
     /// Reserve `size` bytes on the current pool, growing the pages when `size`
@@ -250,7 +267,7 @@ impl ArenaReserver {
 
     /// The pages the outdated pools hold.
     fn outdated_pages(&self) -> impl Iterator<Item = &PageCarver> {
-        self.outdated().flat_map(PagedSliceReserver::pages)
+        self.outdated().flat_map(|pool| pool.view().pages())
     }
 
     /// How many pages the outdated pools hold.
@@ -265,7 +282,7 @@ impl ArenaReserver {
             // Only the current pool and the outdated ones hold a slot.
             is_full: self.outdated.len() + 1 == ARENA_SLOT_COUNT,
             shape: ArenaShape {
-                current_page_count: self.current().pages().len() as u64,
+                current_page_count: self.current().view().pages().len() as u64,
                 outdated_pool_count: self.outdated.len(),
                 outdated_page_count: self.outdated_page_count(),
                 outdated_guarded_count: self
@@ -318,7 +335,7 @@ impl ArenaReserver {
                 .as_mut()
                 .expect("an outdated slot should hold its pool until it drains");
             pool.release_empty(storage, failures);
-            let drained = pool.pages().is_empty();
+            let drained = pool.view().pages().is_empty();
             if drained {
                 slots[slot] = None;
             }
@@ -345,7 +362,11 @@ impl ArenaReserver {
             .filter_map(|page| self.plan_page(page, room, storage, failures))
             .flatten()
             .collect();
-        RelocationLander::new(moves)
+        // SAFETY: each move's target is a fresh reservation on the current
+        // pool, of the moved allocation's size, padded like every slice of the
+        // pool to the device's alignment, held by nobody but its move; its
+        // source is a live allocation on an outdated pool, a distinct page.
+        unsafe { RelocationLander::new(moves) }
     }
 
     /// The moves of every allocation of `page`, or `None` when one of them
@@ -375,7 +396,10 @@ impl ArenaReserver {
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) {
-        for (source, destination) in landed.into_moves().into_iter().map(Move::into_locations) {
+        for relocated in landed.into_moves() {
+            let (source, destination) = relocated.locations();
+            // Only the slices hold the handles once the move goes.
+            drop(relocated);
             let (source_pool, target_pool) = self.pair_mut(source.pool, destination.pool);
             SliceBinder.hand_over(
                 source_pool.slice_at(source),
@@ -424,13 +448,8 @@ impl ArenaReserver {
         };
         // Bytes that exist have to land somewhere real; a source never
         // resolved has none to copy.
-        let location = target.descriptor().location();
-        let copy = source_storage
-            .map(|source| {
-                pool.mapped_storage_at(storage, location)
-                    .map(|target| StorageCopy { source, target })
-            })
-            .transpose()
+        let copy = pool
+            .copy_into(storage, source_storage, target.descriptor().location())
             .ok()?;
 
         Some(Move {
@@ -495,6 +514,7 @@ impl core::fmt::Display for ArenaReserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::relocation::StorageCopy;
     use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use cubecl_ir::MemoryDeviceProperties;
 
@@ -543,7 +563,9 @@ mod tests {
     /// Copies that land the moment they are made.
     struct Landing;
 
-    impl RelocationCopier<Bookkeeping> for Landing {
+    // SAFETY: test memory that no work reads or writes, and copies that do
+    // nothing or land on return.
+    unsafe impl RelocationCopier<Bookkeeping> for Landing {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
@@ -597,7 +619,7 @@ mod tests {
 
         let _served = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
         assert_eq!(
-            arena.current().pages().len(),
+            arena.current().view().pages().len(),
             1,
             "served from the page held"
         );

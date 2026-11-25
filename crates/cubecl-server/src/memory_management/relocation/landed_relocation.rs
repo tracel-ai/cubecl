@@ -1,8 +1,8 @@
 use super::Move;
 use alloc::vec::Vec;
 
-/// A relocation whose copies have landed: what the pools commit, and only
-/// [`RelocationLander::land`](super::RelocationLander::land) makes.
+/// The moves the pools commit, which only
+/// [`RelocationLander::land`](super::RelocationLander::land) hands back.
 #[derive(Debug)]
 pub(crate) struct LandedRelocation {
     /// The moves, in the order they were planned (Arrival).
@@ -16,7 +16,7 @@ impl LandedRelocation {
     }
 
     /// The moves, for the pools that planned them to commit.
-    pub(crate) fn into_moves(self) -> Vec<Move> {
-        self.moves
+    pub(crate) fn into_moves(self) -> alloc::vec::IntoIter<Move> {
+        self.moves.into_iter()
     }
 }

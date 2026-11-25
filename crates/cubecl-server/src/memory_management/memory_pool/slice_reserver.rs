@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice};
 use crate::{
-    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryPoolReport, PageGuard},
+    memory_management::{Cleanup, ErrorGraph, MemoryLocation, PageGuard},
     server::IoError,
     storage::StorageAllocator,
 };
@@ -153,9 +153,6 @@ pub trait SliceReserver {
     {
         Ok(())
     }
-
-    /// The pool's shape, usage and high-water marks.
-    fn report(&self) -> MemoryPoolReport;
 
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when the pool holds no such page.

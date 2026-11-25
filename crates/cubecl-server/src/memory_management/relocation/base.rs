@@ -1,10 +1,10 @@
 //! Moving live allocations off outdated pages, so those pages go back to the
 //! driver now rather than when their longest-lived allocation ends.
 //!
-//! A [`Relocation`] is planned by the pools it empties, copied on the device
-//! through a [`RelocationCopier`], and committed by those pools again from the
-//! [`LandedRelocation`] the copy step hands back: an allocation cannot move
-//! before its bytes are where it moves to.
+//! A relocation is planned by the pools it empties, landed on the device by a
+//! [`RelocationLander`] through a [`RelocationCopier`], and committed by those
+//! pools again from the [`LandedRelocation`] the lander hands back: an
+//! allocation cannot move before its bytes are where it moves to.
 
 use super::{LandedRelocation, RelocationCopier};
 use crate::memory_management::{
@@ -16,7 +16,7 @@ use crate::storage::StorageHandle;
 use alloc::vec::Vec;
 
 /// Lands a relocation: copies the bytes of live allocations into the slices
-/// reserved to receive them, and hands the moves back once they landed.
+/// reserved to receive them.
 ///
 /// # Guarantees
 ///
@@ -66,7 +66,14 @@ pub(crate) struct Move {
 
 impl RelocationLander {
     /// A relocation of `moves`, each with its target already reserved.
-    pub(crate) fn new(moves: Vec<Move>) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// Every copy of `moves` is between the storage of a live allocation and
+    /// the storage of the slice reserved for it: of the same size, on distinct
+    /// device allocations, each padded up to the device's alignment, the
+    /// target held by nobody but its move.
+    pub(crate) unsafe fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }
 
@@ -99,12 +106,14 @@ impl RelocationLander {
             .moves
             .iter()
             .filter_map(|relocated| relocated.copy.as_ref())
-            // SAFETY: each copy is between a live allocation and the slice
-            // reserved for it, of its size, on another allocation: a target
-            // is a fresh reservation on a current or kept-apart page, never
-            // the page its source sits on. The device waited above, and the
-            // copier is held here until `wait_copies` returns, so nothing
-            // reads a target or writes a source before then.
+            // SAFETY: `new`'s contract makes each copy one between storages of
+            // the same size on distinct allocations, padded up to the device's
+            // alignment, its target held by nobody but its move. Both stay
+            // alive: `self.moves` holds the source's binding and the target's
+            // handle until `wait_copies` returns. `wait_device` answered `Ok`
+            // above, so by the copier's own contract nothing reads or writes
+            // them until the next work is issued, and none is issued while the
+            // copier and the storage are borrowed here.
             .try_for_each(|copy| unsafe { copier.copy(storage, copy) });
         if let Err(err) = copier.wait_copies() {
             release_or_leak(self.moves, &err);
@@ -119,13 +128,12 @@ impl RelocationLander {
 impl Move {
     /// The location the allocation moves from and the one it moves to, read
     /// from the handles, which the pools keep current: a move stores no
-    /// location of its own, so it can never hold a stale one. The handles are
-    /// dropped before the locations are answered, so only the slices hold
-    /// them once the pools hand the allocation over.
-    pub(crate) fn into_locations(self) -> (MemoryLocation, MemoryLocation) {
-        let source = self.allocation.descriptor().location();
-        let destination = self.target.descriptor().location();
-        (source, destination)
+    /// location of its own, so it can never hold a stale one.
+    pub(crate) fn locations(&self) -> (MemoryLocation, MemoryLocation) {
+        (
+            self.allocation.descriptor().location(),
+            self.target.descriptor().location(),
+        )
     }
 }
 
@@ -137,13 +145,17 @@ mod tests {
 
     /// Copies the device refuses, or a wait for them that fails.
     struct FailingCopier {
+        device: Result<(), ()>,
         copy: Result<(), ()>,
         wait: Result<(), ()>,
     }
 
-    impl RelocationCopier<BytesStorage> for FailingCopier {
+    // SAFETY: test memory that no work reads or writes, and copies that do
+    // nothing or land on return.
+    unsafe impl RelocationCopier<BytesStorage> for FailingCopier {
         fn wait_device(&mut self) -> Result<(), ServerError> {
-            Ok(())
+            self.device
+                .map_err(|()| DriverError::new("wait device", 201).into())
         }
 
         unsafe fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
@@ -158,10 +170,10 @@ mod tests {
         }
     }
 
-    /// The moves of a relocation of one allocation, its source and target handles.
+    /// A relocation of one allocation, its source and target handles.
     fn relocation(
         storage: &mut BytesStorage,
-    ) -> (Vec<Move>, ManagedMemoryHandle, ManagedMemoryHandle) {
+    ) -> (RelocationLander, ManagedMemoryHandle, ManagedMemoryHandle) {
         let source = ManagedMemoryHandle::new();
         let target = ManagedMemoryHandle::new();
         let relocation = alloc::vec![Move {
@@ -176,7 +188,9 @@ mod tests {
                     .expect("the host should have 4 bytes"),
             }),
         }];
-        (relocation, source, target)
+        // SAFETY: two distinct 4-byte host allocations no work touches, held
+        // by the moves until the relocation lands.
+        (unsafe { RelocationLander::new(relocation) }, source, target)
     }
 
     #[test]
@@ -184,15 +198,12 @@ mod tests {
         let mut storage = BytesStorage::default();
         let (relocation, source, target) = relocation(&mut storage);
         let mut copier = FailingCopier {
+            device: Ok(()),
             copy: Ok(()),
             wait: Err(()),
         };
 
-        assert!(
-            RelocationLander::new(relocation)
-                .land(&mut storage, &mut copier)
-                .is_err()
-        );
+        assert!(relocation.land(&mut storage, &mut copier).is_err());
         assert!(!source.is_free());
         assert!(!target.is_free());
     }
@@ -204,11 +215,12 @@ mod tests {
         let mut storage = BytesStorage::default();
         let (relocation, _source, target) = relocation(&mut storage);
         let mut copier = FailingCopier {
+            device: Ok(()),
             copy: Err(()),
             wait: Ok(()),
         };
 
-        let refused = RelocationLander::new(relocation).land(&mut storage, &mut copier);
+        let refused = relocation.land(&mut storage, &mut copier);
 
         assert!(matches!(refused, Err(ServerError::Io(_))), "{refused:?}");
         assert!(target.is_free(), "the target is free once abandoned");
@@ -220,14 +232,35 @@ mod tests {
         let mut storage = BytesStorage::default();
         let (relocation, _source, _target) = relocation(&mut storage);
         let mut copier = FailingCopier {
+            device: Ok(()),
             copy: Ok(()),
             wait: Ok(()),
         };
 
-        let landed = RelocationLander::new(relocation)
+        let landed = relocation
             .land(&mut storage, &mut copier)
             .expect("the copies should land");
 
         assert_eq!(landed.into_moves().len(), 1);
+    }
+
+    /// A device that cannot be waited on copies nothing.
+    #[test]
+    fn a_failed_device_wait_copies_nothing() {
+        let mut storage = BytesStorage::default();
+        let (relocation, _source, target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            device: Err(()),
+            copy: Err(()),
+            wait: Err(()),
+        };
+
+        let refused = relocation.land(&mut storage, &mut copier);
+
+        assert!(refused.is_err());
+        assert!(
+            target.is_free(),
+            "the target is freed with the abandoned relocation"
+        );
     }
 }

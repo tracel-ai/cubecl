@@ -32,7 +32,10 @@ impl<'a, D: Driver> StreamCopies<'a, D> {
     }
 }
 
-impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
+// SAFETY: `wait_device` waits on a fence of every stream of the device and on
+// what the driver runs outside them, and `wait_copies` waits on a fence of the
+// queue every copy went on, recorded after the last of them.
+unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
     for StreamCopies<'_, D>
 {
     fn wait_device(&mut self) -> Result<(), ServerError> {

@@ -201,13 +201,13 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// replay writes, with its bytes: what a graph capture's planning runs left alive, whose
     /// addresses nothing recorded. The copies are queued on `copier`.
     ///
-    /// # Guarantees
-    ///
-    /// An allocation `kept` names more than once moves once.
-    ///
     /// # Assumptions
     ///
     /// Every binding of `kept` names a page this memory holds.
+    ///
+    /// # Guarantees
+    ///
+    /// An allocation `kept` names more than once moves once.
     ///
     /// # Errors
     ///
@@ -420,13 +420,17 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 #[cfg(feature = "storage-bytes")]
 impl MemoryManagement<crate::storage::BytesStorage> {
     /// [`relocate`](Self::relocate) host memory, where a copy is a `memcpy`
-    /// that has landed by the time it returns: whoever runs work against the
-    /// memory waits for it first.
+    /// that has landed by the time it returns.
     ///
     /// # Panics
     ///
     /// When `failures` is not the graph this memory's failures are in.
-    pub fn relocate_on_host(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+    ///
+    /// # Safety
+    ///
+    /// No work runs against this memory's storage from the call until it
+    /// returns: the copies wait on nothing.
+    pub unsafe fn relocate_on_host(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
         self.reserver.relocate(
             &mut crate::memory_management::relocation::HostRelocationCopier,
             reason,

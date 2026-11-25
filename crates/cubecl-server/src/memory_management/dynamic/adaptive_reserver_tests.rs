@@ -135,7 +135,9 @@ fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
 /// A device that refuses every copy, which abandons the relocation.
 struct RefusedCopies;
 
-impl RelocationCopier<BytesStorage> for RefusedCopies {
+// SAFETY: test memory that no work reads or writes, and copies that do
+// nothing or land on return.
+unsafe impl RelocationCopier<BytesStorage> for RefusedCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())
     }

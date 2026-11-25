@@ -1,4 +1,5 @@
 use crate::{
+    memory_management::relocation::StorageCopy,
     memory_management::{
         BytesFormat, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -79,15 +80,9 @@ impl PagedSliceReserver {
         self
     }
 
-    /// Whether graphs guard every page the pool holds, and it holds some: room
-    /// for work outside a capture comes only from a new page then.
-    pub(crate) fn is_pinned(&self) -> bool {
-        !self.pages.is_empty() && self.pages.iter().all(|page| page.view().is_guarded)
-    }
-
-    /// The pages it holds, in the order a location numbers them.
-    pub(crate) fn pages(&self) -> &[PageCarver] {
-        &self.pages
+    /// What the pool holds, each part read when asked.
+    pub(crate) fn view(&self) -> PagedView<'_> {
+        PagedView { pool: self }
     }
 
     /// The page `location` names, which the pool is holding.
@@ -125,6 +120,30 @@ impl PagedSliceReserver {
     ) -> Result<StorageHandle, IoError> {
         self.pages[location.page as usize].map(storage)?;
         Ok(self.slice_at(location).storage.clone())
+    }
+
+    /// The copy of `source`'s bytes into the slice `target` names, giving its
+    /// page real device backing first: `None` for a source never resolved,
+    /// which has no bytes to copy.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    ///
+    /// # Panics
+    ///
+    /// When the pool holds no slice at `target`.
+    pub(crate) fn copy_into<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        source: Option<StorageHandle>,
+        target: MemoryLocation,
+    ) -> Result<Option<StorageCopy>, IoError> {
+        let Some(source) = source else {
+            return Ok(None);
+        };
+        let target = self.mapped_storage_at(storage, target)?;
+        Ok(Some(StorageCopy { source, target }))
     }
 
     /// Reserve `size` bytes on a page already held, coalescing as it goes. A
@@ -223,6 +242,57 @@ fn near_page(size: u64, page_size: u64) -> bool {
         .is_some_and(|unused| unused * 5 < page_size)
 }
 
+impl PagedSliceReserver {
+    /// The pool's shape, usage and high-water marks.
+    fn make_report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Sliced {
+                page_size: self.layout.page_size_bytes,
+                max_slice_size: self.layout.max_slice_bytes,
+            },
+            usage: sum_usage(self.pages.iter().map(|page| page.view().usage())),
+            page_count: self.pages.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: self
+                .pages
+                .iter()
+                .filter(|page| !page.view().is_mapped)
+                .count() as u64,
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
+    /// Whether graphs guard every page the pool holds, and it holds some.
+    fn pinned(&self) -> bool {
+        !self.pages.is_empty() && self.pages.iter().all(|page| page.view().is_guarded)
+    }
+}
+
+/// What a [`PagedSliceReserver`] holds, as its readers see it: a handle on
+/// the pool that reads each part only when asked.
+#[derive(Clone, Copy)]
+pub(crate) struct PagedView<'a> {
+    pool: &'a PagedSliceReserver,
+}
+
+impl<'a> PagedView<'a> {
+    /// The pages the pool holds, in the order a location numbers them.
+    pub(crate) fn pages(&self) -> &'a [PageCarver] {
+        &self.pool.pages
+    }
+
+    /// Whether graphs guard every page the pool holds, and it holds some: room
+    /// for work outside a capture comes only from a new page then.
+    pub(crate) fn is_pinned(&self) -> bool {
+        self.pool.pinned()
+    }
+
+    /// The pool's shape, usage and high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        self.pool.make_report()
+    }
+}
+
 impl SliceReserver for PagedSliceReserver {
     fn accepts_bytes(&self, size: u64) -> bool {
         self.layout.max_slice_bytes >= size
@@ -285,24 +355,6 @@ impl SliceReserver for PagedSliceReserver {
         Some(self.pages.get_mut(location.page as usize)?.guard())
     }
 
-    fn report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Sliced {
-                page_size: self.layout.page_size_bytes,
-                max_slice_size: self.layout.max_slice_bytes,
-            },
-            usage: sum_usage(self.pages.iter().map(|page| page.view().usage())),
-            page_count: self.pages.len() as u64,
-            peak_page_count: self.peak_pages,
-            unmapped_page_count: self
-                .pages
-                .iter()
-                .filter(|page| !page.view().is_mapped)
-                .count() as u64,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
-    }
-
     /// On an explicit cleanup, return every page nothing is live on and
     /// nothing guards; a periodic one keeps every page for reuse.
     fn cleanup<Storage: StorageAllocator>(
@@ -359,7 +411,7 @@ impl Display for PagedSliceReserver {
             ))?;
         }
 
-        f.write_fmt(format_args!("\n{}\n", self.report().usage))
+        f.write_fmt(format_args!("\n{}\n", self.make_report().usage))
     }
 }
 
@@ -447,7 +499,7 @@ mod tests {
             .map(|_| reserve(&mut pool, &mut storage, 8 * KIB))
             .collect();
 
-        assert_eq!(pool.report().page_count, 2);
+        assert_eq!(pool.view().report().page_count, 2);
     }
 
     /// A guarded page is not carved by a reservation that avoids its room.
@@ -489,7 +541,7 @@ mod tests {
             &mut ErrorGraph::default(),
         );
 
-        assert_eq!(pool.report().page_count, 1);
+        assert_eq!(pool.view().report().page_count, 1);
     }
 
     /// An explicit cleanup returns every empty unguarded page.
@@ -509,7 +561,7 @@ mod tests {
             &mut ErrorGraph::default(),
         );
 
-        assert_eq!(pool.report().page_count, 0);
+        assert_eq!(pool.view().report().page_count, 0);
     }
 
     /// An explicit cleanup renumbers the pages left.
@@ -554,7 +606,7 @@ mod tests {
             &mut ErrorGraph::default(),
         );
 
-        assert_eq!(pool.report().page_count, 1);
+        assert_eq!(pool.view().report().page_count, 1);
     }
 
     /// A lazily carved page is not backed for a binding with no claim on it.
@@ -574,7 +626,7 @@ mod tests {
         pool.materialize(&mut storage, &ManagedMemoryHandle::new().binding())
             .expect("an unplaced binding should be left alone");
 
-        assert_eq!(pool.report().unmapped_page_count, 1);
+        assert_eq!(pool.view().report().unmapped_page_count, 1);
     }
 
     /// A lazily carved page is backed once a binding of it is materialized.
@@ -594,13 +646,13 @@ mod tests {
         pool.materialize(&mut storage, &handle.clone().binding())
             .expect("the storage should back the page");
 
-        assert_eq!(pool.report().unmapped_page_count, 0);
+        assert_eq!(pool.view().report().unmapped_page_count, 0);
     }
 
     /// A pool holding no page is not pinned.
     #[test_log::test]
     fn a_pool_without_pages_is_not_pinned() {
-        assert!(!pool().is_pinned());
+        assert!(!pool().view().is_pinned());
     }
 
     /// A pool is pinned once graphs guard every page it holds.
@@ -611,6 +663,6 @@ mod tests {
         let first = reserve(&mut pool, &mut storage, KIB);
         let _guard = pool.guard(first.descriptor().location());
 
-        assert!(pool.is_pinned());
+        assert!(pool.view().is_pinned());
     }
 }

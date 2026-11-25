@@ -10,10 +10,7 @@ use crate::server::ServerError;
 /// moves while a graph records, since the pages it touches keep their
 /// addresses until it seals.
 ///
-/// A runtime supplies each step. The order they run in lives here, once:
-/// [`reclaim`](Self::reclaim), [`relocate_when_wanted`](Self::relocate_when_wanted),
-/// [`relocate`](Self::relocate) and [`relocate_device`](Self::relocate_device)
-/// move nothing while a stream records a graph.
+/// A runtime supplies each step. The order they run in lives here, once.
 pub trait DeviceRelocator {
     /// Whether the memory of `scope` wants a relocation, resolved against the
     /// bytes every stream's memory holds from the device.
@@ -61,6 +58,10 @@ pub trait DeviceRelocator {
     /// current pages keep the room it moves into, then every page left empty
     /// goes back.
     ///
+    /// # Guarantees
+    ///
+    /// Moves nothing while a stream records a graph.
+    ///
     /// # Errors
     ///
     /// Refused while any stream records a graph, see
@@ -75,6 +76,10 @@ pub trait DeviceRelocator {
     /// Relocate the relocating stream's memory when it asks for it: while
     /// the device still has a page to spare, or before the pools run out of
     /// page sizes.
+    ///
+    /// # Guarantees
+    ///
+    /// Moves nothing while a stream records a graph.
     fn relocate_when_wanted(&mut self) {
         if let RelocationNeed::Wanted(reason) = self.relocation_need(RelocationScope::Stream) {
             self.finish_and_relocate(RelocationScope::Stream, reason);
@@ -83,6 +88,10 @@ pub trait DeviceRelocator {
 
     /// Relocate the relocating stream's memory for `reason`, unless a graph
     /// records or nothing is outdated.
+    ///
+    /// # Guarantees
+    ///
+    /// Moves nothing while a stream records a graph.
     fn relocate(&mut self, reason: RelocationReason) {
         self.relocate_outdated(RelocationScope::Stream, reason);
     }
@@ -93,6 +102,10 @@ pub trait DeviceRelocator {
     /// What a capture does before its warmup: a recording may touch memory
     /// any stream owns, and every page it touches is guarded for the graph's
     /// life, where no relocation can empty it.
+    ///
+    /// # Guarantees
+    ///
+    /// Moves nothing while a stream records a graph.
     fn relocate_device(&mut self, reason: RelocationReason) {
         self.relocate_outdated(RelocationScope::Device, reason);
     }

@@ -199,9 +199,7 @@ impl PageCarver {
     }
 
     /// Give the page real device backing from `storage`, if it was carved
-    /// lazily. The virtual carving *is* the layout: the page is allocated for
-    /// real and rebound — every slice keeps its offset, the minted id ceases
-    /// to exist (it never reached the driver).
+    /// lazily, and [rebind](Self::rebind_storage) it to that allocation.
     ///
     /// # Errors
     ///
@@ -753,5 +751,17 @@ mod tests {
             MemoryLocation::new(0, 0, 0),
             PageMapping::Eager,
         )
+    }
+
+    /// Mapping a page already backed allocates nothing.
+    #[test_log::test]
+    fn mapping_a_backed_page_allocates_nothing() {
+        let mut storage = CountingStorageAllocator::default();
+        let mut page = new_memory_page(MB);
+
+        page.map(&mut storage)
+            .expect("a backed page should need nothing");
+
+        assert_eq!(storage.bytes_allocated(), 0);
     }
 }

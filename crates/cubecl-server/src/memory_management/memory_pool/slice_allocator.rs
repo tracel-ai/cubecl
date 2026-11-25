@@ -82,8 +82,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     }
 
     /// Give a slice that owns its whole allocation, found for `binding`, real
-    /// device backing if it was allocated [`PageMapping::Lazy`]: allocate for
-    /// real and retire the minted id, which never reached the driver.
+    /// device backing if it was allocated [`PageMapping::Lazy`].
     ///
     /// A missing slice, a mapped one and one `binding` has no claim on are
     /// left alone: lookup errors are the lookup's to report, and backing a

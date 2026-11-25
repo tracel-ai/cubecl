@@ -1,6 +1,7 @@
 use super::{
     ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceBinder,
     SliceReserver, missing, padded_size, padded_size_within, pool_origin, slices_usage,
+    unmapped_count,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -32,6 +33,18 @@ pub(crate) struct PersistentSliceReserver {
 }
 
 impl PersistentSliceReserver {
+    /// The pool's shape, usage and high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Persistent,
+            usage: slices_usage(self.slices.iter()),
+            page_count: self.slices.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: unmapped_count(self.slices.iter()),
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
     /// A pool that serves any size up to `max_alloc_size`, the largest single
     /// allocation the device makes.
     pub(crate) fn new(max_alloc_size: u64, alignment: u64, pool_index: u8) -> Self {
@@ -154,17 +167,6 @@ impl SliceReserver for PersistentSliceReserver {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?;
         Some(PageGuard::allocation(slice.handle.to_binding()))
-    }
-
-    fn report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Persistent,
-            usage: slices_usage(self.slices.iter()),
-            page_count: self.slices.len() as u64,
-            peak_page_count: self.peak_pages,
-            unmapped_page_count: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
     }
 
     /// On an explicit cleanup, return every free slice and renumber the rest;

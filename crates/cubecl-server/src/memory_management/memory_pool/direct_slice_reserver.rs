@@ -1,6 +1,7 @@
 use super::{
     ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceBinder,
     SliceReserver, missing, padded_size, padded_size_within, pool_origin, slices_usage,
+    unmapped_count,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -58,6 +59,18 @@ pub(crate) struct DirectSliceReserver {
 }
 
 impl DirectSliceReserver {
+    /// The pool's shape, usage and high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Direct,
+            usage: slices_usage(self.held()),
+            page_count: self.held().count() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: unmapped_count(self.held()),
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
     /// A pool that serves any size up to `max_alloc_size`, the largest
     /// single allocation the device makes: with no pages to fit an allocation
     /// into, that is its only limit.
@@ -208,7 +221,7 @@ impl SliceReserver for DirectSliceReserver {
         let slice =
             SliceAllocator::new(storage).allocate_whole(size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
-        Self::place(&mut self.slices, index, slice);
+        self.place(index, slice);
         self.peak_pages = self.peak_pages.max(self.held().count() as u64);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Ok(handle)
@@ -229,17 +242,6 @@ impl SliceReserver for DirectSliceReserver {
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         let slice = self.slices.get(location.slice as usize)?.as_ref()?;
         Some(PageGuard::allocation(slice.handle.to_binding()))
-    }
-
-    fn report(&self) -> MemoryPoolReport {
-        MemoryPoolReport {
-            kind: MemoryPoolKind::Direct,
-            usage: slices_usage(self.held()),
-            page_count: self.held().count() as u64,
-            peak_page_count: self.peak_pages,
-            unmapped_page_count: self.held().filter(|slice| !slice.mapped).count() as u64,
-            largest_alloc_bytes: self.largest_alloc_bytes,
-        }
     }
 
     /// On an explicit cleanup, return every free slice, whatever the
@@ -304,9 +306,10 @@ impl DirectSliceReserver {
     }
 
     /// Put `slice` at `index` of `slices`, a tombstone or one past the end.
-    fn place(slices: &mut Vec<Option<Slice>>, index: usize, slice: Slice) {
-        slices.resize_with(slices.len().max(index + 1), || None);
-        slices[index] = Some(slice);
+    fn place(&mut self, index: usize, slice: Slice) {
+        self.slices
+            .resize_with(self.slices.len().max(index + 1), || None);
+        self.slices[index] = Some(slice);
     }
 }
 

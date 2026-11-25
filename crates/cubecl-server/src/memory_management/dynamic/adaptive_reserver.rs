@@ -12,9 +12,7 @@ use crate::{
             ExclusiveLayout, ExclusiveSliceReserver, PageMapping, PagedLayout, PagedSliceReserver,
             PinnedRoom, SliceBinder, SliceReserver,
         },
-        relocation::{
-            Move, RelocationCopier, RelocationLander, RelocationNeed, RelocationReason, StorageCopy,
-        },
+        relocation::{Move, RelocationCopier, RelocationLander, RelocationNeed, RelocationReason},
     },
     server::{IoError, ServerError},
     storage::StorageAllocator,
@@ -175,14 +173,8 @@ impl AdaptiveReserver {
             TINY_POOL => self.tiny.materialize(storage, binding),
             SMALL_POOL => self.small.materialize(storage, binding),
             SMALL_SEPARATE_POOL => self.small_separate.materialize(storage, binding),
-            ARENA_POOLS..SEPARATE_POOLS => self
-                .arena
-                .pool_by_index_mut(index)
-                .map_or(Ok(()), |pool| pool.materialize(storage, binding)),
-            _ => self
-                .separate
-                .pool_by_index_mut(index)
-                .map_or(Ok(()), |pool| pool.materialize(storage, binding)),
+            ARENA_POOLS..SEPARATE_POOLS => self.arena.materialize(storage, binding),
+            _ => self.separate.materialize(storage, binding),
         }
     }
 
@@ -303,15 +295,21 @@ impl AdaptiveReserver {
         if moves.is_empty() {
             return Ok(());
         }
-        let landed = RelocationLander::new(moves).land(storage, copier)?;
-        // A second move of the same allocation finds it apart already, off
-        // the shared pools: its target is freed with it.
-        for (source, destination) in landed
-            .into_moves()
-            .into_iter()
-            .map(Move::into_locations)
-            .filter(|(source, _)| is_shared_pool_index(source.pool))
-        {
+        // SAFETY: each move's target is a fresh reservation on a pool kept
+        // apart, of the moved allocation's size, padded like every slice of
+        // the pools to the device's alignment, held by nobody but its move;
+        // its source is a live allocation on a shared pool, a distinct page.
+        let lander = unsafe { RelocationLander::new(moves) };
+        let landed = lander.land(storage, copier)?;
+        for relocated in landed.into_moves() {
+            let (source, destination) = relocated.locations();
+            // Only the slices hold the handles once the move goes.
+            drop(relocated);
+            // A second move of the same allocation finds it apart already, off
+            // the shared pools: its target is freed with it.
+            if !is_shared_pool_index(source.pool) {
+                continue;
+            }
             let from = Self::shared_pool(&mut self.small, &mut self.arena, source.pool)
                 .expect("a move apart's source should be on a shared pool");
             let into = Self::apart_pool(
@@ -352,8 +350,8 @@ impl AdaptiveReserver {
     pub(crate) fn report(&self) -> Vec<MemoryPoolReport> {
         let mut reports = alloc::vec![
             self.tiny.report(),
-            self.small.report(),
-            self.small_separate.report(),
+            self.small.view().report(),
+            self.small_separate.view().report(),
         ];
         self.arena.extend_report(&mut reports);
         self.separate.extend_report(&mut reports);
@@ -375,7 +373,7 @@ impl AdaptiveReserver {
                 (PlacementPool::SmallSeparate, PinnedRoom::Share)
             }
             (AllocationKind::GraphOutput, false) => (PlacementPool::Separate, PinnedRoom::Share),
-            (AllocationKind::Eager, true) if self.small.is_pinned() => {
+            (AllocationKind::Eager, true) if self.small.view().is_pinned() => {
                 (PlacementPool::SmallSeparate, PinnedRoom::Share)
             }
             (AllocationKind::Eager, true) => (PlacementPool::Small, PinnedRoom::Avoid),
@@ -428,14 +426,9 @@ impl AdaptiveReserver {
             failures,
         )?;
         let location = target.descriptor().location();
-        let copy = source_storage
-            .map(|source| {
-                Self::apart_pool(&mut self.small_separate, &mut self.separate, location.pool)
-                    .expect("an output should be placed on a pool kept apart")
-                    .mapped_storage_at(storage, location)
-                    .map(|target| StorageCopy { source, target })
-            })
-            .transpose()?;
+        let copy = Self::apart_pool(&mut self.small_separate, &mut self.separate, location.pool)
+            .expect("an output should be placed on a pool kept apart")
+            .copy_into(storage, source_storage, location)?;
         Ok(Some(Move {
             allocation,
             target,

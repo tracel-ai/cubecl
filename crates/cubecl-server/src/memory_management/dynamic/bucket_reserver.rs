@@ -124,7 +124,10 @@ impl BucketReserver {
 
     /// A report per bucket, smallest first.
     pub(crate) fn report(&self) -> Vec<MemoryPoolReport> {
-        self.buckets.iter().map(SliceReserver::report).collect()
+        self.buckets
+            .iter()
+            .map(ExclusiveSliceReserver::report)
+            .collect()
     }
 }
 

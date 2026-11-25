@@ -46,7 +46,10 @@ impl WgpuCopies {
     }
 }
 
-impl RelocationCopier<WgpuStorage> for WgpuCopies {
+// SAFETY: `wait_device` polls the device until every submission so far
+// completed, the stream's own work submitted by its caller first, and
+// `wait_copies` submits the batch and polls until that submission completed.
+unsafe impl RelocationCopier<WgpuStorage> for WgpuCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         // The stream's own work is submitted by the caller; this waits for the
         // device to finish it.

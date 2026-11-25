@@ -4,11 +4,6 @@ use crate::{memory_management::ErrorGraph, storage::StorageUtilization};
 /// Binds allocations to slices, hands them from slice to slice, and fits a
 /// slice to the allocation it serves: where the Commands on a [`Slice`] live,
 /// since a slice is plain data the pools' pages and views hold.
-///
-/// # Assumptions
-///
-/// `failures`, in every function that takes it, is the [`ErrorGraph`] that
-/// holds the failures the slices carry.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SliceBinder;
 
@@ -16,6 +11,10 @@ impl SliceBinder {
     /// Bind `assigned` to the allocation on `slice` at `cursor`: whatever
     /// tainted the last allocation says nothing about the next, so every claim
     /// is released before the handle changes hands.
+    ///
+    /// # Assumptions
+    ///
+    /// `failures` holds the failures the slice carries.
     pub(crate) fn bind(
         &self,
         slice: &mut Slice,
@@ -36,6 +35,10 @@ impl SliceBinder {
     /// its taint move, the handle's location is rewritten to the target's so
     /// every owner resolves there from now on, and `source` is left free.
     /// Whatever the target's last allocation left tainted is released first.
+    ///
+    /// # Assumptions
+    ///
+    /// `failures` holds the failures the target carries.
     pub(crate) fn hand_over(
         &self,
         source: &mut Slice,
@@ -159,7 +162,7 @@ mod tests {
 
     /// A hand-over moves the cursor and the taint with the allocation.
     #[test]
-    fn a_hand_over_moves_the_cursor_and_the_taint() {
+    fn a_hand_over_moves_the_cursor_and_the_taint_to_the_target() {
         let mut failures = ErrorGraph::default();
         let mut source = slice(64);
         let mut target = slice(64);
@@ -174,6 +177,20 @@ mod tests {
             (target.cursor, target.tainted.failure(&(0..64))),
             (9, Some(failure))
         );
+    }
+
+    /// A hand-over leaves the source with no claim.
+    #[test]
+    fn a_hand_over_leaves_the_source_clean() {
+        let mut failures = ErrorGraph::default();
+        let mut source = slice(64);
+        let mut target = slice(64);
+        let _owner = source.handle.clone();
+        let failure = failure(&mut failures);
+        source.tainted.taint(0..64, failure, &mut failures);
+
+        SliceBinder.hand_over(&mut source, &mut target, &mut failures);
+
         assert!(source.tainted.is_clean());
     }
 

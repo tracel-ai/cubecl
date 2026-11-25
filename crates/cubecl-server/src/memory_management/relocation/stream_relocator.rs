@@ -19,8 +19,11 @@ pub trait StreamRelocator {
     /// device records a graph.
     fn relocation_state(&self) -> StreamRelocationState;
 
-    /// Move what the stream's memory holds on outdated pages, once every
-    /// stream's work is done.
+    /// Move what the stream's memory holds on outdated pages.
+    ///
+    /// # Assumptions
+    ///
+    /// Every stream's work is done, and none runs until it returns.
     fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph);
 
     /// Give back every page the stream's memory holds and nothing needs.

@@ -15,20 +15,29 @@ mod tests {
     use crate::server::ServerError;
     use alloc::rc::Rc;
 
-    /// Memory goes only once the device is poisoned; after any other failed
-    /// wait it is leaked.
+    /// Memory goes once the device is poisoned and reads nothing any more.
     #[test]
-    fn memory_is_released_only_on_a_poisoned_device() {
+    fn memory_is_released_on_a_poisoned_device() {
         let poisoned: ServerError = crate::driver::DevicePoison::new("status 700").into();
+        let memory = Rc::new(());
+
+        release_or_leak(memory.clone(), &poisoned);
+
+        assert_eq!(Rc::strong_count(&memory), 1);
+    }
+
+    /// After any other failed wait, the device may still be reading the
+    /// memory: it is leaked.
+    #[test]
+    fn memory_is_leaked_after_any_other_failed_wait() {
         let other = ServerError::Generic {
             reason: "the wait failed".into(),
             backtrace: Default::default(),
         };
         let memory = Rc::new(());
 
-        release_or_leak(memory.clone(), &poisoned);
-        assert_eq!(Rc::strong_count(&memory), 1, "released");
         release_or_leak(memory.clone(), &other);
-        assert_eq!(Rc::strong_count(&memory), 2, "leaked");
+
+        assert_eq!(Rc::strong_count(&memory), 2);
     }
 }

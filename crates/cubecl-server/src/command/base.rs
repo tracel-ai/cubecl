@@ -576,7 +576,9 @@ impl<'a, D: Driver> Command<'a, D> {
 
         // SAFETY: `resource` is a live device allocation, `data` is a valid
         // host buffer, and either the drop queue or the capture window below
-        // keeps it alive for as long as the device reads it.
+        // keeps it alive until the fence after the copy signals, while the
+        // queue lives. A stream torn down with the copy in flight drops the
+        // queue, and the bytes with it, without that wait.
         unsafe { D::copy_to_device(&resource, &layout, &data, current)? };
 
         if current.capturing().is_recording() {

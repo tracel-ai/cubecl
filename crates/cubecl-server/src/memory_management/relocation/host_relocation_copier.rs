@@ -10,7 +10,11 @@ use crate::storage::{BytesStorage, StorageAllocator};
 #[derive(Debug, Default)]
 pub(crate) struct HostRelocationCopier;
 
-impl RelocationCopier<BytesStorage> for HostRelocationCopier {
+// SAFETY: a host copy has landed by the time `copy` returns, so `wait_copies`
+// has nothing left to wait for. `wait_device` waits on nothing: the copier is
+// built only by `MemoryManagement::relocate_on_host`, whose caller runs no work
+// against the memory until it returns, and by tests that run none.
+unsafe impl RelocationCopier<BytesStorage> for HostRelocationCopier {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())
     }
