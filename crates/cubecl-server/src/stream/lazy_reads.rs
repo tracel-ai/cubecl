@@ -26,9 +26,9 @@ pub(crate) struct LazyReads {
     kept: HashMap<ManagedMemoryId, KeptReads>,
     /// How many allocations `kept` named when it last let go of the reads nothing holds.
     swept_at: usize,
-    /// Keyed usage, by read through a scan of the few held at once: the copies of started reads,
-    /// until an access takes one or its read drops.
-    copies: Vec<StartedCopy>,
+    /// Keyed usage, by the address of the read: the copies of started reads, until an access
+    /// takes one or its read drops.
+    copies: HashMap<usize, StartedCopy>,
     /// Arrival usage: the copies whose read dropped, until the fence past each is reached, since
     /// letting go of a copy in flight waits for it.
     abandoned: Vec<StartedCopy>,
@@ -109,7 +109,10 @@ impl LazyReads {
     /// Whether no read is kept, started or accessed and no copy is held, so a write has
     /// nothing to start or wait for.
     fn is_idle(&self) -> bool {
-        self.count.is_zero() && self.copies.is_empty() && self.abandoned.is_empty()
+        self.count.is_zero()
+            && self.copies.is_empty()
+            && self.abandoned.is_empty()
+            && self.kept.is_empty()
     }
 
     /// Keep `read`, made on `stream` where `made_at` fences, until work about to write its
@@ -164,11 +167,15 @@ impl LazyReads {
         fence: Option<Arc<dyn StreamFence>>,
         copy: Copy,
     ) {
-        self.copies.push(StartedCopy {
+        let started = StartedCopy {
             read: Arc::downgrade(read),
             fence: fence.clone(),
             copy,
-        });
+        };
+        // An address taken again belongs to a new read, so the copy there is of a dropped one.
+        if let Some(abandoned) = self.copies.insert(address(read), started) {
+            self.abandoned.push(abandoned);
+        }
         self.hold(
             read,
             KeptRead {
@@ -183,8 +190,14 @@ impl LazyReads {
 
     /// The copy of `read` this keeps, which it then lets go of.
     fn take_copy(&mut self, read: &Arc<LazyRead>) -> Option<Copy> {
-        let index = self.copies.iter().position(|copy| copy.is_of(read))?;
-        Some(self.copies.swap_remove(index).copy)
+        let started = self.copies.remove(&address(read))?;
+        match started.is_of(read) {
+            true => Some(started.copy),
+            false => {
+                self.abandoned.push(started);
+                None
+            }
+        }
     }
 
     /// Let go of the copies no access will take, once they are done, scanning the copies of
@@ -193,13 +206,19 @@ impl LazyReads {
         let let_go = self.count.let_go_so_far();
         if let_go != self.let_go_at_scan {
             self.let_go_at_scan = let_go;
-            let (abandoned, copies) = core::mem::take(&mut self.copies)
+            let (abandoned, copies): (Vec<_>, _) = core::mem::take(&mut self.copies)
                 .into_iter()
-                .partition(StartedCopy::is_abandoned);
+                .partition(|(_, copy)| copy.is_abandoned());
             self.copies = copies;
-            self.abandoned.extend(abandoned);
+            self.abandoned
+                .extend(abandoned.into_iter().map(|(_, copy)| copy));
         }
         self.abandoned.retain(StartedCopy::is_in_flight);
+        // Every live entry holds a count, which only this thread raises.
+        if self.count.is_zero() {
+            self.kept.clear();
+            self.swept_at = 0;
+        }
     }
 
     /// Where the kept `read` was made, when it was made on a stream other than `stream`: that
@@ -412,9 +431,10 @@ pub(crate) fn access<S: WriteScoped>(
     stream: StreamId,
 ) -> Copy {
     let accessed = source.handle.range();
-    if !is_recording(server.capturing(stream)) {
-        order_after_made(server, &read, stream);
-    }
+    let stream = match is_recording(server.capturing(stream)) {
+        true => stream,
+        false => behind_made(server, &read, stream),
+    };
     let Some(copy) = server.read_lazy_copy(vec![source], stream) else {
         return refused("this server keeps no lazy read");
     };
@@ -498,29 +518,26 @@ fn copy_stream<S: WriteScoped>(server: &mut S, kept: &ReadToStart, writer: Strea
     }
 }
 
-/// Order work on `stream` after the work on the stream the kept `read` was made on, up to it.
-fn order_after_made<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>, stream: StreamId) {
-    if !read.is_kept() {
-        return;
-    }
-    match lazy_reads(server).made_elsewhere(read, stream) {
-        Some((_, Some(made_at))) => wait_past(server, stream, made_at.as_ref()),
-        Some((made_on, None)) => server.wait_before_write(stream, made_on),
-        None => {}
+/// The stream an access on `stream` copies the kept `read` on: `stream` behind the work on the
+/// stream the read was made on up to it, or that stream itself when its server gives no fence.
+fn behind_made<S: WriteScoped>(server: &mut S, read: &Arc<LazyRead>, stream: StreamId) -> StreamId {
+    let made = match read.is_kept() {
+        true => lazy_reads(server).made_elsewhere(read, stream),
+        false => None,
+    };
+    match made {
+        Some((_, Some(made_at))) => behind(server, stream, made_at.as_ref()),
+        Some((made_on, None)) => reader_stream(server, made_on, stream),
+        None => stream,
     }
 }
 
 /// `writer`, ordered after `made_at`.
 fn behind<S: WriteScoped>(server: &mut S, writer: StreamId, made_at: &dyn StreamFence) -> StreamId {
-    wait_past(server, writer, made_at);
-    writer
-}
-
-/// Order work on `stream` after `fence`, unless it is already reached.
-fn wait_past<S: WriteScoped>(server: &mut S, stream: StreamId, fence: &dyn StreamFence) {
-    if !fence.is_reached() {
-        server.wait_for_fence(stream, fence);
+    if !made_at.is_reached() {
+        server.wait_for_fence(writer, made_at);
     }
+    writer
 }
 
 /// The reader's stream, unless it records a graph, where a copy would run at every replay
@@ -560,6 +577,11 @@ fn start<S: WriteScoped>(
     read.start(offsets);
     lazy_reads(server).started(read, stream, fence.clone(), copy);
     Some(CopyInFlight { stream, fence })
+}
+
+/// What a read is known by while it lives.
+fn address(read: &Arc<LazyRead>) -> usize {
+    Arc::as_ptr(read) as usize
 }
 
 fn refused(reason: &'static str) -> Copy {
