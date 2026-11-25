@@ -55,7 +55,7 @@ use cubecl_macros::{comptime_type, cube, intrinsic};
 
 use alloc::format;
 use cubecl_ir::{
-    ElementPositions, ExpandValue, Scope, VectorSize,
+    ElementPositions, ExpandValue, MmaProperties, OperandFact, Scope, VectorSize,
     attributes::ZeroAttr,
     dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
     ident,
@@ -290,6 +290,17 @@ impl<A: CubeType, B: CubeType, CD: CubeType> MmaDefinitionExpand<A, B, CD> {
             MatrixLayout::ColMajor,
             types::MatrixScope::Plane,
         )
+    }
+
+    /// What the target states of the operand of role `ident`, through the fact `fact` picks.
+    fn operand_fact<T>(
+        &self,
+        scope: &Scope,
+        ident: MatrixIdent,
+        fact: impl FnOnce(&MmaProperties) -> &OperandFact<T>,
+    ) -> T {
+        let matrix_ty = self.matrix_ty(scope, ident);
+        fact(&scope.state().target_properties.mma).apply(scope.ctx(), ident, matrix_ty)
     }
 }
 
@@ -601,20 +612,18 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Number of elements in each vector passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
     pub fn vector_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
-        intrinsic!(|scope| {
-            let matrix_ty = self.matrix_ty(scope, ident);
-            let mma = &scope.state().target_properties.mma;
-            mma.contiguous_elements.apply(scope.ctx(), ident, matrix_ty)
-        })
+        intrinsic!(|scope| self.operand_fact(scope, ident, |mma| &mma.contiguous_elements))
     }
 
-    /// Returns the coordinates of the `nth` element handled by the `lane_id`
+    /// Returns the coordinates of the `nth` element handled by the `lane_id`, the unit's index in
+    /// its plane rather than in its cube.
     /// Each lane contains `elems_per_lane` elements in `vector_size` chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
-    /// # Note
-    /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
-    /// to a cube.
+    /// # Panics
+    ///
+    /// Panics on a device that states no element positions, one with no manual matrix
+    /// instruction.
     pub fn position_of_nth(
         &self,
         lane_id: u32,
@@ -636,11 +645,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         &self,
         #[comptime] ident: MatrixIdent,
     ) -> comptime_type!(Option<ElementPositions>) {
-        intrinsic!(|scope| {
-            let matrix_ty = self.matrix_ty(scope, ident);
-            let mma = &scope.state().target_properties.mma;
-            mma.element_positions.apply(scope.ctx(), ident, matrix_ty)
-        })
+        intrinsic!(|scope| self.operand_fact(scope, ident, |mma| &mma.element_positions))
     }
 
     /// Index of the scales for this thread, along the non-major dimension of the matrix.
