@@ -19,26 +19,29 @@ pub fn lower_schedule_barrier(scope: &Scope) {
     scope.register(&op);
 }
 
-fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
+fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) -> llvm::FenceOp {
     fence_at(
         scope,
         SyncScopeAttr::NamedScope(sync_scope.into()),
         ordering,
-    );
+    )
 }
 
-fn fence_at(scope: &Scope, sync_scope: SyncScopeAttr, ordering: AtomicOrderingAttr) {
+fn fence_at(
+    scope: &Scope,
+    sync_scope: SyncScopeAttr,
+    ordering: AtomicOrderingAttr,
+) -> llvm::FenceOp {
     let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, sync_scope);
     scope.register(&fence);
+    fence
 }
 
 /// A fence on shared memory alone, which neither waits for the accesses to global memory nor
 /// touches their caches.
 fn shared_fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
+    let fence = fence(scope, sync_scope, ordering);
     let ctx = scope.ctx_mut();
-    let fence = llvm::FenceOp::new(ctx, ordering, SyncScopeAttr::NamedScope(sync_scope.into()));
-    scope.register(&fence);
-
     let synchronize_as_local = MdNodeAttr::new_tuple(
         ["amdgpu-synchronize-as", "local"]
             .map(|word| MdOperandAttr::String(word.into()))
