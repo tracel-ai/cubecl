@@ -289,13 +289,13 @@ impl FailureRecorder {
             let report = self.claim_report(claim, &found);
             found.extend(report);
         }
-        match found.is_empty() {
-            true => Ok(()),
-            false => Err(ServerError::Several {
-                errors: found.into_iter().map(|(_, error)| error).collect(),
-                backtrace: BackTrace::capture(),
-            }),
+        if found.is_empty() {
+            return Ok(());
         }
+        Err(ServerError::Several {
+            errors: found.into_iter().map(|(_, error)| error).collect(),
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// The report `claim` owes, with the failure it names: `None` when one

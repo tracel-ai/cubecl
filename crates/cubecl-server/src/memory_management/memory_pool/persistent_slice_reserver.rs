@@ -1,6 +1,6 @@
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceReserver,
+    missing, padded_size, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -64,7 +64,7 @@ impl PersistentSliceReserver {
         if !slice.is_free() {
             return true;
         }
-        Self::release_slice(slice, storage, failures);
+        SliceAllocator.release_whole(storage, slice, failures);
         false
     }
 }
@@ -100,7 +100,7 @@ impl SliceReserver for PersistentSliceReserver {
             .iter()
             .find(|position| self.slices[**position].is_free())?;
         let slice = &mut self.slices[position];
-        fit_whole_slice(slice, size, effective_size);
+        SliceAllocator.fit_whole(slice, size, effective_size);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(slice.handle.clone())
     }
@@ -133,7 +133,8 @@ impl SliceReserver for PersistentSliceReserver {
             slice: position as u32,
             ..self.location_base
         };
-        let slice = Self::whole_slice(storage, size, effective_size, mapping, location)?;
+        let slice =
+            SliceAllocator.allocate_whole(storage, size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         self.sizes.entry(effective_size).or_default().push(position);
         self.slices.push(slice);
@@ -196,7 +197,7 @@ impl SliceReserver for PersistentSliceReserver {
             .slices
             .get_mut(reserved.descriptor().slice())
             .expect("a reserved slice should be held by the pool that reserved it");
-        bind_slice(slice, assigned, cursor, failures);
+        SliceAllocator.bind(slice, assigned, cursor, failures);
         Ok(())
     }
 
@@ -208,7 +209,7 @@ impl SliceReserver for PersistentSliceReserver {
         binding: &ManagedMemoryBinding,
     ) -> Result<(), IoError> {
         let slice = self.slices.get_mut(binding.descriptor().slice());
-        Self::materialize_whole(slice, binding, storage)
+        SliceAllocator.materialize_whole(storage, slice, binding)
     }
 }
 

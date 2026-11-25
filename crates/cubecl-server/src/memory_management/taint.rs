@@ -52,8 +52,16 @@ type Ranges = SmallVec<[Range<u64>; 1]>;
 /// its bytes, and none on any other.
 #[derive(Debug, Default)]
 pub struct Taint {
+    recorder: ClaimRecorder,
+}
+
+/// Records the claims failures hold on the bytes of one allocation, tagging
+/// each failure once while it claims a byte.
+#[derive(Debug, Default)]
+struct ClaimRecorder {
     /// One claim per failure, in the order the failures first claimed bytes
-    /// (Arrival), searched for the failure a range overlaps (Membership).
+    /// (Arrival), found by their failure (Keyed) and scanned for the failure a
+    /// range overlaps.
     entries: Claims,
 }
 
@@ -96,16 +104,22 @@ impl Taint {
     ///
     /// # Panics
     ///
-    /// When `failure` is not one `failures` holds.
+    /// When `failure`, or a failure this allocation's claims name, is not
+    /// one `failures` holds.
     pub fn taint(&mut self, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
-        taint(&mut self.entries, range, failure, failures);
+        self.recorder.record(range, failure, failures);
     }
 
     /// The bytes in `range` have a writer again: release every claim on them,
     /// and only on them — a write covering part of a buffer says nothing
     /// about the rest, which keeps carrying the failure that left it stale.
+    ///
+    /// # Panics
+    ///
+    /// When a failure this allocation's claims name is not one `failures`
+    /// holds.
     pub fn written(&mut self, range: Range<u64>, failures: &mut ErrorGraph) {
-        release(&mut self.entries, &range, None, failures);
+        self.recorder.release(&range, None, failures);
     }
 
     /// The failure claiming any byte of `range`, if one does.
@@ -113,91 +127,105 @@ impl Taint {
     /// A range overlapping several failures names one of them: the read fails
     /// either way, and the caller dedupes by id across a whole read anyway.
     pub fn failure(&self, range: &Range<u64>) -> Option<FailureId> {
-        claiming(&self.entries, range)
+        self.recorder.claiming(range)
     }
 
     /// Release every claim, for an allocation that stops existing — the slice
     /// is rebound, coalesced away, tombstoned or swept — since a tag must not
     /// outlive its carrier.
+    ///
+    /// # Panics
+    ///
+    /// When a failure this allocation's claims name is not one `failures`
+    /// holds.
     pub fn clear(&mut self, failures: &mut ErrorGraph) {
-        clear(&mut self.entries, failures);
+        self.recorder.clear(failures);
     }
 
     /// Whether nothing claims any byte.
     pub fn is_clean(&self) -> bool {
-        self.entries.is_empty()
+        self.recorder.is_clean()
     }
 }
 
-/// Point `range` of the claims `entries` holds at `failure`.
-fn taint(entries: &mut Claims, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
-    if range.is_empty() {
-        return;
+impl ClaimRecorder {
+    /// Point `range` at `failure`, as [`Taint::taint`] says.
+    fn record(&mut self, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
+        if range.is_empty() {
+            return;
+        }
+        self.release(&range, Some(failure), failures);
+        match self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.failure == failure)
+        {
+            Some(entry) => add(&mut entry.ranges, range),
+            None => self.claim(range, failure, failures),
+        }
     }
-    release(entries, &range, Some(failure), failures);
-    match entries.iter_mut().find(|entry| entry.failure == failure) {
-        Some(entry) => add(&mut entry.ranges, range),
-        None => claim(entries, range, failure, failures),
+
+    /// Add a claim of `failure` on `range`, tagging it once.
+    fn claim(&mut self, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
+        failures.tag(failure);
+        self.entries.push(FailureRanges {
+            failure,
+            ranges: Ranges::from_buf([range]),
+        });
     }
-}
 
-/// Add a claim of `failure` on `range` to `entries`, tagging it once.
-fn claim(entries: &mut Claims, range: Range<u64>, failure: FailureId, failures: &mut ErrorGraph) {
-    failures.tag(failure);
-    entries.push(FailureRanges {
-        failure,
-        ranges: Ranges::from_buf([range]),
-    });
-}
-
-/// Release every claim of `entries` on `range` but `kept`'s, untagging each
-/// failure left claiming nothing.
-fn release(
-    entries: &mut Claims,
-    range: &Range<u64>,
-    kept: Option<FailureId>,
-    failures: &mut ErrorGraph,
-) {
-    if range.is_empty() {
-        return;
+    /// Release every claim on `range` but `kept`'s, untagging each failure
+    /// left claiming nothing.
+    fn release(&mut self, range: &Range<u64>, kept: Option<FailureId>, failures: &mut ErrorGraph) {
+        if range.is_empty() {
+            return;
+        }
+        self.entries
+            .retain_mut(|entry| Self::release_entry(entry, range, kept, failures));
     }
-    entries.retain_mut(|entry| release_entry(entry, range, kept, failures));
-}
 
-/// Release `entry`'s claim on `range` unless it is `kept`'s, answering
-/// whether it still claims a byte.
-fn release_entry(
-    entry: &mut FailureRanges,
-    range: &Range<u64>,
-    kept: Option<FailureId>,
-    failures: &mut ErrorGraph,
-) -> bool {
-    if Some(entry.failure) == kept {
-        return true;
+    /// Release `entry`'s claim on `range` unless it is `kept`'s, answering
+    /// whether it still claims a byte.
+    fn release_entry(
+        entry: &mut FailureRanges,
+        range: &Range<u64>,
+        kept: Option<FailureId>,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        if Some(entry.failure) == kept {
+            return true;
+        }
+        subtract(&mut entry.ranges, range);
+        Self::keep_claiming(entry, failures)
     }
-    subtract(&mut entry.ranges, range);
-    keep_claiming(entry, failures)
-}
 
-/// Whether `entry` still claims a byte, untagging its failure when it does not.
-fn keep_claiming(entry: &FailureRanges, failures: &mut ErrorGraph) -> bool {
-    let claims = !entry.ranges.is_empty();
-    failures.untag((!claims).then_some(entry.failure));
-    claims
-}
-
-/// The failure among `entries` claiming any byte of `range`.
-fn claiming(entries: &Claims, range: &Range<u64>) -> Option<FailureId> {
-    entries
-        .iter()
-        .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
-        .map(|entry| entry.failure)
-}
-
-/// Release every claim of `entries`.
-fn clear(entries: &mut Claims, failures: &mut ErrorGraph) {
-    for entry in entries.drain(..) {
+    /// Whether `entry` still claims a byte, untagging its failure when it does not.
+    fn keep_claiming(entry: &FailureRanges, failures: &mut ErrorGraph) -> bool {
+        if !entry.ranges.is_empty() {
+            return true;
+        }
         failures.untag(Some(entry.failure));
+        false
+    }
+
+    /// The failure claiming any byte of `range`.
+    fn claiming(&self, range: &Range<u64>) -> Option<FailureId> {
+        self.entries
+            .iter()
+            .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
+            .map(|entry| entry.failure)
+    }
+
+    /// Release every claim.
+    fn clear(&mut self, failures: &mut ErrorGraph) {
+        for entry in self.entries.drain(..) {
+            failures.untag(Some(entry.failure));
+        }
+    }
+
+    /// Whether nothing claims any byte.
+    fn is_clean(&self) -> bool {
+        self.entries.is_empty()
     }
 }
 
@@ -358,9 +386,9 @@ mod tests {
         taint.taint(20..30, failure, &mut graph);
         taint.taint(10..20, failure, &mut graph);
 
-        assert_eq!(taint.entries.len(), 1);
-        assert_eq!(taint.entries[0].ranges.len(), 1);
-        assert_eq!(taint.entries[0].ranges[0], 0..30);
+        assert_eq!(taint.recorder.entries.len(), 1);
+        assert_eq!(taint.recorder.entries[0].ranges.len(), 1);
+        assert_eq!(taint.recorder.entries[0].ranges[0], 0..30);
     }
 
     /// Clearing releases every claim at once, for the slice that stops

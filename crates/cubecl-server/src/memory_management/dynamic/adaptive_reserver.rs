@@ -10,7 +10,7 @@ use crate::{
         MemoryPoolReport,
         memory_pool::{
             ExclusiveLayout, ExclusiveSliceReserver, PageMapping, PagedLayout, PagedSliceReserver,
-            PinnedRoom, SliceReserver, all_guarded, hand_over,
+            PinnedRoom, SliceAllocator, SliceReserver, all_guarded,
         },
         relocation::{
             Move, Relocation, RelocationCopier, RelocationNeed, RelocationReason, StorageCopy,
@@ -318,7 +318,7 @@ impl AdaptiveReserver {
                 destination.pool,
             )
             .expect("a move apart's target should be on a pool kept apart");
-            hand_over(from.slice_at(source), into.slice_at(destination), failures);
+            SliceAllocator.hand_over(from.slice_at(source), into.slice_at(destination), failures);
         }
         Ok(())
     }
@@ -410,10 +410,10 @@ impl AdaptiveReserver {
             return Ok(None);
         };
         let page = pool.page_at(source);
-        if !page.is_guarded() {
+        if !page.view().is_guarded {
             return Ok(None);
         }
-        let source_storage = page.mapped_storage_at_index(source.slice as usize);
+        let source_storage = page.view().mapped_storage_at_index(source.slice as usize);
         let slice = pool.slice_at(source);
         let (size, allocation) = (slice.storage.size(), slice.handle.to_binding());
         // Placed as an output: the small pool's slices go to the small pool kept apart, the

@@ -1,6 +1,6 @@
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceReserver,
+    missing, padded_size, pool_origin, slices_usage,
 };
 use crate::{
     memory_management::{
@@ -121,13 +121,14 @@ impl ExclusiveSliceReserver {
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) -> bool {
-        page.free_count += u32::from(page.slice.is_free());
-        let unused = page.slice.is_free()
-            && (page.free_count >= DEALLOC_FREE_CHECK_COUNT || cleanup == Cleanup::Explicit);
-        if !unused {
+        if !page.slice.is_free() {
             return true;
         }
-        Self::release_slice(&mut page.slice, storage, failures);
+        page.free_count += 1;
+        if page.free_count < DEALLOC_FREE_CHECK_COUNT && cleanup == Cleanup::Periodic {
+            return true;
+        }
+        SliceAllocator.release_whole(storage, &mut page.slice, failures);
         false
     }
 }
@@ -148,7 +149,7 @@ impl SliceReserver for ExclusiveSliceReserver {
         let padded = padded_size(size, self.alignment)?;
         let page = self.free_page_fitting_bytes(size)?;
         // A page only ever fits the sizes it was allocated for.
-        fit_whole_slice(&mut page.slice, size, padded);
+        SliceAllocator.fit_whole(&mut page.slice, size, padded);
         page.free_count = page.free_count.saturating_sub(1);
         let handle = page.slice.handle.clone();
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
@@ -175,10 +176,13 @@ impl SliceReserver for ExclusiveSliceReserver {
         let alloc_bytes = (self.cur_avg_size as u64)
             .max(size)
             .next_multiple_of(self.alignment);
-        let mut slice = Slice::new(storage.allocate_bytes(alloc_bytes)?, 0);
+        let mut slice = Slice::new(
+            SliceAllocator.allocate_storage(storage, PageMapping::Eager, alloc_bytes)?,
+            0,
+        );
         // `size` is at most the largest allocation, a multiple of the
         // alignment, so it pads within range.
-        fit_whole_slice(&mut slice, size, size.next_multiple_of(self.alignment));
+        SliceAllocator.fit_whole(&mut slice, size, size.next_multiple_of(self.alignment));
         slice.descriptor().update_location(MemoryLocation {
             page: self.pages.len() as u16,
             ..self.location_base
@@ -251,7 +255,7 @@ impl SliceReserver for ExclusiveSliceReserver {
             .pages
             .get_mut(reserved.descriptor().page())
             .expect("a reserved page should be held by the pool that reserved it");
-        bind_slice(&mut page.slice, assigned, cursor, failures);
+        SliceAllocator.bind(&mut page.slice, assigned, cursor, failures);
         Ok(())
     }
 

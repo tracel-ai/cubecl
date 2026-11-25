@@ -9,8 +9,8 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
         memory_pool::{
-            MemoryPage, PageMapping, PagedSliceReserver, PinnedRoom, SliceReserver, all_guarded,
-            hand_over,
+            PageCarver, PageMapping, PagedSliceReserver, PinnedRoom, SliceAllocator, SliceReserver,
+            all_guarded,
         },
         relocation::{
             ArenaShape, ArenaState, LandedRelocation, LiveAllocation, MovablePage, Move,
@@ -72,13 +72,13 @@ impl ArenaReserver {
         name: String,
     ) -> Self {
         let mut slots = Vec::with_capacity(ARENA_SLOT_COUNT);
-        slots.push(Some(sizing.pool(sizing.min_page_size(), first_index)));
+        slots.push(Some(sizing.pool(sizing.min_page_bytes, first_index)));
         slots.resize_with(ARENA_SLOT_COUNT, || None);
         Self {
             slots,
             first_index,
             current: 0,
-            current_page_size: sizing.min_page_size(),
+            current_page_size: sizing.min_page_bytes,
             outdated: Vec::with_capacity(ARENA_SLOT_COUNT),
             sizing,
             decider: RelocationDecider::default(),
@@ -180,7 +180,9 @@ impl ArenaReserver {
         room: PinnedRoom,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        self.fits_bytes(size).then_some(())?;
+        if !self.fits_bytes(size) {
+            return None;
+        }
         self.current_mut().try_reserve_sharing(size, room, failures)
     }
 
@@ -246,7 +248,7 @@ impl ArenaReserver {
     }
 
     /// The pages the outdated pools hold.
-    fn outdated_pages(&self) -> impl Iterator<Item = &MemoryPage> {
+    fn outdated_pages(&self) -> impl Iterator<Item = &PageCarver> {
         self.outdated().flat_map(PagedSliceReserver::pages)
     }
 
@@ -267,7 +269,7 @@ impl ArenaReserver {
                 outdated_page_count: self.outdated_page_count(),
                 outdated_guarded_count: self
                     .outdated_pages()
-                    .filter(|page| page.is_guarded())
+                    .filter(|page| page.view().is_guarded)
                     .count(),
             },
         }
@@ -372,7 +374,7 @@ impl ArenaReserver {
     ) {
         for (source, destination) in landed_locations(landed) {
             let (source_pool, target_pool) = self.pair_mut(source.pool, destination.pool);
-            hand_over(
+            SliceAllocator.hand_over(
                 source_pool.slice_at(source),
                 target_pool.slice_at(destination),
                 failures,
@@ -406,6 +408,7 @@ impl ArenaReserver {
             .pool_by_index(source.pool)
             .expect("an outdated allocation should be on one of the arena's pools")
             .page_at(source)
+            .view()
             .mapped_storage_at_index(source.slice as usize);
 
         let pool = self.current_mut();

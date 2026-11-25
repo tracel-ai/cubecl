@@ -2,7 +2,9 @@ use crate::{
     memory_management::{
         BytesFormat, Cleanup, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage, PageGuard,
-        memory_pool::{MemoryPage, PageMapping, Slice, SliceReserver, missing, pool_origin},
+        memory_pool::{
+            PageCarver, PageMapping, Slice, SliceAllocator, SliceReserver, missing, pool_origin,
+        },
     },
     server::IoError,
     storage::{StorageAllocator, StorageHandle},
@@ -28,7 +30,7 @@ pub enum PinnedRoom {
 pub(crate) struct PagedSliceReserver {
     /// Every page, read by the index a location carries (Position) and
     /// scanned in that order for room (Ordered).
-    pages: Vec<MemoryPage>,
+    pages: Vec<PageCarver>,
     layout: PagedLayout,
     /// Whether an allocation past the largest slice but close to the page size
     /// is accepted too, as one that leaves little of its page unused.
@@ -78,7 +80,7 @@ impl PagedSliceReserver {
     }
 
     /// The pages it holds, in the order a location numbers them.
-    pub(crate) fn pages(&self) -> &[MemoryPage] {
+    pub(crate) fn pages(&self) -> &[PageCarver] {
         &self.pages
     }
 
@@ -87,7 +89,7 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When the pool holds no page there.
-    pub(crate) fn page_at(&self, location: MemoryLocation) -> &MemoryPage {
+    pub(crate) fn page_at(&self, location: MemoryLocation) -> &PageCarver {
         &self.pages[location.page as usize]
     }
 
@@ -130,10 +132,10 @@ impl PagedSliceReserver {
         let handle = self
             .pages
             .iter_mut()
-            .filter(|page| room == PinnedRoom::Share || !page.is_guarded())
+            .filter(|page| room == PinnedRoom::Share || !page.view().is_guarded)
             .find_map(|page| {
                 page.coalesce(failures);
-                page.try_reserve_bytes(size)
+                page.carve_bytes(size)
             })?;
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(handle)
@@ -193,10 +195,11 @@ impl PagedSliceReserver {
             page: self.pages.len() as u16,
             ..self.location_base
         };
-        let handle = Self::page_storage(mapping, storage, self.layout.page_size_bytes)?;
-        let mut page = MemoryPage::new(handle, self.layout.alignment_bytes, location_base, mapping);
+        let handle =
+            SliceAllocator.allocate_storage(storage, mapping, self.layout.page_size_bytes)?;
+        let mut page = PageCarver::new(handle, self.layout.alignment_bytes, location_base, mapping);
         let reserved = page
-            .try_reserve_bytes(size)
+            .carve_bytes(size)
             .expect("a page should be allocated only for an allocation the pool accepts");
         self.pages.push(page);
         self.peak_pages = self.peak_pages.max(self.pages.len() as u64);
@@ -213,13 +216,13 @@ impl PagedSliceReserver {
     /// rebound — every slice keeps its offset, the minted id ceases to exist (it
     /// never reached the driver).
     fn map_page<Storage: StorageAllocator>(
-        page: &mut MemoryPage,
+        page: &mut PageCarver,
         storage: &mut Storage,
     ) -> Result<(), IoError> {
-        if page.is_mapped() {
+        if page.view().is_mapped {
             return Ok(());
         }
-        let size = page.size();
+        let size = page.view().size_bytes;
         let real = storage
             .allocate_bytes(size)
             .map_err(|err| IoError::StorageMappingFailed {
@@ -233,12 +236,12 @@ impl PagedSliceReserver {
 
     /// Whether `page` stays: one nothing is live on and nothing guards goes back.
     fn keep_used<Storage: StorageAllocator>(
-        page: &mut MemoryPage,
+        page: &mut PageCarver,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
     ) -> bool {
         page.coalesce(failures);
-        if !page.is_empty() || page.is_guarded() {
+        if !page.view().is_empty() || page.view().is_guarded {
             return true;
         }
         // An unmapped page has nothing behind its minted id: handing it to the
@@ -248,12 +251,6 @@ impl PagedSliceReserver {
         }
         false
     }
-}
-
-/// Whether graphs guard every page of `pages`, and there are some: room for
-/// work outside a capture comes only from a new page then.
-pub(crate) fn all_guarded(pages: &[MemoryPage]) -> bool {
-    !pages.is_empty() && pages.iter().all(MemoryPage::is_guarded)
 }
 
 /// Whether `size` bytes leave little enough of a page of `page_size` unused,
@@ -336,11 +333,15 @@ impl SliceReserver for PagedSliceReserver {
                 .pages
                 .iter()
                 .fold(MemoryUsage::default(), |usage, page| {
-                    usage.combine(page.memory_usage())
+                    usage.combine(page.view().usage())
                 }),
             page_count: self.pages.len() as u64,
             peak_page_count: self.peak_pages,
-            unmapped_page_count: self.pages.iter().filter(|page| !page.is_mapped()).count() as u64,
+            unmapped_page_count: self
+                .pages
+                .iter()
+                .filter(|page| !page.view().is_mapped)
+                .count() as u64,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -390,10 +391,10 @@ impl Display for PagedSliceReserver {
         f.write_str("\n")?;
 
         for page in self.pages.iter() {
-            let summary = page.summary_with_blocks(false);
+            let summary = page.view().summary_with_blocks(false);
             f.write_fmt(format_args!(
                 "   - Page {} num_slices={} => {} free - {} full - {} total\n",
-                page.storage_id(),
+                page.view().storage_id,
                 summary.total_count,
                 BytesFormat::from_byte_count(summary.free_bytes),
                 BytesFormat::from_byte_count(summary.full_bytes),
@@ -408,6 +409,7 @@ impl Display for PagedSliceReserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::memory_pool::all_guarded;
     use crate::storage::BytesStorage;
 
     const KIB: u64 = 1024;

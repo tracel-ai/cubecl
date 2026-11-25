@@ -1,7 +1,7 @@
 //! Which outdated pages a relocation empties, and in what order.
 
 use crate::memory_management::ManagedMemoryBinding;
-use crate::memory_management::memory_pool::MemoryPage;
+use crate::memory_management::memory_pool::PageCarver;
 use alloc::vec::Vec;
 
 /// The outdated pages a relocation can empty: every page with a live
@@ -40,11 +40,11 @@ pub(crate) struct LiveAllocation {
 
 impl OutdatedPages {
     /// The movable pages among `pages`.
-    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a MemoryPage>) -> Self {
+    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageCarver>) -> Self {
         Self {
             pages: pages
                 .into_iter()
-                .filter(|page| !page.is_guarded())
+                .filter(|page| !page.view().is_guarded)
                 .filter_map(MovablePage::new)
                 .collect(),
         }
@@ -62,11 +62,12 @@ impl OutdatedPages {
 impl MovablePage {
     /// What `page` holds, `None` when nothing live is on it or one of its
     /// allocations is bound.
-    fn new(page: &MemoryPage) -> Option<Self> {
-        if page.live().any(|slice| slice.handle.is_bound()) {
+    fn new(page: &PageCarver) -> Option<Self> {
+        if page.view().live().any(|slice| slice.handle.is_bound()) {
             return None;
         }
         let live: Vec<_> = page
+            .view()
             .live()
             .map(|slice| LiveAllocation {
                 handle: slice.handle.to_binding(),
@@ -90,7 +91,7 @@ mod tests {
     use super::*;
     use crate::memory_management::{
         ManagedMemoryHandle, MemoryLocation,
-        memory_pool::{MemoryPage, PageMapping},
+        memory_pool::{PageCarver, PageMapping},
     };
     use crate::storage::{StorageHandle, StorageId, StorageUtilization};
     use alloc::vec;
@@ -112,22 +113,20 @@ mod tests {
         let mut guarded = page();
         let mut bound = page();
         let mut movable = page();
-        core::mem::drop(empty.try_reserve_bytes(64));
-        let _guarded_slice = guarded.try_reserve_bytes(64);
+        core::mem::drop(empty.carve_bytes(64));
+        let _guarded_slice = guarded.carve_bytes(64);
         let _guard = guarded.guard();
-        let bound_slice = bound
-            .try_reserve_bytes(64)
-            .expect("the page should have room");
+        let bound_slice = bound.carve_bytes(64).expect("the page should have room");
         let _binding = bound_slice.clone().binding();
-        let _movable_slice = movable.try_reserve_bytes(64);
+        let _movable_slice = movable.carve_bytes(64);
 
         let plan = OutdatedPages::new([&empty, &guarded, &bound, &movable]).into_plan();
 
         assert_eq!(sizes(&plan), [vec![64]]);
     }
 
-    fn page() -> MemoryPage {
-        MemoryPage::new(
+    fn page() -> PageCarver {
+        PageCarver::new(
             StorageHandle::new(
                 StorageId::new(),
                 StorageUtilization {

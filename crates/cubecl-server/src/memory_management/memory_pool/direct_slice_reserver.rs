@@ -1,6 +1,6 @@
 use super::{
-    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceReserver, bind_slice,
-    fit_whole_slice, missing, padded_size, pool_origin, slices_usage,
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceReserver,
+    missing, padded_size, pool_origin, slices_usage,
 };
 use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
@@ -132,7 +132,7 @@ impl DirectSliceReserver {
             let mut slice = self.slices[index]
                 .take()
                 .expect("a slice marked for release should be held");
-            Self::release_slice(&mut slice, storage, failures);
+            SliceAllocator.release_whole(storage, &mut slice, failures);
             self.vacant.push(index);
         }
         released
@@ -174,7 +174,7 @@ impl SliceReserver for DirectSliceReserver {
             .iter_mut()
             .flatten()
             .find(|slice| slice.is_free() && slice.effective_size() == effective_size)?;
-        fit_whole_slice(slice, size, effective_size);
+        SliceAllocator.fit_whole(slice, size, effective_size);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Some(slice.handle.clone())
     }
@@ -199,7 +199,8 @@ impl SliceReserver for DirectSliceReserver {
             slice: index as u32,
             ..self.location_base
         };
-        let slice = Self::whole_slice(storage, size, effective_size, mapping, location)?;
+        let slice =
+            SliceAllocator.allocate_whole(storage, size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         place(&mut self.slices, index, slice);
         self.peak_pages = self.peak_pages.max(self.live().count() as u64);
@@ -216,7 +217,7 @@ impl SliceReserver for DirectSliceReserver {
             .slices
             .get_mut(binding.descriptor().slice())
             .and_then(Option::as_mut);
-        Self::materialize_whole(slice, binding, storage)
+        SliceAllocator.materialize_whole(storage, slice, binding)
     }
 
     fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
@@ -265,7 +266,7 @@ impl SliceReserver for DirectSliceReserver {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let slice = self.find_mut(&reserved.binding())?;
-        bind_slice(slice, assigned, cursor, failures);
+        SliceAllocator.bind(slice, assigned, cursor, failures);
         Ok(())
     }
 }

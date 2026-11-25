@@ -14,11 +14,12 @@ const PAGE_GRANULE_BYTES: u64 = 1024 * 1024;
 pub(crate) struct PageSizing {
     /// The smallest page, so a workload of small allocations still carves
     /// pages worth carving.
-    min_page_size: u64,
+    pub min_page_bytes: u64,
     /// The largest page the device allocates, alignment-rounded down: an
     /// allocation no page of that size fits is not the arena's to serve.
-    max_page_size: u64,
-    alignment: u64,
+    pub max_page_bytes: u64,
+    /// The alignment every slice starts at.
+    pub alignment_bytes: u64,
 }
 
 /// How an allocation fits the pages the arena carves now.
@@ -40,20 +41,15 @@ impl PageSizing {
     /// `properties` allocates.
     pub(crate) fn new(min_page_size: u64, properties: &MemoryDeviceProperties) -> Self {
         let alignment = properties.alignment;
-        let max_page_size = (properties.max_page_size / alignment * alignment).max(alignment);
+        let max_page_bytes = (properties.max_page_size / alignment * alignment).max(alignment);
         Self {
-            min_page_size: min_page_size
+            min_page_bytes: min_page_size
                 .max(alignment)
                 .next_multiple_of(alignment)
-                .min(max_page_size),
-            max_page_size,
-            alignment,
+                .min(max_page_bytes),
+            max_page_bytes,
+            alignment_bytes: alignment,
         }
-    }
-
-    /// The smallest page it sizes.
-    pub(crate) fn min_page_size(&self) -> u64 {
-        self.min_page_size
     }
 
     /// How an allocation of `size` bytes fits pages of `page_size`.
@@ -62,7 +58,22 @@ impl PageSizing {
     /// on top, rounded to the megabyte: never below the floor, never past
     /// the device's largest page.
     pub(crate) fn fit(&self, size: u64, page_size: u64) -> Fit {
-        fit(self, size, page_size)
+        let Some(needed) = padded_size(size, self.alignment_bytes) else {
+            return Fit::TooLarge;
+        };
+        if needed <= page_size {
+            return Fit::Fits;
+        }
+        if needed > self.max_page_bytes {
+            return Fit::TooLarge;
+        }
+        Fit::Grow {
+            page_size_bytes: size
+                .saturating_add(PAGE_SLACK_BYTES)
+                .next_multiple_of(PAGE_GRANULE_BYTES)
+                .next_multiple_of(self.alignment_bytes)
+                .clamp(self.min_page_bytes, self.max_page_bytes),
+        }
     }
 
     /// A pool carving pages of `page_size`, whose slices carry `index`.
@@ -73,30 +84,9 @@ impl PageSizing {
         PagedSliceReserver::new(PagedLayout {
             page_size_bytes: page_size,
             max_slice_bytes: page_size,
-            alignment_bytes: self.alignment,
+            alignment_bytes: self.alignment_bytes,
             pool: index,
         })
-    }
-}
-
-/// How an allocation of `size` bytes fits pages of `page_size`, as `sizing`
-/// sizes them.
-fn fit(sizing: &PageSizing, size: u64, page_size: u64) -> Fit {
-    let Some(needed) = padded_size(size, sizing.alignment) else {
-        return Fit::TooLarge;
-    };
-    if needed <= page_size {
-        return Fit::Fits;
-    }
-    if needed > sizing.max_page_size {
-        return Fit::TooLarge;
-    }
-    Fit::Grow {
-        page_size_bytes: size
-            .saturating_add(PAGE_SLACK_BYTES)
-            .next_multiple_of(PAGE_GRANULE_BYTES)
-            .next_multiple_of(sizing.alignment)
-            .clamp(sizing.min_page_size, sizing.max_page_size),
     }
 }
 
@@ -161,6 +151,6 @@ mod tests {
     fn the_floor_never_passes_the_largest_page() {
         let sizing = PageSizing::new(32 * MIB, &MemoryDeviceProperties::new(16 * MIB, 32));
 
-        assert_eq!(sizing.min_page_size(), 16 * MIB);
+        assert_eq!(sizing.min_page_bytes, 16 * MIB);
     }
 }

@@ -142,10 +142,10 @@ impl RelocationNeed {
     /// This need, or [`Recording`](Self::Recording) when a stream is
     /// `recording` a graph.
     pub fn while_recording(self, recording: bool) -> RelocationNeed {
-        match recording {
-            true => RelocationNeed::Recording,
-            false => self,
+        if recording {
+            return RelocationNeed::Recording;
         }
+        self
     }
 
     /// The need of a device whose streams' memories need `needs`:
@@ -193,10 +193,10 @@ impl MemoryPressure {
     /// The pressure on a device that holds `allocated` of its `capacity`
     /// bytes, for a next page of `page_size`.
     fn new(allocated: u64, capacity: u64, page_size: u64) -> Self {
-        match allocated.saturating_add(page_size) > capacity.saturating_sub(page_size) {
-            true => MemoryPressure::High,
-            false => MemoryPressure::Low,
+        if allocated.saturating_add(page_size) > capacity.saturating_sub(page_size) {
+            return MemoryPressure::High;
         }
+        MemoryPressure::Low
     }
 
     /// What this pressure asks of a relocation.
