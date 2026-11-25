@@ -54,13 +54,7 @@ impl LowerOp for BytePermuteOp {
     }
 
     fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let ctx = scope.ctx();
-        vec![expand_byte_permute_polyfill(
-            scope,
-            self.low(ctx),
-            self.high(ctx),
-            self.selectors(ctx),
-        )]
+        vec![expand_byte_permute_polyfill(scope, self)]
     }
 }
 unrolling!(BytePermuteOp);

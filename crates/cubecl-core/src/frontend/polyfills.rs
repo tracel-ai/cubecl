@@ -223,14 +223,14 @@ pub fn byte_permute_polyfill<N: Size>(
     permuted
 }
 
-#[allow(missing_docs)]
+/// `op` lowered to [`byte_permute_polyfill`], for a target with no byte permute of its own.
 pub fn expand_byte_permute_polyfill(
     scope: &Scope,
-    low: Value,
-    high: Value,
-    selectors: Value,
+    op: &cubecl_ir::dialect::bitwise::BytePermuteOp,
 ) -> Value {
-    scope.register_size::<SizeA>(low.vector_size(scope.ctx()));
+    let ctx = scope.ctx();
+    let (low, high, selectors) = (op.low(ctx), op.high(ctx), op.selectors(ctx));
+    scope.register_size::<SizeA>(low.vector_size(ctx));
     byte_permute_polyfill::expand::<SizeA>(scope, low.into(), high.into(), selectors.into())
         .read_value(scope)
 }
