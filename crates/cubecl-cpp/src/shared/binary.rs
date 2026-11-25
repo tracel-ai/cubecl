@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
-    frontend::polyfills::{expand_dp4a_polyfill, powi_int},
+    frontend::polyfills::{expand_byte_permute_polyfill, expand_dp4a_polyfill, powi_int},
     ir::{
         dialect::{
             bitwise::*,
@@ -46,6 +46,24 @@ impl LowerOp for Dp4aOp {
         )]
     }
 }
+
+#[op_interface_impl]
+impl LowerOp for BytePermuteOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        ctx.target() == Target::Metal
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_byte_permute_polyfill(
+            scope,
+            self.low(ctx),
+            self.high(ctx),
+            self.selectors(ctx),
+        )]
+    }
+}
+unrolling!(BytePermuteOp);
 
 macro_rules! operator {
     ($name:ident, $op:expr) => {

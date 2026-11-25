@@ -1,4 +1,5 @@
 pub mod atomic;
+pub mod byte_permute;
 pub mod cmp;
 pub mod constant;
 mod dispatch;

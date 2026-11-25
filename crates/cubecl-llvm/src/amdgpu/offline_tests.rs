@@ -1,11 +1,11 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, cdna_manual_product_kernel, cdna_quantized_product_kernel,
-    cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
-    fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel, peer_tally_kernel,
-    plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane,
-    tile_product_kernel,
+    Wait, bf16_math_kernel, byte_permutes_kernel, cdna_manual_product_kernel,
+    cdna_quantized_product_kernel, cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel,
+    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
+    tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -136,6 +136,15 @@ fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
         "gfx1201",
     );
     assert!(asm.contains("v_wmma_f32_16x16x16_bf8_bf8"), "{asm}");
+}
+
+/// A byte permute is one instruction, its selectors masked ahead of it.
+#[test]
+fn a_byte_permute_is_one_instruction() {
+    for arch in ["gfx90a", "gfx942", "gfx1151", "gfx1201"] {
+        let asm = asm_of(byte_permutes_kernel(), arch);
+        assert_eq!(asm.matches("v_perm_b32").count(), 1, "{arch}:\n{asm}");
+    }
 }
 
 /// RDNA4 converts `e4m3` itself, an instruction a code decoded and one a pair encoded; RDNA3 has no

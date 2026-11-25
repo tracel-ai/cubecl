@@ -1,9 +1,9 @@
-use cubecl_core::prelude::polyfills::bitwise::*;
-use cubecl_ir::{dialect::bitwise::*, interfaces::TypedExt, prelude::*, types::VectorType};
+use cubecl_core::prelude::polyfills::{bitwise::*, expand_byte_permute_polyfill};
+use cubecl_ir::{Scope, dialect::bitwise::*, interfaces::TypedExt, prelude::*, types::VectorType};
 use pliron::builtin::types::{IntegerType, Signedness};
 
 use crate::compiler::wgsl::{
-    lower::lower_unop,
+    lower::{LowerOp, lower_unop},
     to_wgsl::{TypeExtWgsl, wasm_inventory_root, wgsl_op_with_out},
 };
 
@@ -51,6 +51,19 @@ wgsl_op_with_out!(FindFirstSetOp; |op, ctx| {
     let u32 = u32_ty(ctx, op.input(ctx)).to_wgsl(ctx);
     format!("{u32}(firstTrailingBit({})) + {u32}(1)", op.input(ctx).name(ctx))
 });
+
+#[op_interface_impl]
+impl LowerOp for BytePermuteOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_byte_permute_polyfill(
+            scope,
+            self.low(ctx),
+            self.high(ctx),
+            self.selectors(ctx),
+        )]
+    }
+}
 
 lower_unop!(LeadingZerosBitsOp, u64_leading_zeros, |op, ctx| {
     op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64)

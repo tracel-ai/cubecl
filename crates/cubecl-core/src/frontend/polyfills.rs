@@ -203,6 +203,38 @@ pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Valu
     dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
+/// [`byte_permute()`] with shifts, of selectors below 8.
+#[cube]
+pub fn byte_permute_polyfill<N: Size>(
+    low: Vector<u32, N>,
+    high: Vector<u32, N>,
+    selectors: Vector<u32, N>,
+) -> Vector<u32, N> {
+    let byte_mask = Vector::new(0xff);
+    let mut permuted = Vector::new(0);
+    #[unroll]
+    for byte in 0..4u32 {
+        let shift = Vector::new(8 * byte);
+        let selector = (selectors >> shift) & byte_mask;
+        let word = select_many(selector.less_than(&Vector::new(4)), low, high);
+        let picked = (word >> ((selector & Vector::new(3)) * Vector::new(8))) & byte_mask;
+        permuted |= picked << shift;
+    }
+    permuted
+}
+
+#[allow(missing_docs)]
+pub fn expand_byte_permute_polyfill(
+    scope: &Scope,
+    low: Value,
+    high: Value,
+    selectors: Value,
+) -> Value {
+    scope.register_size::<SizeA>(low.vector_size(scope.ctx()));
+    byte_permute_polyfill::expand::<SizeA>(scope, low.into(), high.into(), selectors.into())
+        .value(scope)
+}
+
 #[cube]
 pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     (input + Vector::one()).ln()

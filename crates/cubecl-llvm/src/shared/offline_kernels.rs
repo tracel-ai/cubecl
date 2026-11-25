@@ -412,6 +412,30 @@ pub(crate) fn peer_tally_kernel() -> impl CubeKernel {
     )
 }
 
+/// Bytes permuted by selectors only known when it runs.
+#[cube(launch)]
+fn byte_permutes(low: &[u32], high: &[u32], selectors: &[u32], out: &mut [u32]) {
+    let unit = UNIT_POS as usize;
+    out[unit] = byte_permute(low[unit], high[unit], selectors[unit]);
+}
+
+pub(crate) fn byte_permutes_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    byte_permutes::BytePermutes::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// A store to global memory and one to shared memory ahead of a cube barrier, and a load of each
 /// past it.
 #[cube(launch)]

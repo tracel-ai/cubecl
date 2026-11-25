@@ -8,8 +8,11 @@ macro_rules! hip_op {
         }
     };
 }
-use cubecl_core::ir::dialect::synchronization::{
-    FenceOp, MemoryOrder, ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+use cubecl_core::ir::dialect::{
+    bitwise::BytePermuteOp,
+    synchronization::{
+        FenceOp, MemoryOrder, ScheduleBarrierOp, SyncOp, SyncPlaneStorageOp, SyncScope,
+    },
 };
 pub(super) use hip_op;
 
@@ -86,4 +89,12 @@ hip_op!(SyncPlaneStorageOp, |_, _| {
 __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
 __builtin_amdgcn_wave_barrier();\n"
         .into()
+});
+
+// The permute reads its first word as the high one.
+hip_op_with_out!(BytePermuteOp, |op, ctx| {
+    let low = op.low(ctx).name(ctx);
+    let high = op.high(ctx).name(ctx);
+    let selectors = op.selectors(ctx).name(ctx);
+    format!("__builtin_amdgcn_perm({high}, {low}, {selectors})")
 });
