@@ -226,8 +226,8 @@ struct FailureRecorder {
     /// Each held failure by its id (Keyed).
     nodes: HashMap<FailureId, Failure>,
     /// The failures of buffers no allocation ever gave a location, which have no slice to
-    /// carry a failure id, by the buffer's id (Keyed), swept for buffers that are gone
-    /// (Membership). Each holds one tag on its failure, released once the buffer is gone.
+    /// carry a failure id, by the buffer's id (Keyed), the whole map swept for buffers that
+    /// are gone on every new record. Each holds one tag on its failure, released once the buffer is gone.
     unallocated: HashMap<ManagedMemoryId, (FailureId, WeakMemoryBinding)>,
     /// Ids handed out so far; the next one is `minted + 1`, which is never
     /// zero and, being 64 bits wide, never wraps.
@@ -806,5 +806,16 @@ mod tests {
         graph.fail_unallocated(&other.to_binding(), error("again"));
 
         assert_eq!(graph.len(), 1, "the dropped buffer's failure is released");
+    }
+
+    /// Shedding a failure never tagged is a broken count, which stops rather
+    /// than reading a carried failure as clean.
+    #[test]
+    #[should_panic(expected = "should be shed no more often than it was tagged")]
+    fn shedding_an_untagged_failure_panics() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("launch"));
+
+        graph.untag(Some(failure));
     }
 }

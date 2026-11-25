@@ -359,8 +359,25 @@ mod tests {
         assert_eq!((usage.in_use_bytes, usage.reserved_bytes), (1024, 2048));
     }
 
+    /// A periodic cleanup keeps every slice.
+    #[test_log::test]
+    fn a_periodic_cleanup_keeps_every_slice() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Periodic,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 1);
+    }
+
     /// An explicit cleanup returns every free slice and renumbers the live
-    /// ones, which still resolve; a periodic one keeps everything.
+    /// ones, which still resolve.
     #[test_log::test]
     fn an_explicit_cleanup_returns_free_slices_and_renumbers_the_rest() {
         let mut storage = BytesStorage::default();
@@ -372,13 +389,6 @@ mod tests {
         pool.cleanup(
             &mut storage,
             0,
-            Cleanup::Periodic,
-            &mut ErrorGraph::default(),
-        );
-        assert_eq!(pool.report().page_count, 2);
-        pool.cleanup(
-            &mut storage,
-            0,
             Cleanup::Explicit,
             &mut ErrorGraph::default(),
         );
@@ -386,5 +396,13 @@ mod tests {
         assert_eq!(pool.report().page_count, 1);
         assert_eq!(kept.descriptor().location().slice, 0);
         assert!(pool.find(&kept.binding()).is_ok());
+    }
+
+    /// A guard of a location naming no slice is refused.
+    #[test_log::test]
+    fn a_guard_of_no_slice_is_none() {
+        let mut pool = PersistentSliceReserver::new(1024, 4, 0);
+
+        assert!(pool.guard(MemoryLocation::new(0, 0, 3)).is_none());
     }
 }

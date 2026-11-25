@@ -143,6 +143,10 @@ mod tests {
     fn padding_rounds_up_to_the_alignment() {
         assert_eq!(calculate_padding(100, 32), 28);
         assert_eq!(calculate_padding(128, 32), 0);
+    }
+
+    #[test]
+    fn a_padded_size_is_none_past_the_largest_u64() {
         assert_eq!(padded_size(100, 32), Some(128));
         assert_eq!(padded_size(u64::MAX, 32), None);
     }

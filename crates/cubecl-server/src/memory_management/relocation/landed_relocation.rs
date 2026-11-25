@@ -7,21 +7,9 @@ use alloc::vec::Vec;
 /// A [`Relocation`](super::Relocation) whose copies have landed: what the
 /// pools commit, and only [`Relocation::copy`](super::Relocation::copy) makes.
 #[derive(Debug)]
-pub struct LandedRelocation {
+pub(crate) struct LandedRelocation {
     /// The moves, in the order they were planned (Arrival).
     moves: Vec<Move>,
-}
-
-impl LandedRelocation {
-    /// How many allocations moved.
-    pub fn len(&self) -> usize {
-        self.moves.len()
-    }
-
-    /// Whether nothing moved.
-    pub fn is_empty(&self) -> bool {
-        self.moves.is_empty()
-    }
 }
 
 impl LandedRelocation {
@@ -68,4 +56,103 @@ pub(crate) fn landed_locations(
         let destination = relocated.target.descriptor().location();
         (source, destination)
     })
+}
+
+#[cfg(all(test, feature = "storage-bytes"))]
+mod tests {
+    use super::super::StorageCopy;
+    use super::*;
+    use crate::memory_management::ManagedMemoryHandle;
+    use crate::{driver::DriverError, server::IoError, storage::BytesStorage};
+
+    /// Copies the device refuses, or a wait for them that fails.
+    struct FailingCopier {
+        copy: Result<(), ()>,
+        wait: Result<(), ()>,
+    }
+
+    impl RelocationCopier<BytesStorage> for FailingCopier {
+        fn wait_device(&mut self) -> Result<(), ServerError> {
+            Ok(())
+        }
+
+        fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
+            self.copy.map_err(|()| IoError::Unknown {
+                description: "refused".into(),
+                backtrace: Default::default(),
+            })
+        }
+
+        fn wait_copies(&mut self) -> Result<(), ServerError> {
+            self.wait.map_err(|()| DriverError::new("wait", 201).into())
+        }
+    }
+
+    /// The moves of a relocation of one allocation, its source and target handles.
+    fn relocation(
+        storage: &mut BytesStorage,
+    ) -> (Vec<Move>, ManagedMemoryHandle, ManagedMemoryHandle) {
+        let source = ManagedMemoryHandle::new();
+        let target = ManagedMemoryHandle::new();
+        let relocation = alloc::vec![Move {
+            allocation: source.to_binding(),
+            target: target.clone(),
+            copy: Some(StorageCopy {
+                source: storage
+                    .allocate_bytes(4)
+                    .expect("the host should have 4 bytes"),
+                target: storage
+                    .allocate_bytes(4)
+                    .expect("the host should have 4 bytes"),
+            }),
+        }];
+        (relocation, source, target)
+    }
+
+    #[test]
+    fn a_failed_wait_keeps_the_moves_reserved() {
+        let mut storage = BytesStorage::default();
+        let (relocation, source, target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Ok(()),
+            wait: Err(()),
+        };
+
+        assert!(LandedRelocation::land(relocation, &mut storage, &mut copier).is_err());
+        assert!(!source.is_free());
+        assert!(!target.is_free());
+    }
+
+    /// A refused copy abandons the relocation once the wait for the copies
+    /// lands, freeing its targets.
+    #[test]
+    fn a_refused_copy_abandons_the_relocation() {
+        let mut storage = BytesStorage::default();
+        let (relocation, _source, target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Err(()),
+            wait: Ok(()),
+        };
+
+        let refused = LandedRelocation::land(relocation, &mut storage, &mut copier);
+
+        assert!(matches!(refused, Err(ServerError::Io(_))), "{refused:?}");
+        assert!(target.is_free(), "the target is free once abandoned");
+    }
+
+    /// Copies that land hand every move back.
+    #[test]
+    fn landed_copies_hand_every_move_back() {
+        let mut storage = BytesStorage::default();
+        let (relocation, _source, _target) = relocation(&mut storage);
+        let mut copier = FailingCopier {
+            copy: Ok(()),
+            wait: Ok(()),
+        };
+
+        let landed = LandedRelocation::land(relocation, &mut storage, &mut copier)
+            .expect("the copies should land");
+
+        assert_eq!(landed_locations(landed).count(), 1);
+    }
 }

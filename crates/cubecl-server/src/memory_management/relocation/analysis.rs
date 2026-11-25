@@ -15,8 +15,8 @@ use alloc::vec::Vec;
 /// Moving the allocation would leave it pointing at freed bytes.
 #[derive(Debug)]
 pub(crate) struct OutdatedPages {
-    /// The movable pages, in the order they were found until
-    /// [`into_plan`](Self::into_plan) sorts them (Position).
+    /// The movable pages, cheapest first: the fewest live bytes (Ordered),
+    /// kept in that order as they are found.
     pages: Vec<MovablePage>,
 }
 
@@ -39,23 +39,31 @@ pub(crate) struct LiveAllocation {
 }
 
 impl OutdatedPages {
-    /// The movable pages among `pages`.
+    /// The movable pages among `pages`, cheapest first, pages of equal cost
+    /// in the order found.
     pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageCarver>) -> Self {
-        Self {
-            pages: pages
-                .into_iter()
-                .filter(|page| !page.view().is_guarded)
-                .filter_map(MovablePage::new)
-                .collect(),
-        }
+        let mut ordered = Self { pages: Vec::new() };
+        pages
+            .into_iter()
+            .filter(|page| !page.view().is_guarded)
+            .filter_map(MovablePage::new)
+            .for_each(|page| ordered.insert(page));
+        ordered
     }
 
     /// The pages to empty, cheapest first — the fewest live bytes — so that
     /// when the room for targets runs out, the pages already emptied are as
     /// many as that room allowed.
-    pub(crate) fn into_plan(mut self) -> Vec<MovablePage> {
-        self.pages.sort_by_key(MovablePage::live_bytes);
+    pub(crate) fn into_plan(self) -> Vec<MovablePage> {
         self.pages
+    }
+
+    /// Place `page` after every page that costs no more.
+    fn insert(&mut self, page: MovablePage) {
+        let at = self
+            .pages
+            .partition_point(|held| held.live_bytes() <= page.live_bytes());
+        self.pages.insert(at, page);
     }
 }
 
@@ -98,10 +106,11 @@ mod tests {
 
     #[test]
     fn the_plan_empties_the_cheapest_pages_first() {
-        let plan = OutdatedPages {
-            pages: vec![movable(&[3, 2]), movable(&[1]), movable(&[4])],
+        let mut pages = OutdatedPages { pages: Vec::new() };
+        for page in [movable(&[3, 2]), movable(&[1]), movable(&[4])] {
+            pages.insert(page);
         }
-        .into_plan();
+        let plan = pages.into_plan();
         assert_eq!(sizes(&plan), [vec![1], vec![4], vec![3, 2]]);
     }
 

@@ -617,4 +617,19 @@ mod tests {
             PageMapping::Eager,
         )
     }
+
+    /// No pages are not all guarded.
+    #[test_log::test]
+    fn no_pages_are_not_all_guarded() {
+        assert!(!all_guarded(&[]));
+    }
+
+    /// Pages are all guarded once a guard keeps each.
+    #[test_log::test]
+    fn pages_are_all_guarded_once_each_is() {
+        let page = new_memory_page(MB);
+        let _guard = page.guard();
+
+        assert!(all_guarded(core::slice::from_ref(&page)));
+    }
 }

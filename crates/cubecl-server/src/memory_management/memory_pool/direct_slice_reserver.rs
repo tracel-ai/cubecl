@@ -111,13 +111,14 @@ impl DirectSliceReserver {
         self.release_marked(storage, failures)
     }
 
-    fn live(&self) -> impl Iterator<Item = &Slice> {
+    /// Every slice the pool holds, live or free.
+    fn held(&self) -> impl Iterator<Item = &Slice> {
         self.slices.iter().flatten()
     }
 
     /// The pool's reserved bytes, live and free alike.
     fn reserved(&self) -> u64 {
-        self.live().map(Slice::effective_size).sum()
+        self.held().map(Slice::effective_size).sum()
     }
 
     /// Return every slice whose position `releasing` holds, tombstoning each
@@ -203,7 +204,7 @@ impl SliceReserver for DirectSliceReserver {
             SliceAllocator.allocate_whole(storage, size, effective_size, mapping, location)?;
         let handle = slice.handle.clone();
         place(&mut self.slices, index, slice);
-        self.peak_pages = self.peak_pages.max(self.live().count() as u64);
+        self.peak_pages = self.peak_pages.max(self.held().count() as u64);
         self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
         Ok(handle)
     }
@@ -228,10 +229,10 @@ impl SliceReserver for DirectSliceReserver {
     fn report(&self) -> MemoryPoolReport {
         MemoryPoolReport {
             kind: MemoryPoolKind::Direct,
-            usage: slices_usage(self.live()),
-            page_count: self.live().count() as u64,
+            usage: slices_usage(self.held()),
+            page_count: self.held().count() as u64,
             peak_page_count: self.peak_pages,
-            unmapped_page_count: self.live().filter(|slice| !slice.mapped).count() as u64,
+            unmapped_page_count: self.held().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc_bytes: self.largest_alloc_bytes,
         }
     }
@@ -288,14 +289,14 @@ fn place(slices: &mut Vec<Option<Slice>>, index: usize, slice: Slice) {
 
 impl core::fmt::Display for DirectSliceReserver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let usage = slices_usage(self.live());
+        let usage = slices_usage(self.held());
         if usage.reserved_bytes == 0 {
             return Ok(());
         }
 
         f.write_fmt(format_args!(
             "  - Direct: {} slices, largest {}\n",
-            self.live().count(),
+            self.held().count(),
             BytesFormat::from_byte_count(self.largest_alloc_bytes)
         ))?;
         f.write_fmt(format_args!("\n{usage}\n"))
@@ -455,26 +456,36 @@ mod tests {
         assert_eq!(pool.report().page_count, 1);
     }
 
-    /// A reclaim returns free slices only past the watermark, and a pool with
-    /// none keeps them for an explicit cleanup.
+    /// A pool with no watermark reclaims nothing.
     #[test_log::test]
-    fn a_reclaim_returns_free_slices_past_the_watermark_only() {
+    fn a_pool_without_a_watermark_reclaims_nothing() {
         let mut storage = BytesStorage::default();
-        let mut kept = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, None);
-        let mut bounded = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, Some(64));
-        for pool in [&mut kept, &mut bounded] {
-            let first = alloc(pool, &mut storage, 64).expect("64 bytes should fit");
-            let second = alloc(pool, &mut storage, 64).expect("64 bytes should fit");
-            core::mem::drop((first, second));
-        }
+        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, None);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
 
-        assert!(!kept.reclaim(&mut storage, &mut ErrorGraph::default()));
-        assert!(bounded.reclaim(&mut storage, &mut ErrorGraph::default()));
-        assert_eq!(
-            bounded.report().page_count,
-            1,
-            "down to the 64-byte watermark"
-        );
+        assert!(!pool.reclaim(&mut storage, &mut ErrorGraph::default()));
+        assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// A reclaim returns free slices only down to the watermark.
+    #[test_log::test]
+    fn a_reclaim_returns_free_slices_down_to_the_watermark() {
+        let mut storage = BytesStorage::default();
+        let mut pool = DirectSliceReserver::new(MAX_ALLOC_BYTES, ALIGNMENT_BYTES, 0, Some(64));
+        let first = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
+        let second = alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit");
+        core::mem::drop((first, second));
+
+        assert!(pool.reclaim(&mut storage, &mut ErrorGraph::default()));
+        assert_eq!(pool.report().page_count, 1, "down to the 64-byte watermark");
+    }
+
+    /// A guard of a location naming no slice is refused.
+    #[test_log::test]
+    fn a_guard_of_no_slice_is_none() {
+        let mut pool = pool();
+
+        assert!(pool.guard(MemoryLocation::new(0, 0, 3)).is_none());
     }
 
     /// An explicit cleanup returns every free slice, and a periodic one none.

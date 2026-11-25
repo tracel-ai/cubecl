@@ -27,7 +27,8 @@ const DEALLOC_FREE_CHECK_COUNT: u32 = 5;
 /// but not a mix of both.
 pub(crate) struct ExclusiveSliceReserver {
     /// Every page, read by the position a location carries (Position) and
-    /// added at the end (Arrival).
+    /// added at the end (Arrival); a reservation scans them all for the free
+    /// page that fits and was found free the fewest times.
     pages: Vec<ExclusivePage>,
     alignment: u64,
     /// The reservations an unused page waits through before it goes back.
@@ -432,5 +433,13 @@ mod tests {
             dealloc_period_count: u64::MAX,
             pool: 0,
         });
+    }
+
+    /// A guard of a location naming no page is refused.
+    #[test_log::test]
+    fn a_guard_of_no_page_is_none() {
+        let mut pool = pool(u64::MAX);
+
+        assert!(pool.guard(MemoryLocation::new(0, 3, 0)).is_none());
     }
 }

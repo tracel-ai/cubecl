@@ -1,17 +1,8 @@
 //! A relocation as a server runs it: across every stream, since any of them
 //! may use the memory that moves.
 
-use super::{RelocationNeed, RelocationReason};
+use super::{RelocationNeed, RelocationReason, RelocationScope};
 use crate::server::ServerError;
-
-/// Whose memory a relocation moves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelocationScope {
-    /// The memory of the stream the relocation runs for.
-    Stream,
-    /// The memory of every stream of the device.
-    Device,
-}
 
 /// Runs a relocation of one stream's memory, or every stream's, in the order
 /// a relocation needs: every stream's work is done before a byte moves, since
@@ -179,7 +170,7 @@ mod tests {
     fn a_reclaim_moves_what_is_outdated_then_cleans_up() {
         let mut device = device(RelocationNeed::Settled);
 
-        device.reclaim().expect("nothing records");
+        device.reclaim().expect("nothing should record");
 
         assert_eq!(device.steps, ["finish", "relocate", "cleanup"]);
     }
@@ -188,7 +179,7 @@ mod tests {
     fn a_reclaim_with_nothing_outdated_only_cleans_up() {
         let mut device = device(RelocationNeed::Nothing);
 
-        device.reclaim().expect("nothing records");
+        device.reclaim().expect("nothing should record");
 
         assert_eq!(device.steps, ["cleanup"]);
     }

@@ -409,7 +409,6 @@ impl Display for PagedSliceReserver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_management::memory_pool::all_guarded;
     use crate::storage::BytesStorage;
 
     const KIB: u64 = 1024;
@@ -437,14 +436,24 @@ mod tests {
         .expect("the pool should serve the size")
     }
 
-    /// A size past the largest slice is accepted only when it leaves little
-    /// of a page unused, and never by a pool kept to its largest slice.
+    /// A size up to the largest slice is accepted.
     #[test_log::test]
-    fn a_size_near_the_page_size_is_accepted_unless_kept_to_the_largest_slice() {
+    fn a_size_up_to_the_largest_slice_is_accepted() {
         assert!(pool().accepts_bytes(8 * KIB));
+    }
+
+    /// A size past the largest slice is accepted only when it leaves little
+    /// of a page unused.
+    #[test_log::test]
+    fn a_size_near_the_page_size_is_accepted() {
         assert!(pool().accepts_bytes(60 * KIB));
         assert!(!pool().accepts_bytes(32 * KIB));
         assert!(!pool().accepts_bytes(65 * KIB));
+    }
+
+    /// A pool kept to its largest slice accepts nothing past it.
+    #[test_log::test]
+    fn a_pool_kept_to_its_largest_slice_refuses_near_page_sizes() {
         assert!(!pool().up_to_max_slice().accepts_bytes(60 * KIB));
     }
 
@@ -473,24 +482,50 @@ mod tests {
         assert_eq!(pool.report().page_count, 2);
     }
 
-    /// A guarded page is carved only by a reservation that shares its room.
+    /// A guarded page is not carved by a reservation that avoids its room.
     #[test_log::test]
-    fn a_guarded_page_is_carved_only_when_shared() {
+    fn a_guarded_page_is_not_carved_when_avoided() {
         let mut storage = BytesStorage::default();
         let mut pool = pool();
         let first = reserve(&mut pool, &mut storage, KIB);
         let _guard = pool.guard(first.descriptor().location());
 
         assert!(pool.try_reserve(KIB, &mut ErrorGraph::default()).is_none());
+    }
+
+    /// A guarded page is carved by a reservation that shares its room.
+    #[test_log::test]
+    fn a_guarded_page_is_carved_when_shared() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let first = reserve(&mut pool, &mut storage, KIB);
+        let _guard = pool.guard(first.descriptor().location());
+
         assert!(
             pool.try_reserve_sharing(KIB, PinnedRoom::Share, &mut ErrorGraph::default())
                 .is_some()
         );
-        assert!(all_guarded(pool.pages()));
+    }
+
+    /// A periodic cleanup keeps every page.
+    #[test_log::test]
+    fn a_periodic_cleanup_keeps_every_page() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        core::mem::drop(reserve(&mut pool, &mut storage, 8 * KIB));
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Periodic,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 1);
     }
 
     /// An explicit cleanup returns every empty unguarded page and renumbers
-    /// the rest; a periodic one keeps every page.
+    /// the rest.
     #[test_log::test]
     fn an_explicit_cleanup_returns_empty_pages() {
         let mut storage = BytesStorage::default();
@@ -503,16 +538,9 @@ mod tests {
             .expect("nine reservations should be held")
             .clone();
         core::mem::drop(held);
-
-        pool.cleanup(
-            &mut storage,
-            0,
-            Cleanup::Periodic,
-            &mut ErrorGraph::default(),
-        );
-        assert_eq!(pool.report().page_count, 2);
         let kept = reserve(&mut pool, &mut storage, 60 * KIB);
         core::mem::drop(last);
+
         pool.cleanup(
             &mut storage,
             0,
@@ -524,8 +552,46 @@ mod tests {
         assert_eq!(kept.descriptor().location().page, 0);
     }
 
-    /// A lazily carved page is backed once a binding of it is materialized,
-    /// and not for a binding with no claim on it.
+    /// An explicit cleanup keeps a guarded page, empty or not.
+    #[test_log::test]
+    fn an_explicit_cleanup_keeps_a_guarded_page() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let first = reserve(&mut pool, &mut storage, KIB);
+        let _guard = pool.guard(first.descriptor().location());
+        core::mem::drop(first);
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// A lazily carved page is not backed for a binding with no claim on it.
+    #[test_log::test]
+    fn a_lazy_page_is_not_backed_for_a_foreign_binding() {
+        let mut storage = BytesStorage::default();
+        let mut pool = pool();
+        let _handle = pool
+            .reserve(
+                &mut storage,
+                KIB,
+                PageMapping::Lazy,
+                &mut ErrorGraph::default(),
+            )
+            .expect("the pool should serve the size");
+
+        pool.materialize(&mut storage, &ManagedMemoryHandle::new().binding())
+            .expect("an unplaced binding should be left alone");
+
+        assert_eq!(pool.report().unmapped_page_count, 1);
+    }
+
+    /// A lazily carved page is backed once a binding of it is materialized.
     #[test_log::test]
     fn a_lazy_page_is_backed_once_materialized() {
         let mut storage = BytesStorage::default();
@@ -539,11 +605,9 @@ mod tests {
             )
             .expect("the pool should serve the size");
 
-        pool.materialize(&mut storage, &ManagedMemoryHandle::new().binding())
-            .expect("an unplaced binding should be left alone");
-        assert_eq!(pool.report().unmapped_page_count, 1);
         pool.materialize(&mut storage, &handle.clone().binding())
             .expect("the storage should back the page");
+
         assert_eq!(pool.report().unmapped_page_count, 0);
     }
 }

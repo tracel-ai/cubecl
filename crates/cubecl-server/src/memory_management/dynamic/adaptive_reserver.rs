@@ -508,3 +508,110 @@ impl core::fmt::Display for AdaptiveReserver {
         )
     }
 }
+
+// The process mode is never read here: every reservation names its mapping,
+// so these are Small Tests.
+#[cfg(all(test, not(exclusive_memory_only)))]
+mod tests {
+    use super::*;
+    use crate::memory_management::relocation::HostRelocationCopier;
+    use crate::storage::BytesStorage;
+
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+
+    fn adaptive() -> AdaptiveReserver {
+        AdaptiveReserver::new(
+            &MemoryDeviceProperties::new(1024 * MIB, 32),
+            Arc::new(ServerLogger::default()),
+            String::new(),
+        )
+    }
+
+    fn reserve(
+        memory: &mut AdaptiveReserver,
+        storage: &mut BytesStorage,
+        size: u64,
+        kind: AllocationKind,
+    ) -> ManagedMemoryHandle {
+        memory
+            .reserve(
+                storage,
+                size,
+                PageMapping::Eager,
+                kind,
+                &mut ErrorGraph::default(),
+            )
+            .expect("the memory should serve the reservation")
+    }
+
+    /// A zero-sized allocation goes to the tiny pool.
+    #[test]
+    fn a_zero_sized_allocation_goes_to_the_tiny_pool() {
+        let mut storage = BytesStorage::default();
+        let mut memory = adaptive();
+
+        let empty = reserve(&mut memory, &mut storage, 0, AllocationKind::Eager);
+
+        assert_eq!(empty.descriptor().location().pool, TINY_POOL);
+    }
+
+    /// A freed zero-sized allocation is served again from the tiny pool.
+    #[test]
+    fn a_freed_zero_sized_allocation_is_held_by_the_tiny_pool() {
+        let mut storage = BytesStorage::default();
+        let mut memory = adaptive();
+        drop(reserve(&mut memory, &mut storage, 0, AllocationKind::Eager));
+
+        let again = memory
+            .try_reserve(0, AllocationKind::Eager, &mut ErrorGraph::default())
+            .expect("the tiny pool should hold the freed page");
+
+        assert_eq!(again.descriptor().location().pool, TINY_POOL);
+    }
+
+    /// An allocation on a page no graph guards stays where it is.
+    #[test]
+    fn an_unguarded_allocation_does_not_move_apart() {
+        let mut storage = BytesStorage::default();
+        let mut memory = adaptive();
+        let kept = reserve(&mut memory, &mut storage, 4 * KIB, AllocationKind::Eager);
+        let before = kept.descriptor().location();
+
+        memory
+            .move_apart(
+                &mut storage,
+                &[kept.clone().binding()],
+                &mut HostRelocationCopier,
+                &mut ErrorGraph::default(),
+            )
+            .expect("nothing should move");
+
+        assert_eq!(kept.descriptor().location(), before);
+    }
+
+    /// An allocation already kept apart does not move.
+    #[test]
+    fn an_allocation_kept_apart_does_not_move() {
+        let mut storage = BytesStorage::default();
+        let mut memory = adaptive();
+        let kept = reserve(
+            &mut memory,
+            &mut storage,
+            4 * KIB,
+            AllocationKind::GraphOutput,
+        );
+        let before = kept.descriptor().location();
+
+        memory
+            .move_apart(
+                &mut storage,
+                &[kept.clone().binding()],
+                &mut HostRelocationCopier,
+                &mut ErrorGraph::default(),
+            )
+            .expect("nothing should move");
+
+        assert_eq!(kept.descriptor().location(), before);
+    }
+}

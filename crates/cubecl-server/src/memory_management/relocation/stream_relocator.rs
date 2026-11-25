@@ -1,4 +1,4 @@
-use super::{RelocationNeed, RelocationReason};
+use super::{RelocationReason, StreamRelocationState};
 use crate::memory_management::ErrorGraph;
 
 /// Relocates one stream's memory: what a runtime whose streams share one way
@@ -15,7 +15,7 @@ pub trait StreamRelocator {
     ///
     /// # Guarantees
     ///
-    /// The need is [`RelocationNeed::Recording`] whenever a stream of the
+    /// The need is [`RelocationNeed::Recording`](super::RelocationNeed::Recording) whenever a stream of the
     /// device records a graph.
     fn relocation_state(&self) -> StreamRelocationState;
 
@@ -25,15 +25,4 @@ pub trait StreamRelocator {
 
     /// Give back every page the stream's memory holds and nothing needs.
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph);
-}
-
-/// What a relocation reads of one stream's memory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StreamRelocationState {
-    /// Whether the memory wants a relocation, before the bytes the device
-    /// holds are known (see
-    /// [`MemoryManagement::relocation_need`](crate::memory_management::MemoryManagement::relocation_need)).
-    pub need: RelocationNeed,
-    /// The bytes the memory holds from the device.
-    pub allocated_bytes: u64,
 }

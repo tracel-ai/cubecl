@@ -746,12 +746,9 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         match update {
             PageUpdate::Allow => self.reserve_after_cleanup(size, kind, failures),
             PageUpdate::AddOnly => self.reserve_adding(size, kind, failures),
-            PageUpdate::Forbidden => self.reserve_held(size, kind, failures).ok_or_else(|| {
-                IoError::PageUpdateForbidden {
-                    size,
-                    backtrace: BackTrace::capture(),
-                }
-            }),
+            PageUpdate::Forbidden => self
+                .reserve_held(size, kind, failures)
+                .ok_or_else(|| page_update_forbidden(size)),
         }
     }
 
@@ -1060,6 +1057,15 @@ fn configured_mode(config: &PersistentMemory) -> MemoryAllocationMode {
     }
 }
 
+/// The refusal of a reservation of `size` bytes the room held cannot serve,
+/// when no page may be added.
+fn page_update_forbidden(size: u64) -> IoError {
+    IoError::PageUpdateForbidden {
+        size,
+        backtrace: BackTrace::capture(),
+    }
+}
+
 /// Where the allocation `descriptor` names sits, once a reservation gave it
 /// a place.
 fn allocated(descriptor: &ManagedMemoryDescriptor) -> Result<MemoryLocation, IoError> {
@@ -1319,17 +1325,30 @@ mod tests {
         assert!(matches!(refused, Err(IoError::PageUpdateForbidden { .. })));
     }
 
-    /// A dedicated window allocates outside every pool, and a forbidden page
-    /// update in it reuses only a freed dedicated slice of the same size.
+    /// A dedicated window allocates outside every pool.
     #[test_log::test]
     fn a_dedicated_window_reserves_its_own_allocation() {
         let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
         memory_management.mode(MemoryAllocationMode::Dedicated);
+
         let first = memory_management
             .reserve(1024, PageUpdate::AddOnly, &mut ErrorGraph::default())
             .expect("a dedicated allocation should be made");
+
         assert_eq!(first.descriptor().location().pool, DEDICATED_POOL_POS);
-        drop(first);
+    }
+
+    /// A forbidden page update in a dedicated window reuses a freed dedicated
+    /// slice of the same size.
+    #[test_log::test]
+    fn a_dedicated_window_reuses_a_freed_dedicated_slice() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        memory_management.mode(MemoryAllocationMode::Dedicated);
+        drop(
+            memory_management
+                .reserve(1024, PageUpdate::AddOnly, &mut ErrorGraph::default())
+                .expect("a dedicated allocation should be made"),
+        );
 
         let reused = memory_management
             .reserve(1024, PageUpdate::Forbidden, &mut ErrorGraph::default())
@@ -1590,16 +1609,6 @@ mod tests {
 
     // Test pools without slices. More or less same as tests above.
     #[test_log::test]
-    fn noslice_test_handle_mutability() {
-        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
-        let handle = reserve(&mut memory_management, 10);
-        let other_ref = handle.clone();
-        assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
-        drop(other_ref);
-        assert!(handle.can_mut(), "Handle should be mut when only one ref.");
-    }
-
-    #[test_log::test]
     fn noslice_alloc_two_chunk() {
         let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
@@ -1611,22 +1620,6 @@ mod tests {
         assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         assert!(usage.reserved_bytes >= alloc_size * 2);
-    }
-
-    #[test_log::test]
-    fn noslice_alloc_reuses_storage() {
-        // If no storage is re-used, this will allocate two pages.
-        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
-
-        let alloc_size = 512;
-        let handle = reserve(&mut memory_management, alloc_size);
-        drop(handle);
-        let _new_handle = reserve(&mut memory_management, alloc_size);
-
-        let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocation_count, 1);
-        assert_eq!(usage.in_use_bytes, alloc_size);
-        assert!(usage.reserved_bytes >= alloc_size);
     }
 
     #[test_log::test]

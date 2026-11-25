@@ -666,4 +666,30 @@ mod tests {
                 .is_some()
         );
     }
+
+    /// A relocation that finds nothing to move settles, and is not wanted
+    /// again until the pools change.
+    #[test]
+    fn a_relocation_with_nothing_to_move_settles() {
+        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut arena = arena(sizing());
+        let small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
+        // A binding kept past the work: the page it sits on cannot move.
+        let _read_back = small.clone().binding();
+        let _large = reserve(&mut arena, &mut storage, 10 * MIB).expect("a slot should be free");
+        let capacity = Some(16 * MIB);
+        assert!(matches!(
+            arena.relocation_need(capacity),
+            RelocationNeed::UnderPressure { .. }
+        ));
+
+        arena.relocate(
+            &mut storage,
+            &mut Landing,
+            RelocationReason::MemoryPressure,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(arena.relocation_need(capacity), RelocationNeed::Settled);
+    }
 }
