@@ -2,7 +2,10 @@
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Decline, Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Space};
+use crate::{
+    Decline, Dimension, Geometry, Launcher, PhysicalAxisMap, Projection, Space,
+    layout::storage::names_of_pieces,
+};
 
 /// The labelled reading of a buffer, as a [`Projection`] and the settled geometry.
 pub(crate) struct Labels {
@@ -74,10 +77,7 @@ impl Labels {
         Ok(Labels {
             geometry: Geometry::new(&axes).with_tiling(tiling),
             projection: Projection::of_maps(&logical, maps),
-            addressed: addressed
-                .into_iter()
-                .map(|(dimension, _)| dimension)
-                .collect(),
+            addressed: names_of_pieces(addressed),
         })
     }
 

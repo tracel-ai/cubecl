@@ -78,8 +78,7 @@ impl Geometry {
     ///
     /// As [`pieces`](Self::pieces).
     pub fn labels(&self, dimensions: &[Dimension]) -> Result<Vec<Dimension>, Decline> {
-        let pieces = self.pieces(dimensions)?;
-        Ok(pieces.into_iter().map(|(dimension, _)| dimension).collect())
+        Ok(names_of_pieces(self.pieces(dimensions)?))
     }
 
     /// Its trailing axes, each the dimension it is a piece of and how many of that dimension's
@@ -110,17 +109,13 @@ impl Geometry {
                     block: dimensions.len(),
                 })?;
         let axes = self.tiling.physical_dims(logical_rank);
-        let (ahead, named) = axes.split_at(batches);
+        let ahead = &axes[..batches];
         if !ahead.iter().flatten().copied().eq(0..batches) {
             return Err(Decline::BatchAxesInPieces(self.tiling));
         }
-        let mut pieces = vec![(dimensions[0], 0); self.rank() - batches];
-        for (&dimension, axes) in dimensions.iter().zip(named) {
-            for (piece, &axis) in axes.iter().enumerate() {
-                pieces[axis - batches] = (dimension, piece);
-            }
-        }
-        Ok(pieces)
+        let named_axes = &self.tiled_axes()[batches..];
+        let name = |&(logical, piece): &(usize, usize)| (dimensions[logical - batches], piece);
+        Ok(named_axes.iter().map(name).collect())
     }
 
     /// For each of its trailing axes, which `labels` name, how many of the named dimension's pieces
@@ -141,14 +136,23 @@ impl Geometry {
     /// [`pieces_of_axes`](Self::pieces_of_axes) of the trailing `labelled` axes of a tiled buffer.
     fn pieces_of_tiled_axes(&self, labelled: usize) -> SmallVec<[usize; Space::MAX_RANK]> {
         let unlabelled = self.rank().saturating_sub(labelled);
-        let mut pieces = SmallVec::from_elem(0, self.rank());
-        for axes in self.tiling.physical_dims(self.tiled_logical_rank()) {
-            for (piece, axis) in axes.into_iter().enumerate() {
-                pieces[axis] = piece;
+        self.tiled_axes()[unlabelled..]
+            .iter()
+            .map(|&(_, piece)| piece)
+            .collect()
+    }
+
+    /// For each axis of a tiled buffer, the logical axis it is a piece of and how many of that
+    /// logical axis's pieces are coarser.
+    fn tiled_axes(&self) -> SmallVec<[(usize, usize); Space::MAX_RANK]> {
+        let mut axes = SmallVec::from_elem((0, 0), self.rank());
+        let logical_axes = self.tiling.physical_dims(self.tiled_logical_rank());
+        for (logical, pieces) in logical_axes.into_iter().enumerate() {
+            for (piece, axis) in pieces.into_iter().enumerate() {
+                axes[axis] = (logical, piece);
             }
         }
-        pieces.drain(..unlabelled);
-        pieces
+        axes
     }
 
     /// How many logical axes a tiled buffer stands for.
@@ -385,6 +389,13 @@ impl RuntimeGeometry {
     }
 }
 
+/// The dimension each of `pieces` is a piece of.
+pub(crate) fn names_of_pieces(
+    pieces: impl IntoIterator<Item = (Dimension, usize)>,
+) -> Vec<Dimension> {
+    pieces.into_iter().map(|(dimension, _)| dimension).collect()
+}
+
 /// The [`pieces`](Geometry::pieces) of an untiled buffer's axes, which `labels` name.
 pub(crate) fn pieces_named(labels: &[Dimension]) -> Vec<(Dimension, usize)> {
     let named = |(axis, &label): (usize, &Dimension)| {
@@ -510,6 +521,18 @@ mod tests {
         let geometry = Geometry::row_major(&[3, 7, 5, 8, 8]).with_tiling(tiling);
         assert_eq!(
             geometry.pieces(&[M, K]),
+            Err(Decline::BatchAxesInPieces(tiling))
+        );
+    }
+
+    /// With no dimension named, every logical axis is a batch axis, and a tiled one is stored as
+    /// several axes.
+    #[test]
+    fn a_tiled_buffer_named_by_no_dimension_is_declined() {
+        let tiling = Tiling::from_physical_dims(&[&[0][..], &[1, 2]]).unwrap();
+        let geometry = Geometry::row_major(&[3, 5, 8]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[]),
             Err(Decline::BatchAxesInPieces(tiling))
         );
     }

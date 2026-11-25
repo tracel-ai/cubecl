@@ -4,7 +4,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use super::Stagger;
+use super::{Stagger, names_of_pieces};
 use crate::{Decline, Dimension, Geometry, Space};
 
 /// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each
@@ -145,10 +145,10 @@ impl StoragePartitioning {
 
     /// The buffer's axes, coarsest first, each named by the dimension it is a piece of.
     pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
-        StoragePartitioning::level_major(dimensions, &self.fragments(dimensions))
-            .into_iter()
-            .map(|(dimension, _)| dimension)
-            .collect()
+        names_of_pieces(StoragePartitioning::level_major(
+            dimensions,
+            &self.fragments(dimensions),
+        ))
     }
 
     /// The axes of a buffer storing `dimensions` as `fragments` pieces each, level-major, each the

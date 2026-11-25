@@ -9,7 +9,7 @@ pub(crate) mod partitioning;
 pub(crate) mod stagger;
 pub(crate) mod vector_tile;
 
-pub(crate) use geometry::pieces_named;
+pub(crate) use geometry::{names_of_pieces, pieces_named};
 
 pub use elem_alignment::ElemAlignment;
 pub use geometry::{Geometry, LineMisfit, RuntimeGeometry};
