@@ -151,8 +151,8 @@ fn add_one_in_place(buffer: &mut [u32]) {
     }
 }
 
-/// Reader work queued after a lazy read does not keep an overwrite from another stream waiting:
-/// it waits only on what the writer had already submitted.
+/// An overwrite from another stream drains the reader's later work before it copies a lazy read,
+/// and completes, since that work waits only on what the writer had already submitted.
 #[test]
 fn a_lazy_read_with_later_reader_work_is_its_buffer_before_a_write_on_another_stream() {
     let client = client();

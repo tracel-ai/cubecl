@@ -626,6 +626,24 @@ fn a_read_dropped_unread_lets_go_of_its_copy_once_it_is_done() {
 }
 
 #[test]
+fn a_read_dropped_unread_lets_go_of_its_done_copy_at_the_next_write() {
+    let mut device = Device::new();
+    let stream = StreamId { value: 0 };
+    let (handle, binding) = device.buffer(stream);
+    let (_, other) = device.buffer(stream);
+    let held = lazy_read(&handle);
+    keep_lazy_read(&mut device, held.read().clone(), stream)
+        .expect("clean memory should be readable");
+    device.write(stream, binding);
+    drop(held);
+    reach_every_fence(&device);
+
+    device.write(stream, other);
+
+    assert_eq!(device.copies_dropped.load(Ordering::Relaxed), 1);
+}
+
+#[test]
 fn a_write_over_a_rank_zero_read_copies_its_binding() {
     let mut device = Device::new();
     let stream = StreamId { value: 0 };

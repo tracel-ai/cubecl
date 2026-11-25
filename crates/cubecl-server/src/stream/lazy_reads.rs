@@ -389,6 +389,7 @@ pub fn start_overwritten_reads<S: WriteScoped>(
         .iter()
         .any(|binding| binding.memory.descriptor().has_lazy_reads())
     {
+        server.write_streams().lazy_reads().drop_retired();
         return;
     }
     if is_recording(server.capturing(writer)) {

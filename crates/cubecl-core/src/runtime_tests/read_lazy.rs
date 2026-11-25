@@ -320,8 +320,12 @@ pub fn a_lazy_read_is_its_buffer_before_a_replay<R: Runtime>() {
         Bytes::from_bytes_vec(f32::as_bytes(&AFTER).to_vec()),
     );
     unsafe { graph.replay() }.expect("the replay should enqueue");
+    let replayed = client.read_one_unchecked(output);
 
-    assert_eq!(f32::from_bytes(&read), first_replay);
+    assert_eq!(
+        (f32::from_bytes(&read), f32::from_bytes(&replayed)),
+        (&first_replay[..], &AFTER.map(|value| value + 1.0)[..])
+    );
 }
 
 /// A replayed collective that writes a buffer a lazy read holds leaves that read the buffer as
@@ -359,8 +363,12 @@ pub fn a_lazy_read_is_its_buffer_before_a_replayed_collective<R: Runtime>() {
         Bytes::from_bytes_vec(f32::as_bytes(&AFTER).to_vec()),
     );
     unsafe { graph.replay() }.expect("the replay should enqueue");
+    let replayed = client.read_one_unchecked(output);
 
-    assert_eq!(f32::from_bytes(&read), BEFORE);
+    assert_eq!(
+        (f32::from_bytes(&read), f32::from_bytes(&replayed)),
+        (&BEFORE[..], &AFTER[..])
+    );
 }
 
 /// A lazy read on a stream recording a graph is refused: its copy would be recorded rather
