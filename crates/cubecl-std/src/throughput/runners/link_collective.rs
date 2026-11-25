@@ -60,11 +60,12 @@ pub fn build_kernel(
     let group = group.clone();
     let sample = Box::new(move |iterations: usize| {
         let start = Instant::now();
-        // A skip guard held across any call queues nothing for it, and a zero reads as no timing.
+        // A call made while communication is discarded queues nothing, and a zero reads as no
+        // timing.
         let skipped = (0..iterations).fold(false, |skipped, _| {
-            let skips = group.skips_communication();
+            let skips = group.discards_communication();
             queue(&group, kind, &buffers);
-            skipped | skips | group.skips_communication()
+            skipped | skips | group.discards_communication()
         });
         for client in group.clients() {
             client.sync_collective();
