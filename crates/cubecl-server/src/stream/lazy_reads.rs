@@ -206,12 +206,11 @@ impl LazyReads {
         let let_go = self.count.let_go_so_far();
         if let_go != self.let_go_at_scan {
             self.let_go_at_scan = let_go;
-            let (abandoned, copies): (Vec<_>, _) = core::mem::take(&mut self.copies)
+            let (abandoned, copies): (HashMap<_, _>, _) = core::mem::take(&mut self.copies)
                 .into_iter()
                 .partition(|(_, copy)| copy.is_abandoned());
             self.copies = copies;
-            self.abandoned
-                .extend(abandoned.into_iter().map(|(_, copy)| copy));
+            self.abandoned.extend(abandoned.into_values());
         }
         self.abandoned.retain(StartedCopy::is_in_flight);
         // Every live entry holds a count, which only this thread raises.
