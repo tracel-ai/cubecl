@@ -58,7 +58,7 @@ pub struct LaneMap {
 impl LaneMap {
     /// Units of the plane a lane map lays out: the plane a kernel reading lane runs is launched
     /// at, which a host sizing one reads rather than stating its own.
-    pub const PLANE_UNIT_COUNT: usize = 32;
+    pub const PLANE_UNITS: usize = 32;
 
     /// NVIDIA's `m16n8k16`: unit `u` holds quad `u % 4` of `k`, an `A`'s rows `u / 4` and
     /// `u / 4 + 8`, a `B`'s column `u / 4`.
@@ -104,7 +104,7 @@ impl LaneMap {
 
     /// Whether the plane's later units hold what its first ones do.
     fn duplicated(&self) -> bool {
-        self.units_per_row * self.rows_spanned < Self::PLANE_UNIT_COUNT
+        self.units_per_row * self.rows_spanned < Self::PLANE_UNITS
     }
 }
 
@@ -120,7 +120,7 @@ impl TryFrom<&TargetProperties> for LaneMap {
     /// A target laying its registers out otherwise, which lane runs do not read.
     fn try_from(target: &TargetProperties) -> Result<Self, Self::Error> {
         let mma = &target.mma;
-        let laid_out = mma.const_plane_size as usize == Self::PLANE_UNIT_COUNT
+        let laid_out = mma.const_plane_size as usize == Self::PLANE_UNITS
             && mma.register_size_bits == 32
             && mma.register_layout_a == MatrixLayout::RowMajor
             && mma.register_layout_b == MatrixLayout::ColMajor;
