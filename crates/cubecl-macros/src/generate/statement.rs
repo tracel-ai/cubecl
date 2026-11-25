@@ -32,11 +32,8 @@ impl Statement {
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
                 let is_const = init.as_ref().is_some_and(|it| it.is_const());
                 let init = if is_mut {
-                    if let Some(as_const) =
-                        init.as_ref().and_then(|it| it.as_const_primitive(context))
-                    {
-                        let expand = frontend_type("NativeExpand");
-                        Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
+                    if let Some(lifted) = init.as_ref().and_then(|it| it.as_lifted_literal()) {
+                        Some(lifted)
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
                         Some(quote_spanned![as_const.span()=> #as_const.clone()])

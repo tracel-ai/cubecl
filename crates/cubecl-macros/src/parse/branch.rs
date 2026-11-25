@@ -11,7 +11,7 @@ use crate::{
         expression::{add_variables_from_pat, is_runtime_compatible_variant, unwrap_noop},
         helpers::is_comptime_attr,
     },
-    scope::{ClosureScope, Context},
+    scope::{ClosureScope, ConstShape, Context},
     statement::Statement,
 };
 
@@ -47,7 +47,13 @@ pub fn expand_for_loop(
     }
 
     let (block, scope) = context.in_scope(|context| {
-        context.push_variable(var.ident.clone(), var.ty.clone(), false, is_mut_owned);
+        context.push_variable(
+            var.ident.clone(),
+            var.ty.clone(),
+            false,
+            is_mut_owned,
+            ConstShape::Value,
+        );
         let mut body = for_loop.body;
         if is_mut_owned {
             let var = &var.ident;

@@ -9,7 +9,7 @@ use crate::{
     expression::{Block, Expression, MatchArm},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_path, prelude_type},
-    scope::{ClosureScope, Context},
+    scope::{ClosureScope, ConstShape, Context, ManagedVar},
 };
 
 macro_rules! error {
@@ -233,7 +233,7 @@ impl Expression {
                 ..
             } => {
                 let mut operands = Operands::new(context);
-                let arg_tokens = operands.track_args(context, args);
+                let arg_tokens = operands.track_args(context, args, ConstTupleArg::PerElement);
                 let (generics, path) =
                     operands.track(context, |context| split_generics(func, context));
                 let args = args_with_position(args, arg_tokens, operands.position(context, *span));
@@ -264,7 +264,7 @@ impl Expression {
                 };
 
                 let mut operands = Operands::new(context);
-                let arg_tokens = operands.track_args(context, args);
+                let arg_tokens = operands.track_args(context, args, ConstTupleArg::PerElement);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
                 let args = args_with_position(args, arg_tokens, operands.position(context, *span));
@@ -280,7 +280,7 @@ impl Expression {
             } => {
                 let method = format_ident!("__expand_{method}_method");
                 let mut operands = Operands::new(context);
-                let arg_tokens = operands.track_args(context, args);
+                let arg_tokens = operands.track_args(context, args, ConstTupleArg::Whole);
                 let receiver = operands.track(context, |context| {
                     receiver
                         .as_const(context)
@@ -1082,18 +1082,66 @@ fn split_generics(path: &Expression, context: &mut Context) -> (PathArguments, T
     (generics, quote![#path])
 }
 
-fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
-    args.iter().map(|value| map_arg(value, context)).collect()
+/// How a call converts a comptime tuple argument.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConstTupleArg {
+    /// One element at a time: a comptime tuple has no `From` into the tuple of its expand types,
+    /// while each of its elements does. This needs a parameter whose type is a tuple, which is
+    /// how a `#[cube]` function takes one.
+    PerElement,
+    /// As a whole, so a generic parameter such as `fold`'s `IterArg<B>` can infer its type from
+    /// the argument. The elements of a tuple built for that conversion would have no target
+    /// type to infer.
+    Whole,
 }
 
-fn map_arg(value: &Expression, context: &mut Context) -> TokenStream {
-    let tokens = value
-        .as_const(context)
-        .unwrap_or_else(|| value.to_tokens(context));
-    if is_closure(value) {
-        tokens
-    } else {
-        quote_spanned![tokens.span()=> (#tokens).into()]
+fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
+    args.iter()
+        .map(|value| map_arg(value, context, ConstTupleArg::Whole))
+        .collect()
+}
+
+fn map_arg(value: &Expression, context: &mut Context, tuples: ConstTupleArg) -> TokenStream {
+    let per_element = tuples == ConstTupleArg::PerElement;
+    match value {
+        // A runtime tuple converts as a whole, so it still fits a parameter whose type is a
+        // projection the compiler can't see is a tuple.
+        Expression::Tuple { elements, .. }
+            if per_element && !elements.is_empty() && value.is_const() =>
+        {
+            let elements = elements.iter().map(|it| map_arg(it, context, tuples));
+            quote![(#(#elements,)*)]
+        }
+        Expression::Variable(ManagedVar {
+            name,
+            is_const: true,
+            const_shape: shape @ ConstShape::Tuple(_),
+            ..
+        }) if per_element => const_tuple_into(quote![#name], shape),
+        _ => {
+            let tokens = value
+                .as_const(context)
+                .unwrap_or_else(|| value.to_tokens(context));
+            if is_closure(value) {
+                tokens
+            } else {
+                quote_spanned![tokens.span()=> (#tokens).into()]
+            }
+        }
+    }
+}
+
+/// Converts the comptime `value` of shape `shape` one tuple element at a time.
+fn const_tuple_into(value: TokenStream, shape: &ConstShape) -> TokenStream {
+    match shape {
+        ConstShape::Value => quote_spanned![value.span()=> (#value).into()],
+        ConstShape::Tuple(elements) => {
+            let elements = elements.iter().enumerate().map(|(i, shape)| {
+                let i = syn::Index::from(i);
+                const_tuple_into(quote![#value.#i], shape)
+            });
+            quote![(#(#elements,)*)]
+        }
     }
 }
 
@@ -1208,9 +1256,14 @@ impl Operands {
     }
 
     /// Generates the arguments of a call. A closure runs inside the call, after the op's position.
-    fn track_args(&mut self, context: &mut Context, args: &[Expression]) -> Vec<TokenStream> {
+    fn track_args(
+        &mut self,
+        context: &mut Context,
+        args: &[Expression],
+        tuples: ConstTupleArg,
+    ) -> Vec<TokenStream> {
         args.iter()
-            .map(|arg| self.track(context, |context| map_arg(arg, context)))
+            .map(|arg| self.track(context, |context| map_arg(arg, context, tuples)))
             .collect()
     }
 
