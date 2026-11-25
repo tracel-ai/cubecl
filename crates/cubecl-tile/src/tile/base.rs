@@ -784,19 +784,34 @@ impl Tile {
         }
     }
 
-    /// Multiply every partial this accumulator holds by `factor`, cast to its element.
-    pub(crate) fn scale_by<E: Numeric>(&mut self, factor: E) {
+    /// Each cell this accumulator holds multiplied by the scales it carries, where it is held.
+    pub(crate) fn scale_held(&mut self) {
         let define!(Served) = self.element;
-        let factor = Served::cast_from(factor);
+        let space = comptime!(self.place.space.clone());
+        let dimensions = self.sum_dimensions();
+        let mut scales = self.factor.of_cells(space, dimensions);
         match &mut self.kind {
-            TileKind::PlaneTile(t) => t.scale::<Served>(factor),
-            TileKind::PlanePartition(p) => p.scale::<Served>(factor),
-            TileKind::Memory(_) => panic!(
-                "Tile::scale_by: a memory tile is scaled by the cube, not by one unit (Tile::mul)"
-            ),
-            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => {
-                panic!("Tile::scale_by: not writable")
+            TileKind::PlaneTile(tile) => tile.scale::<Served>(&mut scales, (0usize, 0usize)),
+            TileKind::PlanePartition(grid) => grid.scale::<Served>(&mut scales),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => {
+                panic!("Tile::scale_held: only an accumulator's cells are scaled where held")
             }
+        }
+    }
+
+    /// The dimensions this accumulator's rows and columns lie along.
+    fn sum_dimensions(&self) -> comptime_type!(MatrixDimensions) {
+        let trailing = comptime!(MatrixDimensions::trailing(&self.place.space));
+        match &self.kind {
+            TileKind::PlaneTile(tile) => tile.sum_dimensions(trailing),
+            TileKind::PlanePartition(grid) => grid.at(0usize, 0usize).sum_dimensions(trailing),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(trailing),
         }
     }
 
@@ -1391,19 +1406,6 @@ impl Tile {
         unexpanded!()
     }
 
-    /// Whether this sum's scales vary across its cells, a row's or a column's, which its drain
-    /// applies cell by cell rather than as one number.
-    pub(crate) fn factor_varies(&self) -> comptime_type!(bool) {
-        unexpanded!()
-    }
-
-    /// Multiply each cell of this one-fragment sum by its scales at the cell's place: a sum held
-    /// in this crate's transport, whose units hold their cells where they can read them.
-    #[allow(clippy::extra_unused_type_parameters)] // Read by the expansion.
-    pub(crate) fn scale_own_cells<T: Numeric>(&mut self) {
-        unexpanded!()
-    }
-
     /// How many scales these values carry ([`mul`](Tile::mul)), down the chain.
     pub(crate) fn factor_levels(&self) -> comptime_type!(usize) {
         unexpanded!()
@@ -1613,36 +1615,6 @@ impl TileExpand {
 
     pub(crate) fn __expand_quantized_method(&self, _scope: &Scope) -> bool {
         self.looks_up() || self.factor.scaled()
-    }
-
-    /// Whether this sum's scales vary across its cells ([`FactorExpand::varies_within`]).
-    pub(crate) fn __expand_factor_varies_method(&self, scope: &Scope) -> bool {
-        self.factor.varies_within(scope, &self.place.space)
-    }
-
-    /// Multiply each cell of this one-fragment manual-mma sum by its scales at the cell's place.
-    pub(crate) fn __expand_scale_own_cells_method<T: Numeric>(&mut self, scope: &Scope) {
-        let space = self.place.space.clone();
-        let factor = self.factor.clone();
-        let fragment = match &self.kind {
-            TileKindExpand::PlaneTile(tile) => tile.clone(),
-            TileKindExpand::PlanePartition(partition) => {
-                partition.clone().__expand_fragment_method(scope)
-            }
-            _ => {
-                panic!("Tile::scale_own_cells: a plane-resident sum's cells are scaled where held")
-            }
-        };
-        match fragment {
-            PlaneTileExpand::Mma(mut data) => {
-                data.__expand_scale_cells_method::<T>(scope, &factor, &space)
-            }
-            _ => panic!(
-                "Tile::scale_own_cells: scales varying across the output are applied to a \
-                 manual-mma sum's cells, which each unit holds at known places; this sum's \
-                 instruction hides them"
-            ),
-        }
     }
 
     pub(crate) fn __expand_factor_levels_method(&self, _scope: &Scope) -> usize {

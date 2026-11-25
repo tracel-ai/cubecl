@@ -183,16 +183,33 @@ impl RegisterData {
         }
     }
 
-    /// Multiply every partial this block holds by `factor`.
-    pub(crate) fn scale<T: Numeric>(&mut self, factor: T) {
+    /// This block, whose first cell lies at `origin` of the sum's window, with each cell under its
+    /// `scales`: every partial of it, where a line holds partials of one.
+    pub(crate) fn scale<T: Numeric>(
+        &mut self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         register_line_width(self.vector_size);
+        let per_line = comptime!(cells_per_line(self.contracted_per_step, self.vector_size));
         let data = self.data.at_mut::<T>();
-        let count = comptime!(self.mr * self.nr);
-        let line = Vector::<T, RA>::cast_from(factor);
-        #[allow(clippy::needless_range_loop)]
         #[unroll]
-        for i in 0..count {
-            data[i] *= line;
+        for r in 0..self.mr {
+            #[unroll]
+            for n in 0..self.nr {
+                let mut cells = Sequence::<HeldCell>::new();
+                #[unroll]
+                for e in 0..per_line {
+                    let (row, col) = comptime!((origin.0 + r, origin.1 + n * per_line + e));
+                    cells.push(HeldCell {
+                        row: (row as u32).runtime(),
+                        col: (col as u32).runtime(),
+                        first_unit: comptime!(Some((row, col))),
+                    });
+                }
+                let at = r * self.nr + n;
+                data[at] = scales.applied::<T, RA>(data[at], &cells);
+            }
         }
     }
 }

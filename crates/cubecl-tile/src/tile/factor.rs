@@ -83,6 +83,12 @@ impl Factor {
         unexpanded!()
     }
 
+    /// These scales, read for the cells of a sum over `sum` whose rows and columns lie along
+    /// `dimensions`.
+    pub(crate) fn of_cells(&self, _sum: Space, _dimensions: MatrixDimensions) -> CellScales {
+        unexpanded!()
+    }
+
     /// Whether these values carry a scale at all.
     pub(crate) fn scaled(&self) -> comptime_type!(bool) {
         unexpanded!()
@@ -228,13 +234,20 @@ impl FactorExpand {
         }
     }
 
+    /// Every scale tile, the innermost first, under no scale of its own.
+    pub(crate) fn each_alone(&self) -> Vec<TileExpand> {
+        self.leaves()
+            .map(|scale| {
+                let mut alone = scale.clone();
+                alone.factor = FactorExpand::default();
+                alone
+            })
+            .collect()
+    }
+
     /// The innermost scale tile, under no scale of its own.
     pub(crate) fn innermost_tile(&self) -> Option<TileExpand> {
-        self.leaves().next().map(|scale| {
-            let mut alone = scale.clone();
-            alone.factor = FactorExpand::default();
-            alone
-        })
+        self.each_alone().into_iter().next()
     }
 
     /// The scale tiles read for a value, each read alone: every scale before the ones it is
@@ -247,19 +260,6 @@ impl FactorExpand {
                 .flat_map(|scale| core::iter::once(scale).chain(scale.factor.leaves()))
                 .filter(|scale| !scale.is_one()),
         )
-    }
-
-    /// Whether a scale of this factor varies along a dimension of `space`: one a sum holding
-    /// `space` applies cell by cell, not as one number ([`whole`](Factor::whole)).
-    pub(crate) fn varies_within(&self, scope: &Scope, space: &Space) -> bool {
-        self.leaves().any(|scale| {
-            let projection = scale.clone().__expand_projection_method(scope);
-            scale
-                .place
-                .space
-                .dimensions()
-                .any(|dimension| projection.addresses(dimension) && space.contains(dimension))
-        })
     }
 
     /// Whether these values carry a scale at all.
@@ -379,6 +379,15 @@ impl FactorExpand {
             product = MulExpand::__expand_mul_method(product, scope, one);
         }
         product
+    }
+
+    pub(crate) fn __expand_of_cells_method(
+        &self,
+        scope: &Scope,
+        sum: Space,
+        dimensions: MatrixDimensions,
+    ) -> CellScalesExpand {
+        CellScalesExpand::new(scope, self, sum, dimensions)
     }
 
     pub(crate) fn __expand_innermost_scale_method(&self, _scope: &Scope) -> TileExpand {

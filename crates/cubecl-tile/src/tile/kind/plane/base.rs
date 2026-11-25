@@ -302,6 +302,18 @@ impl PlaneTile {
         }
     }
 
+    /// The dimensions this accumulator's rows and columns lie along: those a register block was
+    /// sized against, `trailing` for any other.
+    pub(crate) fn sum_dimensions(
+        &self,
+        #[comptime] trailing: MatrixDimensions,
+    ) -> comptime_type!(MatrixDimensions) {
+        match self {
+            PlaneTile::Registers(block) => comptime!(block.dimensions),
+            PlaneTile::Cmma(_) | PlaneTile::Mma(_) | PlaneTile::Wgmma(_) => comptime!(trailing),
+        }
+    }
+
     pub(crate) fn zero<T: Numeric>(&mut self) {
         match self {
             PlaneTile::Cmma(d) => d.zero::<T>(),
@@ -320,11 +332,17 @@ impl PlaneTile {
         }
     }
 
-    pub(crate) fn scale<T: Numeric>(&mut self, factor: T) {
+    /// This accumulator tile, whose first cell lies at `origin` of the sum's window, with each
+    /// cell under its `scales` where it is held.
+    pub(crate) fn scale<T: Numeric>(
+        &mut self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         match self {
-            PlaneTile::Cmma(d) => d.scale::<T>(factor),
-            PlaneTile::Mma(d) => d.scale::<T>(factor),
-            PlaneTile::Registers(d) => d.scale::<T>(factor),
+            PlaneTile::Cmma(d) => d.scale::<T>(scales, origin),
+            PlaneTile::Mma(d) => d.scale::<T>(scales, origin),
+            PlaneTile::Registers(d) => d.scale::<T>(scales, origin),
             PlaneTile::Wgmma(_) => panic!(
                 "PlaneTile::scale: a plane group accumulator is written by the MMAs in flight, and \
                  scaled only once they are done, at its drain"
@@ -1105,12 +1123,15 @@ impl PlanePartition {
         }
     }
 
-    /// Multiply every tile by `factor`.
-    pub(crate) fn scale<T: Numeric>(&self, factor: T) {
+    /// This grid with each cell under its `scales` where it is held.
+    pub(crate) fn scale<T: Numeric>(&self, scales: &mut CellScales) {
         #[unroll]
-        for i in 0..comptime!(self.m_tiles * self.n_tiles) {
-            let mut frag = self.frags.index(i).clone();
-            frag.scale::<T>(factor);
+        for mi in 0..self.m_tiles {
+            #[unroll]
+            for ni in 0..self.n_tiles {
+                self.at(mi, ni)
+                    .scale::<T>(scales, comptime!((mi * self.rows, ni * self.cols)));
+            }
         }
     }
 }

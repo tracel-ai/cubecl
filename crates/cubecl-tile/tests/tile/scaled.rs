@@ -343,9 +343,9 @@ fn a_decoded_operand_keeps_its_global_scale_on_the_load_into_cmma_fragments() {
     check_factored(None, 8);
 }
 
-/// `c = (a ⊗ r) · (b ⊗ s)` over `e4m3` operands, `r` a scale a row of `a` and `s` one a column of
-/// `b`: both factored out of the terms, which an 8-bit value has no room for, and multiplied into
-/// each cell of the sum as it drains.
+/// `c = (a ⊗ r) · (b ⊗ s)`, `r` a scale a row of `a` and `s` one a column of `b`: both factored out
+/// of the terms and multiplied into each cell of the sum as it drains. The sum is a register block
+/// of `registers`, or the device's matrix instruction where `None`.
 #[cube(launch)]
 fn row_and_column_factored_matmul<E: Numeric>(
     a: &TileTensor<'_>,
@@ -355,12 +355,16 @@ fn row_and_column_factored_matmul<E: Numeric>(
     c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
+    #[comptime] registers: Option<SoftwareMatmul>,
     #[define(E)] _dtype: ElemType,
 ) {
     let (a, rows) = a.tile(&space).mul(&rows.tile(&space)).factor();
     let (b, columns) = b.tile(&space).mul(&columns.tile(&space)).factor();
     let mut c = c.tile_mut(&space);
-    let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
+    let acc = match registers {
+        Some(config) => c.register_accumulator::<E>(&a, &b, config, Semiring::SumProd),
+        None => c.accumulator::<E>(&a, &b, Semiring::SumProd),
+    };
     for region in space.over(&level) {
         let mut acc_r = acc.at(&region);
         acc_r.mma(&a.at(&region), &b.at(&region));
@@ -368,20 +372,18 @@ fn row_and_column_factored_matmul<E: Numeric>(
     c.dequantize_from(&acc.mul(&rows).mul(&columns));
 }
 
-/// An `e4m3` product under a scale a row of its lhs and a scale a column of its rhs, which vary
-/// across the output: the sum is held in this crate's MMA, whose cells each unit holds where it
-/// reads them, and each cell is scaled by its row's and its column's as it drains, against the
-/// host product. A skip on a device whose MMA takes no `e4m3` operands.
+/// [`row_and_column_factored_matmul`] over `e4m3` operands, whose 8 bits have no room for a scale,
+/// in this crate's MMA: each unit scales the cells it holds. A skip on a device whose MMA takes no
+/// `e4m3` operands.
 #[test]
-fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
+fn a_sum_in_registers_of_an_mma_applies_its_row_and_column_scales() {
     const SIZE: usize = 16;
     let client = cubecl::test_device().client();
     let e4m3_type = ElemType::Float(cubecl::ir::FloatKind::E4M3);
-    let f32_type = f32::elem_type_native();
     let offered = client.properties().features.matmul.mma.iter().any(|cfg| {
         cfg.a_type == e4m3_type
             && cfg.b_type == e4m3_type
-            && cfg.cd_type == f32_type
+            && cfg.cd_type == f32::elem_type_native()
             && cfg.m as usize == SIZE
             && cfg.n as usize == SIZE
             && cfg.k as usize == SIZE
@@ -393,7 +395,37 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
         .enforce();
         return;
     }
-    let (rows, cols, depth) = (SIZE, SIZE, 2 * SIZE);
+    check_row_and_column_factored(e4m3_type, None, SIZE);
+}
+
+/// [`row_and_column_factored_matmul`] in a register block.
+#[test]
+fn a_sum_in_a_register_block_applies_its_row_and_column_scales() {
+    check_row_and_column_factored(f32::elem_type_native(), Some(SOFTWARE_MATMUL), 4);
+}
+
+/// [`row_and_column_factored_matmul`] in the fragment API, which hides where its cells lie: they
+/// are scaled in the plane's scratch.
+#[test]
+fn a_sum_in_the_fragment_api_applies_its_row_and_column_scales() {
+    let client = cubecl::test_device().client();
+    if !require_cmma_8x8x8_f32(&client) {
+        return;
+    }
+    check_row_and_column_factored(f32::elem_type_native(), None, 8);
+}
+
+/// [`row_and_column_factored_matmul`] over `size × size` of `element` operands, against the host
+/// product.
+fn check_row_and_column_factored(
+    element: ElemType,
+    registers: Option<SoftwareMatmul>,
+    size: usize,
+) {
+    let client = cubecl::test_device().client();
+    let f32_type = f32::elem_type_native();
+    let e4m3_type = ElemType::Float(cubecl::ir::FloatKind::E4M3);
+    let (rows, cols, depth) = (size, size, 2 * size);
     // Small integers, every one an `e4m3` value.
     let a: Vec<f32> = (0..rows * depth).map(|i| (i % 7) as f32 - 3.0).collect();
     let b: Vec<f32> = (0..depth * cols).map(|i| (i % 5) as f32 - 2.0).collect();
@@ -416,7 +448,11 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
             .custom(values.to_vec())
             .generate_without_host_data()
     };
-    let (a_t, b_t) = (e4m3s(&a, [rows, depth]), e4m3s(&b, [depth, cols]));
+    let operand = |values: &[f32], shape: [usize; 2]| match element == e4m3_type {
+        true => e4m3s(values, shape),
+        false => f32s(values, shape),
+    };
+    let (a_t, b_t) = (operand(&a, [rows, depth]), operand(&b, [depth, cols]));
     let (r_t, s_t) = (f32s(&r, [rows, 1]), f32s(&s, [cols, 1]));
     let c = TestInput::builder(client.clone(), shape![rows, cols])
         .dtype(f32_type)
@@ -427,7 +463,7 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
         &client,
         Partitioning::new(
             Space::new(&[(M, rows), (N, cols), (KI, depth)]),
-            Levels::leaf(&[(M, rows), (N, cols), (KI, SIZE)])
+            Levels::leaf(&[(M, rows), (N, cols), (KI, size)])
                 .walk_every(&[M, N, KI])
                 .build(),
         ),
@@ -450,13 +486,13 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
         launcher.cube_dim(),
         TileTensorLaunch::new(
             a_t.binding().into_tensor_arg(),
-            e4m3_type,
+            element,
             1,
             TileSpec::direct(&[M, KI]),
         ),
         TileTensorLaunch::new(
             b_t.binding().into_tensor_arg(),
-            e4m3_type,
+            element,
             1,
             TileSpec::direct(&[KI, N]),
         ),
@@ -470,6 +506,7 @@ fn an_e4m3_sum_applies_its_row_and_column_scales_cell_by_cell() {
         ),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
+        registers,
         f32_type,
     );
 

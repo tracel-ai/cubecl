@@ -235,66 +235,42 @@ impl MmaData {
         }
     }
 
-    /// Multiply every cell of this (accumulator) fragment by `factor`: its registers are the
-    /// unit's own cells, so the scale needs no bounce.
-    pub(crate) fn scale<T: Numeric>(&mut self, factor: T) {
-        match &mut self.fragment {
-            MmaFragment::Acc(f) => {
-                let f = f.at_mut::<T>();
-                let factor = Vector::<T, NA>::cast_from(factor);
-                #[unroll]
-                for i in 0..f.len() {
-                    f[i] *= factor;
-                }
-            }
-            MmaFragment::Lhs(_)
-            | MmaFragment::Rhs(_)
-            | MmaFragment::LhsBlockScaled(..)
-            | MmaFragment::RhsBlockScaled(..) => {
-                panic!("MmaData::scale: an operand fragment is contracted, not scaled")
-            }
-        }
-    }
-
-    /// Multiply each cell of this (accumulator) fragment by `factor` at the cell's place in
-    /// `space`, the fragment's window: scales varying across the output, a row's and a column's,
-    /// read where each unit holds its cells.
-    #[allow(dead_code)] // Reached through its expand, from `Tile::scale_own_cells`.
-    pub(crate) fn scale_cells<T: Numeric>(&mut self, factor: &Factor, #[comptime] space: &Space) {
+    /// This (accumulator) fragment, whose first cell lies at `origin` of the sum's window, with
+    /// each cell under its `scales`, in the register that holds it.
+    pub(crate) fn scale<T: Numeric>(
+        &mut self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         let def = MmaDefinition::<T, T, T>::new(self.m, self.n, self.k);
         let layout = comptime!(self.layout);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let dimensions = comptime!(MatrixDimensions::trailing(space));
-        match &mut self.fragment {
-            MmaFragment::Acc(f) => {
-                let acc = f.at_mut::<T>();
-                #[unroll]
-                for i in 0..acc.len() {
-                    let mut vector = acc[i];
-                    #[unroll]
-                    for e in 0..vector_size {
-                        let (row, col) = def.position_of_nth(
-                            UNIT_POS_PLANE,
-                            comptime!((i * vector_size + e) as u32),
-                            MatrixIdent::Accumulator,
-                        );
-                        let (row, col) = laid_out(row, col, layout);
-                        // The cell alone: the first value of a run one wide.
-                        let (first, alone) = (0usize, 1usize);
-                        let at =
-                            TileMatrix::value_coords(row, col, first, space, dimensions, alone);
-                        let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
-                        vector.insert(e, vector.extract(e) * T::cast_from(scale));
-                    }
-                    acc[i] = vector;
-                }
+        let positions = def.element_positions(MatrixIdent::Accumulator);
+        let positions =
+            comptime!(positions.expect("a device with a manual mma states its lanes' positions"));
+        let acc = self.acc_registers_mut::<T>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut cells = Sequence::<HeldCell>::new();
+            #[unroll]
+            for e in 0..vector_size {
+                let nth = comptime!(i * vector_size + e);
+                let (row, col) =
+                    def.position_of_nth(UNIT_POS_PLANE, nth as u32, MatrixIdent::Accumulator);
+                let (row, col) = laid_out(row, col, layout);
+                cells.push(HeldCell {
+                    row: row + comptime!(origin.0 as u32),
+                    col: col + comptime!(origin.1 as u32),
+                    first_unit: comptime!({
+                        let (row, col) = match (positions.of_nth(0, nth), layout) {
+                            ((row, col), MatrixLayout::RowMajor) => (row, col),
+                            ((row, col), _) => (col, row),
+                        };
+                        Some((row + origin.0, col + origin.1))
+                    }),
+                });
             }
-            MmaFragment::Lhs(_)
-            | MmaFragment::Rhs(_)
-            | MmaFragment::LhsBlockScaled(..)
-            | MmaFragment::RhsBlockScaled(..) => {
-                panic!("MmaData::scale_cells: an operand fragment is contracted, not scaled")
-            }
+            acc[i] = scales.applied::<T, NA>(acc[i], &cells);
         }
     }
 
