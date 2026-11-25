@@ -131,15 +131,20 @@ impl Memory {
         )
     }
 
-    /// The loads a slice of `length` values spans in this window, a whole number of them: the
-    /// window is indexed in loads, so a slice's values are `width` to a load.
-    pub(crate) fn loads_along(&self, #[comptime] length: usize) -> comptime_type!(usize) {
-        let width = comptime!(self.store.vector_size);
-        comptime!(assert!(
-            length.is_multiple_of(width),
-            "Memory: a slice of {length} values is not a whole number of loads of {width}"
-        ));
-        length / width
+    /// The width of a load of this window over `space`, for a reader stepping its slices along
+    /// the innermost dimension, `length` values long, a whole load at a time
+    /// ([`VectorTile::width_along_slices`]).
+    pub(crate) fn load_width(
+        &self,
+        #[comptime] space: &Space,
+        #[comptime] length: usize,
+    ) -> comptime_type!(usize) {
+        let load = self.vector_tile(space);
+        comptime!(load.width_along_slices(
+            space.dimension_at(space.rank() - 1),
+            length,
+            "Memory::load_width"
+        ))
     }
 
     /// How a contraction into this window runs, as stated with

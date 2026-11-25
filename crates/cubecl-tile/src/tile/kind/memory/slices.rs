@@ -18,8 +18,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -48,8 +48,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -81,8 +81,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let view = self.flat::<E, W>();
         let mut maxima = Array::<E>::new(slices);
@@ -113,8 +113,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (count, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -147,8 +147,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) -> Array<E> {
         let (slices, length) = comptime!((space.slices_along(dimension), space.extent(dimension)));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let view = self.flat::<E, W>();
         let mut sums = Array::<E>::new(slices);
@@ -177,8 +177,8 @@ impl Memory {
         #[comptime] dimension: Dimension,
     ) {
         let (length, cells) = comptime!((space.extent(dimension), space.cells()));
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         let mut at = UNIT_POS_PLANE as usize;
@@ -203,8 +203,8 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
         let size!(W) = width;
         let mut view = self.flat_mut::<E, W>();
         #[unroll]
@@ -245,8 +245,14 @@ impl Memory {
             space.extent_at(space.rank() - 1)
         ));
         let step = broadcast.position;
-        let width = comptime!(self.store.vector_size);
-        let loads = self.loads_along(length);
+        let width = self.load_width(space, length);
+        let loads = comptime!(length / width);
+        let probabilities_width = probabilities.load_width(space, length);
+        comptime!(assert!(
+            probabilities_width == width,
+            "Memory::softmax_gradient_along: the gradient loads {width} values and the \
+             probabilities {probabilities_width}: read both windows at one width"
+        ));
         let size!(W) = width;
         let read = probabilities.flat::<E, W>();
         let mut view = self.flat_mut::<E, W>();

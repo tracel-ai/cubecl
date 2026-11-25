@@ -42,7 +42,6 @@ mod register_attention;
 mod relay;
 mod routed;
 mod row_chunks;
-mod scale_add_window;
 mod scaled;
 mod separable;
 mod smem_accumulation;
@@ -57,6 +56,7 @@ mod top_k;
 mod top_values;
 mod vector_tile;
 mod wgmma;
+mod wide_window;
 mod written_operands;
 
 use cubecl::prelude::*;
