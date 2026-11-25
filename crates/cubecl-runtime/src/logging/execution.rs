@@ -7,12 +7,17 @@ use crate::server::{Collective, TransportProvider};
 
 /// Names one [`Execution`] among those issued while the process was observed.
 ///
-/// Minted only while an observer is installed, so an unobserved run pays nothing for it. Unique
-/// for the process's lifetime, and increasing in the order executions were issued.
+/// Minted only while an observer is installed, so an unobserved run pays nothing for it.
+///
+/// # Guarantees
+///
+/// Unique for the process's lifetime, and increasing in the order they were minted, which is
+/// the order executions were issued on each thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ExecutionId(pub(super) u64);
+pub struct ExecutionId(u64);
 
 impl ExecutionId {
+    /// An id greater than every one minted before it.
     pub(crate) fn mint() -> Self {
         use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -149,4 +154,15 @@ pub enum WaitTarget {
     /// Every collective queued on the device so far, so its time belongs to the last part issued
     /// on that device.
     QueuedCollectives,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_id_is_greater_than_every_one_minted_before_it() {
+        let before = ExecutionId::mint();
+        assert!(ExecutionId::mint() > before);
+    }
 }

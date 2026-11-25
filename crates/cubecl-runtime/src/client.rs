@@ -1184,11 +1184,13 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
-        let timing = crate::logging::times_communications().then(|| {
-            let mut timing = CommunicationTiming::default();
-            self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
-            timing
-        });
+        let timing = crate::logging::timing_requested()
+            .times_communications()
+            .then(|| {
+                let mut timing = CommunicationTiming::default();
+                self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
+                timing
+            });
 
         self.device.submit(move |server| {
             // Logged rather than unwrapped: a panic here would answer the
@@ -1277,7 +1279,7 @@ impl Client {
                 path,
             })
         })?;
-        Some(communication.id)
+        Some(communication.id())
     }
 
     /// How this runtime runs a collective, which only a runtime with a device transport does.
@@ -1300,13 +1302,13 @@ impl Client {
                 stream,
             },
         })?;
-        if !crate::logging::times_communications() {
+        if !part.times_communications() {
             return None;
         }
         let mut timing = CommunicationTiming::default();
-        crate::logging::notify_unread(&part, timing.part_window());
+        part.deliver_unread(timing.part_window());
         if let ComputeWait::Now = wait {
-            self.issue_wait(WaitTarget::Part(part.id), &mut timing);
+            self.issue_wait(WaitTarget::Part(part.id()), &mut timing);
         }
         Some(timing)
     }
@@ -1321,8 +1323,10 @@ impl Client {
             },
             awaits,
         });
-        if let Some(wait) = wait {
-            crate::logging::notify_unread(&wait, timing.wait_window());
+        // The wait's own answer decides, which may not be the one the caller
+        // checked before issuing it.
+        if let Some(wait) = wait.filter(crate::logging::ReportedExecution::times_communications) {
+            wait.deliver_unread(timing.wait_window());
         }
     }
 
@@ -1600,7 +1604,7 @@ impl Client {
         // measurement, and making one depend on the other's configuration
         // would mean a caller could not time launches without also logging
         // them somewhere it did not choose.
-        let observed = execution.filter(|_| timed && crate::logging::timing_wanted());
+        let observed = execution.filter(|execution| timed && execution.wants_timing());
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) if observed.is_none() => {
@@ -1711,7 +1715,7 @@ impl Client {
                 if let Some(execution) = &observed
                     && matches!(level, None | Some(ProfileLevel::ExecutionOnly))
                 {
-                    crate::logging::notify_profiled(execution, profile);
+                    execution.deliver_profile(profile);
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
@@ -1723,14 +1727,10 @@ impl Client {
                 // logger's copy is the one that can be deferred, an observer's
                 // cannot be recovered afterwards.
                 let profile = if let Some(execution) = &observed {
-                    // The observer asked to keep its measurements and cannot:
-                    // the logger reads this one, so the observer is told a
-                    // duration and its kernels stop overlapping.
-                    crate::logging::warn_logger_takes_deferred_measurements();
                     // Comes back already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.
-                    crate::logging::read_and_notify_timed(execution, profile)
+                    execution.read_for_logger(profile)
                 } else {
                     profile
                 };
@@ -2393,7 +2393,7 @@ impl Client {
                 route: TransferRoute::Host,
             })
         })
-        .filter(|_| crate::logging::times_communications())
+        .filter(crate::logging::ReportedExecution::times_communications)
         .map(|transfer| (transfer, Instant::now()));
 
         let read = self
@@ -2404,7 +2404,7 @@ impl Client {
         let mut data = cubecl_environment::future::block_on(read).unwrap();
         if let Some((transfer, started)) = transfer {
             let read = ProfileDuration::new_system_time(started, Instant::now());
-            crate::logging::notify_unread(&transfer, read);
+            transfer.deliver_unread(read);
         }
 
         // The allocation belongs to the destination: it is initialized and
