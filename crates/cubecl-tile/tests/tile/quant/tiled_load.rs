@@ -2,13 +2,13 @@
 //! along `K` and two columns, 16 values of one scale block by 2 columns, and the decoding copy
 //! lands every value where it belongs under its own column's scale.
 
-use crate::support::{HostData, HostDataType, TestInput};
+use crate::support::{HostData, HostDataType, TestInput, stored_tiles_spec};
 use cubecl::zspace::shape;
 use cubecl::{bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle};
 use cubecl_common::e2m1;
 use cubecl_tile::{
-    Dimension, Launcher, Level, Levels, Partitioning, Projection, Space, StageStorage, TileSpec,
-    TileTensor, TileTensorLaunch,
+    Dimension, Launcher, Level, Levels, Partitioning, Space, StageStorage, TileSpec, TileTensor,
+    TileTensorLaunch,
     launch::Grid,
     layout::{StorageLevels, StoragePartitioning, VectorTile},
 };
@@ -141,12 +141,7 @@ fn check_tiled(storage: StoragePartitioning, cols: usize, words_per_load: usize,
         .zeros()
         .generate_without_host_data();
 
-    let mut w_spec = TileSpec::new(Projection::tiled(
-        &dimensions,
-        &geometry.pieces(&dimensions).unwrap(),
-    ))
-    .packed(QuantValue::E2M1);
-    w_spec.stored_tiles = storage.tiles().to_vec();
+    let w_spec = stored_tiles_spec(&dimensions, &storage, &geometry).packed(QuantValue::E2M1);
     let space = Space::new(&[(N, cols), (KB, blocks), (KI, block)]);
     let (count, axis) = (CubeCount::new_single(), CubeDim::new_single());
     // Each arm launches its own kernel, so each binds its own arguments.
