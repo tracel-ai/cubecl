@@ -785,29 +785,51 @@ mod tests {
         tile.along_one_dimension("the fragment load");
     }
 
-    /// Read in loads, a plain buffer's innermost axis counts lines and nothing else moves; an
-    /// NVFP4 buffer's word, its second word along `K` and its second column are each one load's
-    /// whole, wherever the level-major order puts them, and a batch axis ahead is untouched.
+    /// Read in loads, a plain buffer's innermost axis counts lines and nothing else moves.
     #[test]
-    fn a_load_covers_the_innermost_axis_or_the_stored_tiles_it_takes() {
+    fn a_load_covers_the_innermost_axis_of_a_plain_buffer() {
         let run = VectorTile::run(N, 4);
         assert_eq!(run.parts(&[], &Projection::direct(&[K, N])), vec![1, 4]);
+    }
 
-        // `[m, k]` stored as a word of 8 along `K`, 2 words along `K` by 2 rows, then 4 by 4:
-        // `[M, K, M, K, M, K, K]` level-major, the word the last axis.
-        const M: Dimension = Dimension(2);
-        const B: Dimension = Dimension(3);
+    const NVFP4_M: Dimension = Dimension(2);
+
+    /// `[m, k]` stored as a word of 8 along `K`, 2 words along `K` by 2 rows, then 4 by 4:
+    /// `[M, K, M, K, M, K, K]` level-major, the word the last axis. The stored tiles, their pieces
+    /// and a load of 32 values along `K`.
+    #[allow(clippy::type_complexity)]
+    fn nvfp4_load() -> ([(Dimension, usize); 5], [(Dimension, usize); 7], VectorTile) {
+        const M: Dimension = NVFP4_M;
         let stored = [(K, 8), (K, 2), (M, 2), (K, 4), (M, 4)];
         let pieces = [(M, 0), (K, 0), (M, 1), (K, 1), (M, 2), (K, 2), (K, 3)];
         let load = VectorTile::new(&stored, K, 32).unwrap();
-        assert_eq!(load.extents(), &[(K, 16), (M, 2)]);
+        (stored, pieces, load)
+    }
+
+    #[test]
+    fn a_load_of_stored_tiles_takes_whole_tiles() {
+        let (_, _, load) = nvfp4_load();
+        assert_eq!(load.extents(), &[(K, 16), (NVFP4_M, 2)]);
+    }
+
+    /// An NVFP4 buffer's word, its second word along `K` and its second column are each one
+    /// load's whole, wherever the level-major order puts them.
+    #[test]
+    fn a_load_covers_the_stored_tiles_it_takes() {
+        let (stored, pieces, load) = nvfp4_load();
         assert_eq!(
-            load.parts(&stored, &Projection::tiled(&[M, K], &pieces)),
+            load.parts(&stored, &Projection::tiled(&[NVFP4_M, K], &pieces)),
             vec![1, 1, 1, 1, 2, 2, 8]
         );
+    }
+
+    #[test]
+    fn a_load_leaves_a_batch_axis_ahead_of_stored_tiles_untouched() {
+        const B: Dimension = Dimension(3);
+        let (stored, pieces, load) = nvfp4_load();
         let batched = [&[(B, 0)][..], &pieces].concat();
         assert_eq!(
-            load.parts(&stored, &Projection::tiled(&[B, M, K], &batched)),
+            load.parts(&stored, &Projection::tiled(&[B, NVFP4_M, K], &batched)),
             vec![1, 1, 1, 1, 1, 2, 2, 8]
         );
     }

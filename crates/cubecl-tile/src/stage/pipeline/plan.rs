@@ -207,22 +207,32 @@ mod tests {
         assert_eq!(plan.refills(1)[1], Refill::EveryRegion);
     }
 
-    /// An operand read where it lies is brought into no slot, and asks nothing of the rendezvous
-    /// its walk's other operand meets on.
-    #[test]
-    fn an_operand_read_where_it_lies_is_never_filled() {
+    /// The plan of an lhs read where it lies beside an rhs a unit copies.
+    fn lhs_read_where_it_lies() -> StagePlan {
         let (space, _, rhs) = spaces();
         let level = Level::every(&[(M, 8), (N, 8), (K, 4)]);
-        let plan = StagePlan::new(
+        StagePlan::new(
             &[None, operand(Delivery::SyncPerUnit, &rhs)],
             &space,
             &level,
             StageOwner::CUBE,
-        );
+        )
+    }
+
+    /// An operand read where it lies is brought into no slot.
+    #[test]
+    fn an_operand_read_where_it_lies_is_never_filled() {
+        let plan = lhs_read_where_it_lies();
         for slot in 0..2 {
             assert_eq!(plan.refills(slot), [Refill::InPlace, Refill::EveryRegion]);
         }
-        assert_eq!(plan.sync(), Rendezvous::Cube);
+    }
+
+    /// An operand read where it lies asks nothing of the rendezvous its walk's other operand meets
+    /// on.
+    #[test]
+    fn an_operand_read_where_it_lies_keeps_the_other_operands_rendezvous() {
+        assert_eq!(lhs_read_where_it_lies().sync(), Rendezvous::Cube);
     }
 
     #[test]

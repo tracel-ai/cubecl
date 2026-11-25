@@ -2268,8 +2268,13 @@ fn matmul_triple_buffered_with_a_fixed_operand() {
 /// One operand staged beside one read where it lies, at depth 2: the slot rendezvouses for the
 /// staged one alone while the other is read where it lies, in every slot of the stages.
 #[test]
-fn matmul_double_buffered_mixed_residence_vectorized() {
+fn matmul_double_buffered_lhs_staged_vectorized() {
     check_matmul_vectorized((8, 8, 8), StagedOperands::Lhs, 2);
+}
+
+/// [`matmul_double_buffered_lhs_staged_vectorized`] with the rhs staged instead.
+#[test]
+fn matmul_double_buffered_rhs_staged_vectorized() {
     check_matmul_vectorized((8, 8, 8), StagedOperands::Rhs, 2);
 }
 
