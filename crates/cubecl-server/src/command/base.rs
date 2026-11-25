@@ -729,6 +729,9 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
     }
 
     fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.streams.current().capturing().device().any_recording() {
+            return;
+        }
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.streams.current],
             RelocationScope::Device => self.streams.stream_ids(),

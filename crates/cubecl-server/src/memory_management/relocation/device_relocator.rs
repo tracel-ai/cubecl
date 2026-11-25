@@ -21,8 +21,13 @@ pub trait DeviceRelocator {
     /// whatever the memory holds.
     fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed;
 
-    /// Move what the memory of `scope` holds on outdated pages, for `reason`,
-    /// with a copier that waits for every stream's work before its first copy.
+    /// Move what the memory of `scope` holds on outdated pages, for `reason`.
+    ///
+    /// # Guarantees
+    ///
+    /// - Moves nothing while a stream records a graph.
+    /// - Copies with a copier that waits for every stream's work before its
+    ///   first copy.
     fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason);
 
     /// Give back every page the relocating stream's memory holds and nothing
@@ -78,7 +83,7 @@ pub trait DeviceRelocator {
     /// Moves nothing while a stream records a graph.
     fn relocate_when_wanted(&mut self) {
         if let RelocationNeed::Wanted(reason) = self.relocation_need(RelocationScope::Stream) {
-            self.relocate_unless_recording(RelocationScope::Stream, reason);
+            self.relocate_memory(RelocationScope::Stream, reason);
         }
     }
 
@@ -110,21 +115,8 @@ pub trait DeviceRelocator {
     /// nothing is outdated there.
     fn relocate_outdated(&mut self, scope: RelocationScope, reason: RelocationReason) {
         if self.relocation_need(scope).has_outdated() {
-            self.relocate_unless_recording(scope, reason);
+            self.relocate_memory(scope, reason);
         }
-    }
-
-    /// Move what the memory of `scope` holds on outdated pages, unless a
-    /// stream records a graph.
-    ///
-    /// # Guarantees
-    ///
-    /// Moves nothing while a stream records a graph.
-    fn relocate_unless_recording(&mut self, scope: RelocationScope, reason: RelocationReason) {
-        if self.relocation_need(scope) == RelocationNeed::Recording {
-            return;
-        }
-        self.relocate_memory(scope, reason);
     }
 }
 
@@ -203,16 +195,6 @@ mod tests {
         wanted.relocate_when_wanted();
 
         assert_eq!(wanted.steps, ["relocate"]);
-    }
-
-    /// A relocation asked for directly moves nothing while a stream records.
-    #[test]
-    fn a_direct_relocation_waits_for_a_recording() {
-        let mut recording = device(RelocationNeed::Recording);
-
-        recording.relocate_unless_recording(RelocationScope::Stream, RelocationReason::Explicit);
-
-        assert!(recording.steps.is_empty());
     }
 
     #[test]

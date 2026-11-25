@@ -181,6 +181,9 @@ where
     }
 
     fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.relocation_need(RelocationScope::Device) == RelocationNeed::Recording {
+            return;
+        }
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.stream_id],
             RelocationScope::Device => self.scheduler.stream_ids().collect(),
