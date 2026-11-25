@@ -45,14 +45,17 @@ impl AxesBuilder {
     }
 
     /// The projection, its dimensions derived from the axes, the innermost axis's last.
-    /// Panics on no axes, on a dimension both [`spanning`](Self::spanning) and addressed, or as
+    ///
+    /// # Panics
+    ///
+    /// On no axes, on a dimension both [`spanning`](Self::spanning) and addressed, or as
     /// [`Projection::new`] does.
     pub fn build(self) -> Projection {
         assert!(
             !self.physical.is_empty(),
             "Projection::axes: an operand has at least one axis"
         );
-        let (innermost, outer) = self.physical.split_last().expect("checked non-empty");
+        let (innermost, outer) = self.physical.split_last().expect("the axes should be non-empty, as checked");
         let mut dimensions: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
         let mention =
             |dimension: Dimension, dimensions: &mut SmallVec<[Dimension; Space::MAX_RANK]>| {

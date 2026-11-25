@@ -1344,6 +1344,10 @@ impl Tile {
     /// `scale` varies along must be one of the values'; one it spans without varying along is read
     /// at its origin. `c.mul(&g).mul(&t)` is `((c, g), t)`, and `c.mul(&g.mul(&t))` is
     /// `(c, (g, t))`.
+    ///
+    /// # Panics
+    ///
+    /// Expansion panics when `scale` varies along a dimension the values do not span.
     pub fn mul(&self, _scale: &Tile) -> Tile {
         unexpanded!()
     }
@@ -1356,7 +1360,9 @@ impl Tile {
 
     /// The value of a tile that varies along no dimension, as `f32`.
     ///
-    /// Expansion panics on a tile that varies along one.
+    /// # Panics
+    ///
+    /// Expansion panics on a tile that varies along a dimension.
     pub fn whole(&self) -> f32 {
         unexpanded!()
     }
