@@ -352,16 +352,23 @@ fn scale_held_below(sum: &Tile, #[comptime] levels: Vec<Level>, #[comptime] dept
     if held {
         sum.clone().scale_held();
     } else {
-        let level = comptime!(levels[depth].clone());
-        if comptime!(level.coverage() == Coverage::Walk) {
-            for region in sum.over(&level).unrolled() {
-                scale_held_below(&sum.at(&region), levels.clone(), depth + 1);
-            }
-        } else {
-            for region in sum.over(&level) {
-                scale_held_below(&sum.at(&region), levels.clone(), depth + 1);
-            }
-        }
+        scale_held_through_level(sum, levels, depth);
+    }
+}
+
+/// [`scale_held_below`] each region of `sum` that `levels[depth]` cuts, unrolled where the level
+/// is walked.
+#[cube]
+fn scale_held_through_level(sum: &Tile, #[comptime] levels: Vec<Level>, #[comptime] depth: usize) {
+    let level = comptime!(levels[depth].clone());
+    let walk = sum.over(&level);
+    let walk = if comptime!(level.coverage() == Coverage::Walk) {
+        walk.unrolled()
+    } else {
+        walk
+    };
+    for region in walk {
+        scale_held_below(&sum.at(&region), levels.clone(), depth + 1);
     }
 }
 
