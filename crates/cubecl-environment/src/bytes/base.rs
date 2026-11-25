@@ -392,16 +392,19 @@ impl Bytes {
         }
     }
 
-    /// The `size` bytes of `file`, opened at `path`, read from the open file
-    /// when first used: a file renamed over `path` meanwhile is not the one
-    /// read.
-    #[cfg(native_cache)]
-    pub(crate) fn from_opened_file(
-        file: std::fs::File,
-        path: std::path::PathBuf,
-        size: u64,
-    ) -> Self {
-        let controller = crate::bytes::file::FileAllocationController::opened(file, path, size);
+    #[cfg(feature = "std")]
+    /// The `size` bytes of `file` that start `offset` bytes in, read when
+    /// first used.
+    ///
+    /// # Assumptions
+    ///
+    /// - The file holds at least `offset + size` bytes when they are read.
+    pub fn from_opened_file(file: &crate::bytes::OpenedFile, size: u64, offset: u64) -> Self {
+        let controller = crate::bytes::file::FileAllocationController::from_source(
+            file.source().clone(),
+            size,
+            offset,
+        );
 
         Self {
             controller: Box::new(controller),
