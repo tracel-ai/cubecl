@@ -20,16 +20,18 @@ use cubecl_environment::bytes::Bytes;
 /// This double-buffer scheme means host memory is held for at most two flush
 /// cycles, while avoiding any unnecessary stalls on the hot path.
 ///
-/// Dropping the queue drops what it holds at once, without waiting on any
-/// fence, whether or not the device is done reading it.
+/// Dropping the queue leaks what it still holds, and the fence it waits
+/// behind, without waiting on the device or calling it: whether the device is
+/// done reading it is unknown then, and memory leaked at teardown costs less
+/// than memory freed under a read.
 ///
 /// # Guarantees
 ///
-/// - While the queue lives, a [flush](Self::flush) or a [drain](Self::drain)
-///   frees nothing before the fence of the batch it was staged in signals,
-///   unless that fence's wait failed on a poisoned device, which reads
-///   nothing any more. After a wait that failed on a device that is not
-///   poisoned, the batch is leaked, since the device may still be reading it.
+/// - Nothing the queue holds is freed before the fence of the batch it was
+///   staged in signals, unless that fence's wait failed on a poisoned device,
+///   which reads nothing any more. After a wait that failed on a device that
+///   is not poisoned, the batch is leaked, since the device may still be
+///   reading it, and so is whatever the queue holds when it is dropped.
 /// - A queue that holds nothing mints no fence: a fence is recorded on the
 ///   stream, which an open capture window cannot tolerate.
 pub struct PendingDropQueue<F: DeviceWaiter> {
@@ -125,6 +127,15 @@ struct DropFlusher<F: DeviceWaiter> {
     /// was staged (Arrival).
     staged: Vec<HeldMemory>,
     tracker: FlushTracker,
+}
+
+impl<F: DeviceWaiter> Drop for DropFlusher<F> {
+    /// Leak whatever is still held, fence included: nothing waits on the
+    /// device at teardown, so the device may still be reading it.
+    fn drop(&mut self) {
+        core::mem::forget(core::mem::take(&mut self.staged));
+        core::mem::forget(self.pending.take());
+    }
 }
 
 impl<F: DeviceWaiter> core::fmt::Debug for DropFlusher<F> {
@@ -255,6 +266,73 @@ mod tests {
 
     fn pending_len(queue: &PendingDropQueue<MockFence<'_>>) -> Option<usize> {
         queue.flusher.pending.as_ref().map(|(_, held)| held.len())
+    }
+
+    /// Bytes that count how many times they were freed.
+    struct CountedFree {
+        frees: alloc::rc::Rc<Cell<u32>>,
+    }
+
+    impl Drop for CountedFree {
+        fn drop(&mut self) {
+            self.frees.set(self.frees.get() + 1);
+        }
+    }
+
+    impl cubecl_environment::bytes::AllocationController for CountedFree {
+        fn alloc_align(&self) -> usize {
+            1
+        }
+
+        fn property(&self) -> cubecl_environment::bytes::AllocationProperty {
+            cubecl_environment::bytes::AllocationProperty::Other
+        }
+
+        fn may_alias_mutable_storage(&self) -> bool {
+            false
+        }
+
+        unsafe fn memory_mut(
+            &mut self,
+            _policy: cubecl_environment::bytes::AccessPolicy,
+        ) -> Result<&mut [core::mem::MaybeUninit<u8>], cubecl_environment::bytes::AccessError>
+        {
+            Ok(&mut [])
+        }
+
+        fn memory(
+            &self,
+            _policy: cubecl_environment::bytes::AccessPolicy,
+        ) -> Result<&[core::mem::MaybeUninit<u8>], cubecl_environment::bytes::AccessError> {
+            Ok(&[])
+        }
+    }
+
+    fn counted_bytes(frees: &alloc::rc::Rc<Cell<u32>>) -> Bytes {
+        // SAFETY: the controller holds zero bytes, all of them initialized.
+        unsafe {
+            Bytes::from_controller(
+                alloc::boxed::Box::new(CountedFree {
+                    frees: frees.clone(),
+                }),
+                0,
+            )
+        }
+    }
+
+    /// Dropping a queue frees none of what it holds, staged or pending.
+    #[test]
+    fn a_dropped_queue_frees_nothing_it_holds() {
+        let sync_count = Cell::new(0u32);
+        let frees = alloc::rc::Rc::new(Cell::new(0u32));
+        let (mut queue, factory) = make_queue(&sync_count);
+        queue.push(counted_bytes(&frees));
+        queue.flush(&factory);
+        queue.push(counted_bytes(&frees));
+
+        drop(queue);
+
+        assert_eq!(frees.get(), 0);
     }
 
     #[test]
