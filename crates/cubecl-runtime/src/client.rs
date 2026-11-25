@@ -628,10 +628,11 @@ impl Client {
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn read_lazily(
         &self,
-        source: CopyDescriptor,
+        source: CopyDescriptor<Handle>,
         read: &Arc<crate::server::LazyRead>,
         range: core::ops::Range<usize>,
     ) -> Result<Bytes, ServerError> {
+        let source = crate::server::LazyReadPlan::whole_source(&source);
         let stream_id = self.stream_id();
         let started = read.clone();
         let now = self

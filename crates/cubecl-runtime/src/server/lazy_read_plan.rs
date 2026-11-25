@@ -16,6 +16,20 @@ pub(crate) struct LazyReadPlan<'a> {
 }
 
 impl LazyReadPlan<'_> {
+    /// The copy of every byte of `source`, narrowed to them where they are one run of memory,
+    /// so the rest of its binding is neither copied nor checked.
+    pub(crate) fn whole_source(source: &CopyDescriptor<Handle>) -> CopyDescriptor {
+        let len = source.shape.iter().product::<usize>() * source.elem_size;
+        let plan = LazyReadPlan {
+            source,
+            held: vec![0..len],
+        };
+        match plan.is_contiguous() {
+            true => plan.narrowed(&(0..len)),
+            false => source.clone().binding(),
+        }
+    }
+
     /// Whether `written`, of the read's memory, shares a byte with what is held.
     pub(crate) fn is_overwritten_by(&self, written: &BufferBinding) -> bool {
         self.pieces().iter().any(|piece| written.overlaps(piece))
@@ -86,5 +100,16 @@ mod tests {
         let (pieces, _) = plan.to_sources();
 
         assert_eq!(pieces[0].handle.offset_end, Some(8));
+    }
+
+    #[test]
+    fn a_whole_read_of_a_longer_handle_names_only_its_bytes() {
+        let service = ServiceId::of::<()>(DeviceId::new(0, 0));
+        let handle = Handle::new(service, StreamId { value: 0 }, 16);
+        let source = CopyDescriptor::new(handle, [1].into(), [1].into(), 4);
+
+        let whole = LazyReadPlan::whole_source(&source);
+
+        assert_eq!(whole.handle.range(), 0..4);
     }
 }

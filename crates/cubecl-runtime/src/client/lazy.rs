@@ -101,7 +101,7 @@ impl LazyDeviceController {
                     .map(|held| (held.read().clone(), held.range()))
                     .expect("The read should be held until its bytes are on the host");
                 self.client
-                    .read_lazily(source.binding(), &read, range)
+                    .read_lazily(source, &read, range)
                     .map_err(|err| AccessError::Read(format!("{err:?}")))
             })?;
         self.read.lock().take();
