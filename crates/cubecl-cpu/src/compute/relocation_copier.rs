@@ -9,13 +9,13 @@ use cubecl_server::storage::{BytesStorage, StorageAllocator};
 
 /// The CPU's copy: a `memcpy` between host allocations, made once the
 /// stream's launches have run.
-pub(crate) struct CpuCopies<'a> {
+pub(crate) struct CpuRelocationCopier<'a> {
     /// The launches of the stream whose memory moves, waited on before the
     /// first copy.
     progress: &'a mut LaunchProgress,
 }
 
-impl<'a> CpuCopies<'a> {
+impl<'a> CpuRelocationCopier<'a> {
     /// The copies of a relocation running after every stream's work was
     /// submitted, as `_submitted` proves, waiting on `progress` before the
     /// first one.
@@ -29,7 +29,7 @@ impl<'a> CpuCopies<'a> {
 // of every stream issued before the relocation has run. A copy is a `memcpy`
 // that has landed by the time `copy` returns, so `wait_copies` has nothing
 // left to wait for.
-unsafe impl RelocationCopier<BytesStorage> for CpuCopies<'_> {
+unsafe impl RelocationCopier<BytesStorage> for CpuRelocationCopier<'_> {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         self.progress.wait();
         Ok(())

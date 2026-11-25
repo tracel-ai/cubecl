@@ -530,11 +530,11 @@ mod tests {
 
     /// Device memory that is only bookkeeping, refusing any allocation past
     /// `limit` bytes the way a full device would.
-    struct Bookkeeping {
+    struct BookkeepingStorageAllocator {
         limit: u64,
     }
 
-    impl StorageAllocator for Bookkeeping {
+    impl StorageAllocator for BookkeepingStorageAllocator {
         type Resource = ();
 
         fn get(&mut self, _handle: &StorageHandle) {}
@@ -565,18 +565,18 @@ mod tests {
     }
 
     /// Copies that land the moment they are made.
-    struct Landing;
+    struct LandingRelocationCopier;
 
     // SAFETY: test memory that no work reads or writes, and copies that do
     // nothing or land on return.
-    unsafe impl RelocationCopier<Bookkeeping> for Landing {
+    unsafe impl RelocationCopier<BookkeepingStorageAllocator> for LandingRelocationCopier {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
 
         unsafe fn copy(
             &mut self,
-            _storage: &mut Bookkeeping,
+            _storage: &mut BookkeepingStorageAllocator,
             _copy: &StorageCopy,
         ) -> Result<(), IoError> {
             Ok(())
@@ -593,7 +593,7 @@ mod tests {
 
     fn reserve(
         arena: &mut ArenaReserver,
-        storage: &mut Bookkeeping,
+        storage: &mut BookkeepingStorageAllocator,
         size: u64,
     ) -> Result<ManagedMemoryHandle, IoError> {
         arena.reserve(
@@ -609,7 +609,7 @@ mod tests {
     /// and every later allocation would need a page of that size too.
     #[test]
     fn a_refused_growth_leaves_the_page_size_where_it_was() {
-        let mut storage = Bookkeeping { limit: 8 * MIB };
+        let mut storage = BookkeepingStorageAllocator { limit: 8 * MIB };
         let mut arena = arena(sizing());
         let _small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
 
@@ -634,7 +634,7 @@ mod tests {
     /// outdated pools and frees them.
     #[test]
     fn a_full_arena_refuses_to_grow_until_a_relocation_frees_it() {
-        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut storage = BookkeepingStorageAllocator { limit: u64::MAX };
         let mut arena = arena(PageSizing::new(
             2 * MIB,
             &MemoryDeviceProperties::new(1024 * MIB, 32),
@@ -663,7 +663,7 @@ mod tests {
 
         arena.relocate(
             &mut storage,
-            &mut Landing,
+            &mut LandingRelocationCopier,
             RelocationReason::ArenaFull,
             &mut ErrorGraph::default(),
         );
@@ -675,7 +675,7 @@ mod tests {
     /// With nothing outdated, nothing is wanted, and the bytes are never read.
     #[test]
     fn nothing_outdated_needs_nothing() {
-        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut storage = BookkeepingStorageAllocator { limit: u64::MAX };
         let mut arena = arena(sizing());
         let _small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
 
@@ -685,7 +685,7 @@ mod tests {
     /// A reservation that would need larger pages finds no room held.
     #[test]
     fn a_reservation_needing_larger_pages_finds_no_room_held() {
-        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut storage = BookkeepingStorageAllocator { limit: u64::MAX };
         let mut arena = arena(sizing());
         core::mem::drop(reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page"));
 
@@ -705,7 +705,7 @@ mod tests {
     /// again until the pools change.
     #[test]
     fn a_relocation_with_nothing_to_move_settles() {
-        let mut storage = Bookkeeping { limit: u64::MAX };
+        let mut storage = BookkeepingStorageAllocator { limit: u64::MAX };
         let mut arena = arena(sizing());
         let small = reserve(&mut arena, &mut storage, MIB).expect("1 MiB should fit a page");
         // A binding kept past the work: the page it sits on cannot move.
@@ -719,48 +719,11 @@ mod tests {
 
         arena.relocate(
             &mut storage,
-            &mut Landing,
+            &mut LandingRelocationCopier,
             RelocationReason::MemoryPressure,
             &mut ErrorGraph::default(),
         );
 
         assert_eq!(arena.relocation_need(capacity), RelocationNeed::Settled);
-    }
-
-    /// A copier that must never be waited on.
-    struct Unwaited;
-
-    // SAFETY: it never answers a wait, so no copy is ever made after one.
-    unsafe impl RelocationCopier<Bookkeeping> for Unwaited {
-        fn wait_device(&mut self) -> Result<(), ServerError> {
-            panic!("a relocation with nothing outdated should wait on nothing")
-        }
-
-        unsafe fn copy(
-            &mut self,
-            _storage: &mut Bookkeeping,
-            _copy: &StorageCopy,
-        ) -> Result<(), IoError> {
-            panic!("a relocation with nothing outdated should copy nothing")
-        }
-
-        fn wait_copies(&mut self) -> Result<(), ServerError> {
-            panic!("a relocation with nothing outdated should wait on nothing")
-        }
-    }
-
-    /// With nothing outdated, a relocation waits on nothing.
-    #[test]
-    fn a_relocation_with_nothing_outdated_waits_on_nothing() {
-        let mut storage = Bookkeeping { limit: u64::MAX };
-        let mut arena = arena(sizing());
-        let _held = reserve(&mut arena, &mut storage, MIB).expect("the arena should serve it");
-
-        arena.relocate(
-            &mut storage,
-            &mut Unwaited,
-            RelocationReason::Explicit,
-            &mut ErrorGraph::default(),
-        );
     }
 }

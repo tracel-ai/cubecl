@@ -10,7 +10,7 @@
 //! and reclaim policy, when the drop queue may be flushed, what a copy stages.
 //! The calls that are not are [`Driver`](super::Driver)'s.
 
-use super::stream_copies::StreamCopies;
+use super::stream_relocation_copier::StreamRelocationCopier;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::DeviceWaiter;
@@ -757,7 +757,7 @@ impl<D: Driver> Command<'_, D> {
         }
         self.refuse_while_recording()?;
         let current = self.streams.current;
-        let mut copier = StreamCopies::<D>::new(&mut self.streams, current, self.ctx);
+        let mut copier = StreamRelocationCopier::<D>::new(&mut self.streams, current, self.ctx);
         let (stream, failures) = self.streams.current_and_failures();
         stream
             .device_memory()
@@ -779,7 +779,7 @@ impl<D: Driver> Command<'_, D> {
     /// Move what `stream_id`'s memory holds on outdated pages, with the copies
     /// queued on that stream.
     fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {
-        let mut copier = StreamCopies::<D>::new(&mut self.streams, stream_id, self.ctx);
+        let mut copier = StreamRelocationCopier::<D>::new(&mut self.streams, stream_id, self.ctx);
         let (stream, failures) = self.streams.get_and_failures(&stream_id);
         stream
             .device_memory()

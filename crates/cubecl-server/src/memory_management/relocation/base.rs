@@ -154,7 +154,7 @@ mod tests {
     use crate::{driver::DriverError, server::IoError, storage::BytesStorage};
 
     /// Copies the device refuses, or a wait for them that fails.
-    struct FailingCopier {
+    struct FailingRelocationCopier {
         device: Result<(), ()>,
         copy: Result<(), ()>,
         wait: Result<(), ()>,
@@ -162,7 +162,7 @@ mod tests {
 
     // SAFETY: test memory that no work reads or writes, and copies that do
     // nothing or land on return.
-    unsafe impl RelocationCopier<BytesStorage> for FailingCopier {
+    unsafe impl RelocationCopier<BytesStorage> for FailingRelocationCopier {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             self.device
                 .map_err(|()| DriverError::new("wait device", 201).into())
@@ -215,7 +215,7 @@ mod tests {
     fn a_failed_wait_keeps_the_moves_reserved() {
         let mut storage = BytesStorage::default();
         let (relocation, source, target) = relocation(&mut storage);
-        let mut copier = FailingCopier {
+        let mut copier = FailingRelocationCopier {
             device: Ok(()),
             copy: Ok(()),
             wait: Err(()),
@@ -232,7 +232,7 @@ mod tests {
     fn a_refused_copy_abandons_the_relocation() {
         let mut storage = BytesStorage::default();
         let (relocation, _source, target) = relocation(&mut storage);
-        let mut copier = FailingCopier {
+        let mut copier = FailingRelocationCopier {
             device: Ok(()),
             copy: Err(()),
             wait: Ok(()),
@@ -249,7 +249,7 @@ mod tests {
     fn landed_copies_hand_every_move_back() {
         let mut storage = BytesStorage::default();
         let (relocation, _source, _target) = relocation(&mut storage);
-        let mut copier = FailingCopier {
+        let mut copier = FailingRelocationCopier {
             device: Ok(()),
             copy: Ok(()),
             wait: Ok(()),
@@ -267,7 +267,7 @@ mod tests {
     fn a_failed_device_wait_copies_nothing() {
         let mut storage = BytesStorage::default();
         let (relocation, _source, target) = relocation(&mut storage);
-        let mut copier = FailingCopier {
+        let mut copier = FailingRelocationCopier {
             device: Err(()),
             copy: Err(()),
             wait: Err(()),
@@ -288,7 +288,7 @@ mod tests {
         let mut storage = BytesStorage::default();
         // SAFETY: no moves, so no copy to make.
         let relocation = unsafe { RelocationLander::new(Vec::new()) };
-        let mut copier = FailingCopier {
+        let mut copier = FailingRelocationCopier {
             device: Err(()),
             copy: Err(()),
             wait: Err(()),

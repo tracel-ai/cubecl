@@ -1310,19 +1310,37 @@ mod tests {
         let _ = memory_management.get_cursor(handle.binding());
     }
 
-    /// A taint and a write of a binding never placed leave everything alone.
+    /// A taint of a binding never placed takes nothing.
     #[test_log::test]
-    fn the_taint_bookkeeping_leaves_unknown_bindings_alone() {
+    fn a_taint_of_an_unplaced_binding_takes_nothing() {
         let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
         let mut failures = ErrorGraph::default();
         let failure = launch_failure(&mut failures);
-        let unknown = ManagedMemoryHandle::new().binding();
 
-        memory_management.taint(&unknown, 0..8, failure, &mut failures);
-        memory_management.written(&unknown, 0..8, &mut failures);
+        memory_management.taint(
+            &ManagedMemoryHandle::new().binding(),
+            0..8,
+            failure,
+            &mut failures,
+        );
 
         failures.prune(failure);
         assert!(failures.is_empty(), "nothing took the failure");
+    }
+
+    /// A write of a binding never placed releases no claim.
+    #[test_log::test]
+    fn a_write_of_an_unplaced_binding_releases_nothing() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let mut failures = ErrorGraph::default();
+        let failure = launch_failure(&mut failures);
+        let handle = reserve(&mut memory_management, 64);
+        let binding = handle.clone().binding();
+        memory_management.taint(&binding, 0..64, failure, &mut failures);
+
+        memory_management.written(&ManagedMemoryHandle::new().binding(), 0..64, &mut failures);
+
+        assert_eq!(memory_management.failure(&binding, 0..64), Some(failure));
     }
 
     /// The failure of a binding never placed is a broken assumption.

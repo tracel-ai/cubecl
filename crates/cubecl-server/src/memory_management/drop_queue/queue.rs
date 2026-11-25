@@ -228,11 +228,11 @@ mod tests {
     use core::cell::Cell;
 
     #[derive(Clone)]
-    struct MockFence<'a> {
+    struct MockDeviceWaiter<'a> {
         sync_count: &'a Cell<u32>,
     }
 
-    impl DeviceWaiter for MockFence<'_> {
+    impl DeviceWaiter for MockDeviceWaiter<'_> {
         fn wait(self) -> Result<(), ServerError> {
             self.sync_count.set(self.sync_count.get() + 1);
             Ok(())
@@ -242,11 +242,11 @@ mod tests {
     fn make_queue<'a>(
         sync_count: &'a Cell<u32>,
     ) -> (
-        PendingDropQueue<MockFence<'a>>,
-        impl Fn() -> MockFence<'a> + 'a,
+        PendingDropQueue<MockDeviceWaiter<'a>>,
+        impl Fn() -> MockDeviceWaiter<'a> + 'a,
     ) {
         let queue = PendingDropQueue::new(test_policy());
-        let factory = move || MockFence { sync_count };
+        let factory = move || MockDeviceWaiter { sync_count };
         (queue, factory)
     }
 
@@ -261,22 +261,22 @@ mod tests {
         }
     }
 
-    fn pending_len(queue: &PendingDropQueue<MockFence<'_>>) -> Option<usize> {
+    fn pending_len(queue: &PendingDropQueue<MockDeviceWaiter<'_>>) -> Option<usize> {
         queue.flusher.pending.as_ref().map(|(_, held)| held.len())
     }
 
     /// Bytes that count how many times they were freed.
-    struct CountedFree {
+    struct CountingAllocationController {
         frees: alloc::rc::Rc<Cell<u32>>,
     }
 
-    impl Drop for CountedFree {
+    impl Drop for CountingAllocationController {
         fn drop(&mut self) {
             self.frees.set(self.frees.get() + 1);
         }
     }
 
-    impl cubecl_environment::bytes::AllocationController for CountedFree {
+    impl cubecl_environment::bytes::AllocationController for CountingAllocationController {
         fn alloc_align(&self) -> usize {
             1
         }
@@ -309,7 +309,7 @@ mod tests {
         // SAFETY: the controller holds zero bytes, all of them initialized.
         unsafe {
             Bytes::from_controller(
-                alloc::boxed::Box::new(CountedFree {
+                alloc::boxed::Box::new(CountingAllocationController {
                     frees: frees.clone(),
                 }),
                 0,

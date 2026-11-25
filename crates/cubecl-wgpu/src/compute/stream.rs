@@ -4,8 +4,8 @@ use super::{
     poll::WgpuPoll,
     timings::{QueryProfiler, TimestampQuerySetBudget, TimestampSampling},
 };
-use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
+use crate::compute::relocation_copier::WgpuRelocationCopier;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::MappingStaging,
@@ -158,7 +158,7 @@ impl StreamRelocator for WgpuStream {
         submitted: &StreamsSubmitted,
         failures: &mut ErrorGraph,
     ) {
-        let mut copier = WgpuCopies::new(
+        let mut copier = WgpuRelocationCopier::new(
             self.device.clone(),
             self.queue.clone(),
             self.poison.clone(),

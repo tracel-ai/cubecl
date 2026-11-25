@@ -12,7 +12,7 @@ use cubecl_environment::stream::StreamId;
 /// A command's streams, as the queue a relocation copies on: the current one
 /// carries the copies, and the wait covers every stream the pool has created
 /// plus whatever the driver runs outside them.
-pub(crate) struct StreamCopies<'a, D: Driver> {
+pub(crate) struct StreamRelocationCopier<'a, D: Driver> {
     /// Every stream the pool has created, to wait on before a byte moves.
     signals: Vec<<D::Stream as DeviceStream>::Signal>,
     /// The stream the copies are enqueued on.
@@ -20,7 +20,7 @@ pub(crate) struct StreamCopies<'a, D: Driver> {
     ctx: &'a mut D::Context,
 }
 
-impl<'a, D: Driver> StreamCopies<'a, D> {
+impl<'a, D: Driver> StreamRelocationCopier<'a, D> {
     /// The copies of a relocation queued on `queue`, waiting on a signal of
     /// every stream `streams` holds.
     pub(crate) fn new(
@@ -46,7 +46,7 @@ impl<'a, D: Driver> StreamCopies<'a, D> {
 // earlier work has finished before the first copy. `wait_copies` waits on a
 // fence of the queue every copy went on, recorded after the last of them.
 unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
-    for StreamCopies<'_, D>
+    for StreamRelocationCopier<'_, D>
 {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         for signal in self.signals.iter() {

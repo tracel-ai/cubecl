@@ -1,6 +1,6 @@
 use crate::compute::{
     alloc_controller::CpuAllocController,
-    copies::CpuCopies,
+    relocation_copier::CpuRelocationCopier,
     schedule::ScheduleTask,
     threadpool::{Threadpool, completion_counter::LaunchProgress},
 };
@@ -73,7 +73,7 @@ impl StreamRelocator for CpuStream {
         submitted: &StreamsSubmitted,
         failures: &mut ErrorGraph,
     ) {
-        let mut copier = CpuCopies::new(&mut self.progress, submitted);
+        let mut copier = CpuRelocationCopier::new(&mut self.progress, submitted);
         self.memory_management
             .relocate(&mut copier, reason, failures);
     }

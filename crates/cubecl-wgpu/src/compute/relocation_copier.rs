@@ -16,7 +16,7 @@ use cubecl_server::storage::StorageAllocator;
 /// Every stream submitted what it queued before a relocation starts, as the
 /// [`StreamsSubmitted`] it is built with proves, so the copies here follow
 /// every launch that could still read what moves.
-pub(crate) struct WgpuCopies {
+pub(crate) struct WgpuRelocationCopier {
     device: wgpu::Device,
     queue: wgpu::Queue,
     poison: PoisonWatch,
@@ -32,7 +32,7 @@ struct Batch {
     errors: wgpu::ErrorScopeGuard,
 }
 
-impl WgpuCopies {
+impl WgpuRelocationCopier {
     pub(crate) fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -61,7 +61,7 @@ impl WgpuCopies {
 // until that submission completed. On wasm the polls return at once, but
 // WebGPU runs its one queue in order: the copies run after every earlier
 // submission, and every later one runs after the copies.
-unsafe impl RelocationCopier<WgpuStorage> for WgpuCopies {
+unsafe impl RelocationCopier<WgpuStorage> for WgpuRelocationCopier {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         // Every stream's work is submitted already; this waits for the device
         // to finish it.

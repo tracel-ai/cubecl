@@ -127,12 +127,12 @@ mod tests {
 
     /// A device whose memory needs `need`, recording each step it is asked
     /// for.
-    struct Recorded {
+    struct RecordingDeviceRelocator {
         need: RelocationNeed,
         steps: Vec<&'static str>,
     }
 
-    impl DeviceRelocator for Recorded {
+    impl DeviceRelocator for RecordingDeviceRelocator {
         fn relocation_need(&mut self, _scope: RelocationScope) -> RelocationNeed {
             self.need
         }
@@ -146,8 +146,8 @@ mod tests {
         }
     }
 
-    fn device(need: RelocationNeed) -> Recorded {
-        Recorded {
+    fn device(need: RelocationNeed) -> RecordingDeviceRelocator {
+        RecordingDeviceRelocator {
             need,
             steps: Vec::new(),
         }
