@@ -26,7 +26,8 @@ pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     /// # Guarantees
     ///
     /// `Ok` only once nothing will read or write the storage's allocations
-    /// until the next work is issued.
+    /// until the next work is issued, or once every later use of them is
+    /// ordered after the copies issued next.
     ///
     /// # Errors
     ///
@@ -59,7 +60,8 @@ pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     ///
     /// # Guarantees
     ///
-    /// `Ok` only once every copy added has landed.
+    /// `Ok` only once every copy added has landed, or once every later use
+    /// of its storages is ordered after it.
     ///
     /// # Errors
     ///

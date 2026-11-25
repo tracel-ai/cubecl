@@ -19,7 +19,13 @@ pub(crate) struct StreamCopies<'a, D: Driver> {
 }
 
 impl<'a, D: Driver> StreamCopies<'a, D> {
-    pub(crate) fn new(
+    /// The queue `queue` names, waiting on the streams `signals` name.
+    ///
+    /// # Safety
+    ///
+    /// `signals` holds a signal of every stream of the device: the copier's
+    /// `wait_device` waits on those alone.
+    pub(crate) unsafe fn new(
         signals: Vec<<D::Stream as DeviceStream>::Signal>,
         queue: <D::Stream as DeviceStream>::Signal,
         ctx: &'a mut D::Context,

@@ -183,7 +183,7 @@ where
         self.scheduler.flush_all();
     }
 
-    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+    unsafe fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.stream_id],
             RelocationScope::Device => self.scheduler.stream_ids().collect(),
@@ -191,7 +191,10 @@ where
         for stream_id in stream_ids {
             let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
             if stream.relocation_state().need.has_outdated() {
-                stream.relocate(reason, failures);
+                // SAFETY: by `relocate_memory`'s contract, `finish` flushed
+                // every stream's queued tasks, submitting them, and none is
+                // issued until this returns.
+                unsafe { stream.relocate(reason, failures) };
             }
         }
     }

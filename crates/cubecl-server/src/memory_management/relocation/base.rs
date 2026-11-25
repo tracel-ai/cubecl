@@ -71,8 +71,9 @@ impl RelocationLander {
     ///
     /// Every copy of `moves` is between the storage of a live allocation and
     /// the storage of the slice reserved for it: of the same size, on distinct
-    /// device allocations, each padded up to the device's alignment, the
-    /// target held by nobody but its move.
+    /// device allocations of the storage later passed to [`land`](Self::land),
+    /// each padded up to the device's alignment, the target held by nobody
+    /// but its move.
     pub(crate) unsafe fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }
@@ -107,13 +108,17 @@ impl RelocationLander {
             .iter()
             .filter_map(|relocated| relocated.copy.as_ref())
             // SAFETY: `new`'s contract makes each copy one between storages of
-            // the same size on distinct allocations, padded up to the device's
-            // alignment, its target held by nobody but its move. Both stay
-            // alive: `self.moves` holds the source's binding and the target's
-            // handle until `wait_copies` returns. `wait_device` answered `Ok`
-            // above, so by the copier's own contract nothing reads or writes
-            // them until the next work is issued, and none is issued while the
-            // copier and the storage are borrowed here.
+            // `storage`, of the same size on distinct allocations, padded up to
+            // the device's alignment, its target held by nobody but its move.
+            // Both stay alive until `wait_copies` returns: the binding keeps
+            // nothing alive, but the source's page can be neither released nor
+            // carved again while this runs, since the caller holds its pool
+            // mutably borrowed for the whole call; the target handle keeps the
+            // target slice taken. `wait_device` answered `Ok` above, so by the
+            // copier's own contract nothing reads or writes them until the next
+            // work is issued, or every later use is ordered after these copies;
+            // and none is issued while the copier and the storage are borrowed
+            // here.
             .try_for_each(|copy| unsafe { copier.copy(storage, copy) });
         if let Err(err) = copier.wait_copies() {
             release_or_leak(self.moves, &err);
@@ -158,11 +163,19 @@ mod tests {
                 .map_err(|()| DriverError::new("wait device", 201).into())
         }
 
-        unsafe fn copy(&mut self, _: &mut BytesStorage, _: &StorageCopy) -> Result<(), IoError> {
+        unsafe fn copy(
+            &mut self,
+            storage: &mut BytesStorage,
+            copy: &StorageCopy,
+        ) -> Result<(), IoError> {
             self.copy.map_err(|()| IoError::Unknown {
                 description: "refused".into(),
                 backtrace: Default::default(),
-            })
+            })?;
+            let source = storage.get(&copy.source);
+            let mut target = storage.get(&copy.target);
+            target.write().copy_from_slice(source.read());
+            Ok(())
         }
 
         fn wait_copies(&mut self) -> Result<(), ServerError> {

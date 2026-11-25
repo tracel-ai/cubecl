@@ -66,11 +66,10 @@ impl StreamRelocator for CpuStream {
         }
     }
 
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        // SAFETY: a stream relocates only once every stream's work is done:
-        // the scheduler runs its `finish`, which flushes every queued task,
-        // before it hands the relocation over, and no task runs until this
-        // returns.
+    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        // SAFETY: by `relocate`'s contract every stream's queued work has run,
+        // since the CPU runs a task when it is submitted, and none is issued
+        // until this returns.
         unsafe { self.memory_management.relocate_on_host(reason, failures) };
     }
 

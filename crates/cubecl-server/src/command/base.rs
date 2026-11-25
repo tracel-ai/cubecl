@@ -739,7 +739,7 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
         stream.device_memory().cleanup(Cleanup::Explicit, failures);
     }
 
-    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+    unsafe fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.streams.current],
             RelocationScope::Device => self.streams.stream_ids(),
@@ -774,7 +774,9 @@ impl<D: Driver> Command<'_, D> {
         self.refuse_while_recording()?;
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
         let queue = self.streams.current().signal();
-        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        // SAFETY: `signals` holds a signal of every stream of the device, read
+        // from `streams.all()` just above.
+        let mut copier = unsafe { StreamCopies::<D>::new(signals, queue, self.ctx) };
         let (stream, failures) = self.streams.current_and_failures();
         stream
             .device_memory()
@@ -800,7 +802,9 @@ impl<D: Driver> Command<'_, D> {
         // device anyway.
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
         let queue = self.streams.get(&stream_id).signal();
-        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        // SAFETY: `signals` holds a signal of every stream of the device, read
+        // from `streams.all()` just above.
+        let mut copier = unsafe { StreamCopies::<D>::new(signals, queue, self.ctx) };
         let (stream, failures) = self.streams.get_and_failures(&stream_id);
         stream
             .device_memory()

@@ -24,10 +24,19 @@ pub trait DeviceRelocator {
     /// Get every stream's queued and submitted work done, or leave it to the
     /// [`RelocationCopier`](super::RelocationCopier) to wait for before its
     /// first copy.
+    ///
+    /// # Guarantees
+    ///
+    /// Every stream's queued work is submitted.
     fn finish(&mut self);
 
     /// Move what the memory of `scope` holds on outdated pages, for `reason`.
-    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason);
+    ///
+    /// # Safety
+    ///
+    /// [`finish`](Self::finish) ran since the last work was issued, none is
+    /// issued until it returns, and no stream records a graph.
+    unsafe fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason);
 
     /// Give back every page the relocating stream's memory holds and nothing
     /// needs.
@@ -119,10 +128,21 @@ pub trait DeviceRelocator {
     }
 
     /// Get every stream's work done, then move what the memory of `scope`
-    /// holds on outdated pages.
+    /// holds on outdated pages, unless a stream records a graph.
+    ///
+    /// # Guarantees
+    ///
+    /// Moves nothing while a stream records a graph.
     fn finish_and_relocate(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.relocation_need(scope) == RelocationNeed::Recording {
+            return;
+        }
         self.finish();
-        self.relocate_memory(scope, reason);
+        // SAFETY: `finish` just submitted every stream's queued work, nothing
+        // is issued before `relocate_memory` returns since `self` is borrowed
+        // for the whole call, and no stream records: `relocation_need` answers
+        // `Recording` whenever one does.
+        unsafe { self.relocate_memory(scope, reason) };
     }
 }
 
@@ -147,7 +167,7 @@ mod tests {
             self.steps.push("finish");
         }
 
-        fn relocate_memory(&mut self, _scope: RelocationScope, _reason: RelocationReason) {
+        unsafe fn relocate_memory(&mut self, _scope: RelocationScope, _reason: RelocationReason) {
             self.steps.push("relocate");
         }
 

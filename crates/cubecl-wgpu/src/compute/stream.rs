@@ -152,7 +152,7 @@ impl StreamRelocator for WgpuStream {
         }
     }
 
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
         let mut copier =
             WgpuCopies::new(self.device.clone(), self.queue.clone(), self.poison.clone());
         self.memory.relocate(&mut copier, reason, failures);

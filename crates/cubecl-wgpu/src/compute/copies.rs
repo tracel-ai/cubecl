@@ -46,9 +46,12 @@ impl WgpuCopies {
     }
 }
 
-// SAFETY: `wait_device` polls the device until every submission so far
-// completed, the stream's own work submitted by its caller first, and
+// SAFETY: natively, `wait_device` polls the device until every submission so
+// far completed, the stream's own work submitted by its caller first, and
 // `wait_copies` submits the batch and polls until that submission completed.
+// On wasm the polls return at once, but WebGPU runs its one queue in order and
+// defers a buffer's destruction until the submissions using it finish, so
+// every later use of the moved allocations is ordered after the copies.
 unsafe impl RelocationCopier<WgpuStorage> for WgpuCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         // The stream's own work is submitted by the caller; this waits for the

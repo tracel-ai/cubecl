@@ -21,10 +21,11 @@ pub trait StreamRelocator {
 
     /// Move what the stream's memory holds on outdated pages.
     ///
-    /// # Assumptions
+    /// # Safety
     ///
-    /// Every stream's work is done, and none runs until it returns.
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph);
+    /// Every stream's queued work has been submitted (for a runtime that runs
+    /// it on submission, run), and none is issued until it returns.
+    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph);
 
     /// Give back every page the stream's memory holds and nothing needs.
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph);
