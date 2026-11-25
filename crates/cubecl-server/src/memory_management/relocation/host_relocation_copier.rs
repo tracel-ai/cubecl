@@ -7,7 +7,7 @@ use crate::storage::{BytesStorage, StorageAllocator};
 ///
 /// Waits on nothing: the tests that build it run no work against the memory.
 #[derive(Debug, Default)]
-pub(crate) struct HostRelocationCopier;
+pub struct HostRelocationCopier;
 
 // SAFETY: a host copy has landed by the time `copy` returns, so `wait_copies`
 // has nothing left to wait for. `wait_device` waits on nothing: the copier

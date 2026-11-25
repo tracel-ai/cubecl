@@ -26,11 +26,11 @@ const TINY_POOL: u8 = 0;
 /// The pool index small allocations carry.
 const SMALL_POOL: u8 = 1;
 /// The pool index of the arena's first slot.
-pub(super) const ARENA_POOLS: u8 = 2;
+pub const ARENA_POOLS: u8 = 2;
 /// The pool index of the separate arena's first slot, past the arena's.
-pub(super) const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOT_COUNT as u8;
+pub const SEPARATE_POOLS: u8 = ARENA_POOLS + ARENA_SLOT_COUNT as u8;
 /// The pool index of the small allocations kept apart, past the separate arena's.
-pub(super) const SMALL_SEPARATE_POOL: u8 = SEPARATE_POOLS + ARENA_SLOT_COUNT as u8;
+pub const SMALL_SEPARATE_POOL: u8 = SEPARATE_POOLS + ARENA_SLOT_COUNT as u8;
 
 // The arenas' pools are addressed from `ARENA_POOLS` on, one after the other,
 // and must stay clear of the fixed indices the dedicated and persistent pools
@@ -60,7 +60,7 @@ const MIN_PAGE_BYTES: u64 = 2 * 1024 * 1024;
 ///
 /// `failures` is, in every function, the [`ErrorGraph`] that holds the
 /// failures the memory's slices carry.
-pub(crate) struct AdaptiveReserver {
+pub struct AdaptiveReserver {
     /// Zero-sized allocations, which cannot take an offset into a page (on
     /// wgpu at least).
     tiny: ExclusiveSliceReserver,
@@ -91,7 +91,7 @@ pub(crate) struct AdaptiveReserver {
 
 impl AdaptiveReserver {
     /// The pools for a device with `properties`.
-    pub(crate) fn new(
+    pub fn new(
         properties: &MemoryDeviceProperties,
         logger: Arc<ServerLogger>,
         name: String,
@@ -135,7 +135,7 @@ impl AdaptiveReserver {
     }
 
     /// The pool `pool_index` names, while one is there.
-    pub(crate) fn pool_by_index(&self, pool_index: u8) -> Option<&dyn SliceReserver> {
+    pub fn pool_by_index(&self, pool_index: u8) -> Option<&dyn SliceReserver> {
         match pool_index {
             TINY_POOL => Some(&self.tiny),
             SMALL_POOL => Some(&self.small),
@@ -146,7 +146,7 @@ impl AdaptiveReserver {
     }
 
     /// The pool `pool_index` names, mutably.
-    pub(crate) fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut dyn SliceReserver> {
+    pub fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut dyn SliceReserver> {
         match pool_index {
             TINY_POOL => Some(&mut self.tiny),
             SMALL_POOL => Some(&mut self.small),
@@ -162,7 +162,7 @@ impl AdaptiveReserver {
     /// # Errors
     ///
     /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
-    pub(crate) fn materialize<Storage: StorageAllocator>(
+    pub fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -201,7 +201,7 @@ impl AdaptiveReserver {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when the arena has no slot left for a
     /// new page size, and whatever the device refused.
-    pub(crate) fn reserve<Storage: StorageAllocator>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -230,7 +230,7 @@ impl AdaptiveReserver {
     /// Reserve `size` bytes in the room the pools already hold, without
     /// growing the pages, on the pool [`reserve`](Self::reserve) would place
     /// them on. `None` when it has no room for them.
-    pub(crate) fn try_reserve(
+    pub fn try_reserve(
         &mut self,
         size: u64,
         kind: AllocationKind,
@@ -252,13 +252,13 @@ impl AdaptiveReserver {
 
     /// Whether emptying the arena's outdated pools is wanted (see
     /// [`ArenaReserver::relocation_need`]).
-    pub(crate) fn relocation_need(&self) -> RelocationNeed {
+    pub fn relocation_need(&self) -> RelocationNeed {
         self.arena.relocation_need(self.capacity)
     }
 
     /// Empty the arena's outdated pools into its current one, so the pages
     /// they held go back to the driver (see [`ArenaReserver::relocate`]).
-    pub(crate) fn relocate<Storage: StorageAllocator>(
+    pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn RelocationCopier<Storage>,
@@ -279,7 +279,7 @@ impl AdaptiveReserver {
     /// # Errors
     ///
     /// When the pools kept apart have no room for one, or a copy fails: nothing moved then.
-    pub(crate) fn move_apart<Storage: StorageAllocator>(
+    pub fn move_apart<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         kept: &[ManagedMemoryBinding],
@@ -321,7 +321,7 @@ impl AdaptiveReserver {
 
     /// Release what the pools no longer need, and drop every outdated pool
     /// that has drained.
-    pub(crate) fn cleanup<Storage: StorageAllocator>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         reservation_count: u64,
@@ -343,7 +343,7 @@ impl AdaptiveReserver {
     /// A report per pool held, in the order allocations are routed through
     /// them, the outdated ones last. The arena's current pool reports how many
     /// pages the outdated ones hold.
-    pub(crate) fn report(&self) -> Vec<MemoryPoolReport> {
+    pub fn report(&self) -> Vec<MemoryPoolReport> {
         let mut reports = alloc::vec![
             self.tiny.report(),
             self.small.view().report(),
@@ -353,7 +353,9 @@ impl AdaptiveReserver {
         self.separate.extend_report(&mut reports);
         reports
     }
+}
 
+impl AdaptiveReserver {
     /// Where an allocation of `size` bytes and of `kind` goes, past the tiny pool.
     ///
     /// What carves the pools kept apart is never written by a replay, so their

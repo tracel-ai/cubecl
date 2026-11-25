@@ -9,7 +9,7 @@ use cubecl_server::storage::{BytesStorage, StorageAllocator};
 
 /// The CPU's copy: a `memcpy` between host allocations, made once the
 /// stream's launches have run.
-pub(crate) struct CpuRelocationCopier<'a> {
+pub struct CpuRelocationCopier<'a> {
     /// The launches of the stream whose memory moves, waited on before the
     /// first copy.
     progress: &'a mut LaunchProgress,
@@ -19,7 +19,7 @@ impl<'a> CpuRelocationCopier<'a> {
     /// The copies of a relocation running after every stream's work was
     /// submitted, as `_submitted` proves, waiting on `progress` before the
     /// first one.
-    pub(crate) fn new(progress: &'a mut LaunchProgress, _submitted: &StreamsSubmitted) -> Self {
+    pub fn new(progress: &'a mut LaunchProgress, _submitted: &StreamsSubmitted) -> Self {
         Self { progress }
     }
 }

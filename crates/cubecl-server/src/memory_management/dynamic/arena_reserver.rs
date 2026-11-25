@@ -31,7 +31,7 @@ use cubecl_environment::sync::Arc;
 /// A slot frees once the pool in it drains, and a relocation drains the
 /// outdated ones, so a workload reaches this only by growing through that many
 /// sizes while each keeps something alive.
-pub(crate) const ARENA_SLOT_COUNT: usize = 64;
+pub const ARENA_SLOT_COUNT: usize = 64;
 
 /// Reserves allocations from a fixed number of paged pools, one per page size
 /// a workload's allocations grew through.
@@ -43,7 +43,7 @@ pub(crate) const ARENA_SLOT_COUNT: usize = 64;
 ///
 /// `failures` is, in every function, the [`ErrorGraph`] that holds the
 /// failures the arena's slices carry.
-pub(crate) struct ArenaReserver {
+pub struct ArenaReserver {
     /// The pools by slot (Position); a slot is empty once its pool drained.
     slots: Vec<Option<PagedSliceReserver>>,
     /// The pool index a slice's location carries for slot 0.
@@ -66,7 +66,7 @@ pub(crate) struct ArenaReserver {
 impl ArenaReserver {
     /// An arena whose first pool carves the smallest pages `sizing` allows,
     /// its slots addressed from `first_index` on.
-    pub(crate) fn new(
+    pub fn new(
         sizing: PageSizing,
         first_index: u8,
         logger: Arc<ServerLogger>,
@@ -91,13 +91,13 @@ impl ArenaReserver {
     }
 
     /// The pool `pool_index` names, while one is there.
-    pub(crate) fn pool_by_index(&self, pool_index: u8) -> Option<&PagedSliceReserver> {
+    pub fn pool_by_index(&self, pool_index: u8) -> Option<&PagedSliceReserver> {
         let slot = pool_index.checked_sub(self.first_index)?;
         self.slots.get(slot as usize)?.as_ref()
     }
 
     /// The pool `pool_index` names, mutably.
-    pub(crate) fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut PagedSliceReserver> {
+    pub fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut PagedSliceReserver> {
         let slot = pool_index.checked_sub(self.first_index)?;
         self.slots.get_mut(slot as usize)?.as_mut()
     }
@@ -109,7 +109,7 @@ impl ArenaReserver {
     /// # Errors
     ///
     /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
-    pub(crate) fn materialize<Storage: StorageAllocator>(
+    pub fn materialize<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         binding: &ManagedMemoryBinding,
@@ -120,13 +120,13 @@ impl ArenaReserver {
 
     /// Whether a page of the size the arena carves now holds `size_bytes`: a
     /// new page for them would not outdate the current ones.
-    pub(crate) fn fits_bytes(&self, size_bytes: u64) -> bool {
+    pub fn fits_bytes(&self, size_bytes: u64) -> bool {
         self.sizing.fit(size_bytes, self.current_page_size) == Fit::Fits
     }
 
     /// Whether the current pool is pinned (see
     /// [`PagedView::is_pinned`](crate::memory_management::memory_pool::PagedView::is_pinned)).
-    pub(crate) fn is_pinned(&self) -> bool {
+    pub fn is_pinned(&self) -> bool {
         self.current().view().is_pinned()
     }
 
@@ -135,7 +135,7 @@ impl ArenaReserver {
     /// the arena is full or the device may be short of room, and not again
     /// while the pools look as they did when the last relocation moved
     /// nothing.
-    pub(crate) fn relocation_need(&self, capacity: Option<u64>) -> RelocationNeed {
+    pub fn relocation_need(&self, capacity: Option<u64>) -> RelocationNeed {
         // Asked before every allocation: when nothing is outdated, which is
         // almost always, answer without counting any page.
         if self.outdated.is_empty() {
@@ -146,7 +146,7 @@ impl ArenaReserver {
 
     /// Add a report for the current pool, stating how many pages the outdated
     /// ones hold, then one per outdated pool, to `reports`.
-    pub(crate) fn extend_report(&self, reports: &mut Vec<MemoryPoolReport>) {
+    pub fn extend_report(&self, reports: &mut Vec<MemoryPoolReport>) {
         reports.push(MemoryPoolReport {
             kind: MemoryPoolKind::Adaptive {
                 page_size: self.current_page_size,
@@ -165,7 +165,7 @@ impl ArenaReserver {
     /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
     /// [`IoError::PageSizesExhausted`] when it needs a new page size and
     /// every slot is taken, and whatever the device refused.
-    pub(crate) fn reserve<Storage: StorageAllocator>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -193,7 +193,7 @@ impl ArenaReserver {
     /// Only the current pool carves, so the room on a pinned page an outdated
     /// pool holds serves no capture after the growth: why the largest graph
     /// is recorded first.
-    pub(crate) fn try_reserve(
+    pub fn try_reserve(
         &mut self,
         size: u64,
         room: PinnedRoom,
@@ -207,7 +207,7 @@ impl ArenaReserver {
 
     /// Release what the current pool no longer needs, and drop every outdated
     /// pool that has drained.
-    pub(crate) fn cleanup<Storage: StorageAllocator>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         reservation_count: u64,
@@ -226,7 +226,7 @@ impl ArenaReserver {
     /// A plan whose copies fail is abandoned: every allocation stays where it
     /// was. Targets are freed only once every later use of them runs after the
     /// copies.
-    pub(crate) fn relocate<Storage: StorageAllocator>(
+    pub fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn RelocationCopier<Storage>,
@@ -246,7 +246,9 @@ impl ArenaReserver {
             Err(err) => self.abandon(&err),
         }
     }
+}
 
+impl ArenaReserver {
     /// The pool new allocations are carved from.
     fn current(&self) -> &PagedSliceReserver {
         self.slots[self.current]

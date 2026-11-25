@@ -19,7 +19,7 @@ pub(crate) use persistent_view::PersistentView;
 /// the same padded size: what weights and other allocations kept for a
 /// model's life are served from, so they never hold a page of the dynamic
 /// pools.
-pub(crate) struct PersistentSliceReserver {
+pub struct PersistentSliceReserver {
     /// Every slice, read by the position a location carries (Position) and
     /// added at the end (Arrival).
     slices: Vec<Slice>,
@@ -37,7 +37,7 @@ pub(crate) struct PersistentSliceReserver {
 
 impl PersistentSliceReserver {
     /// The pool's shape, usage and high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
+    pub fn report(&self) -> MemoryPoolReport {
         MemoryPoolReport {
             kind: MemoryPoolKind::Persistent,
             usage: slices_usage(self.slices.iter()),
@@ -50,7 +50,7 @@ impl PersistentSliceReserver {
 
     /// A pool that serves any size up to `max_alloc_size`, the largest single
     /// allocation the device makes.
-    pub(crate) fn new(max_alloc_size: u64, alignment: u64, pool_index: u8) -> Self {
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_index: u8) -> Self {
         Self {
             slices: Vec::new(),
             sizes: HashMap::new(),
@@ -63,8 +63,8 @@ impl PersistentSliceReserver {
     }
 
     /// A [`PersistentView`] of the pool.
-    pub(crate) fn view(&self) -> PersistentView<'_> {
-        PersistentView { pool: self }
+    pub fn view(&self) -> PersistentView<'_> {
+        PersistentView::new(self)
     }
 }
 

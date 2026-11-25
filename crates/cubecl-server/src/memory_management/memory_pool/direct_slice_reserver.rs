@@ -27,7 +27,7 @@ use cubecl_environment::backtrace::BackTrace;
 /// a minted id that costs no driver call to create and none to release. And on
 /// a device where the workload barely fits, the padding this removes can be the
 /// difference between fitting and not.
-pub(crate) struct DirectSliceReserver {
+pub struct DirectSliceReserver {
     /// Every slice owns its whole device allocation, read by the position a
     /// location carries (Position), so a freed entry is tombstoned rather
     /// than removed: a live handle's location must keep pointing at its own
@@ -60,7 +60,7 @@ pub(crate) struct DirectSliceReserver {
 
 impl DirectSliceReserver {
     /// The pool's shape, usage and high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
+    pub fn report(&self) -> MemoryPoolReport {
         MemoryPoolReport {
             kind: MemoryPoolKind::Direct,
             usage: slices_usage(self.held()),
@@ -74,7 +74,7 @@ impl DirectSliceReserver {
     /// A pool that serves any size up to `max_alloc_size`, the largest
     /// single allocation the device makes: with no pages to fit an allocation
     /// into, that is its only limit.
-    pub(crate) fn new(
+    pub fn new(
         max_alloc_size: u64,
         alignment: u64,
         pool_index: u8,
@@ -103,7 +103,7 @@ impl DirectSliceReserver {
     /// slice where it is can still allocate. Position order is an arbitrary
     /// choice, but a deterministic one, which is what keeps a replayed
     /// allocation stream landing the same way twice.
-    pub(crate) fn reclaim<Storage: StorageAllocator>(
+    pub fn reclaim<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -121,7 +121,9 @@ impl DirectSliceReserver {
         }
         self.release_marked(storage, failures)
     }
+}
 
+impl DirectSliceReserver {
     /// Every slice the pool holds, live or free.
     fn held(&self) -> impl Iterator<Item = &Slice> {
         self.slices.iter().flatten()

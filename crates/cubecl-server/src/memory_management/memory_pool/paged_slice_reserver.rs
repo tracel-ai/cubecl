@@ -31,7 +31,7 @@ pub enum PinnedRoom {
 ///
 /// The size is the pool's for its life: what a workload's allocations grow
 /// into is the adaptive memory's to answer, with a pool per size.
-pub(crate) struct PagedSliceReserver {
+pub struct PagedSliceReserver {
     /// Every page, read by the index a location carries (Position) and
     /// scanned in that order for room (Ordered).
     pages: Vec<PageSuballocator>,
@@ -48,7 +48,7 @@ pub(crate) struct PagedSliceReserver {
 
 /// What a [`PagedSliceReserver`] carves, and the pool index its slices carry.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PagedLayout {
+pub struct PagedLayout {
     /// The size every page is allocated at.
     pub page_size_bytes: u64,
     /// The largest allocation the pool accepts.
@@ -65,7 +65,7 @@ impl PagedSliceReserver {
     /// # Assumptions
     ///
     /// `layout`'s largest slice is no larger than its page.
-    pub(crate) fn new(layout: PagedLayout) -> Self {
+    pub fn new(layout: PagedLayout) -> Self {
         Self {
             pages: Vec::new(),
             layout,
@@ -79,14 +79,14 @@ impl PagedSliceReserver {
     /// Accept only up to the largest slice, never an allocation for being
     /// close to the page size: for a pool routed ahead of one whose pages are
     /// sized to what they serve, where those allocations fragment nothing.
-    pub(crate) fn up_to_max_slice(mut self) -> Self {
+    pub fn up_to_max_slice(mut self) -> Self {
         self.near_page_size = false;
         self
     }
 
     /// A [`PagedView`] of the pool.
-    pub(crate) fn view(&self) -> PagedView<'_> {
-        PagedView { pool: self }
+    pub fn view(&self) -> PagedView<'_> {
+        PagedView::new(self)
     }
 
     /// The page `location` names, which the pool is holding.
@@ -94,7 +94,7 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When the pool holds no page there.
-    pub(crate) fn page_at(&self, location: MemoryLocation) -> &PageSuballocator {
+    pub fn page_at(&self, location: MemoryLocation) -> &PageSuballocator {
         &self.pages[location.page as usize]
     }
 
@@ -103,27 +103,8 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When the pool holds no slice there.
-    pub(crate) fn slice_at(&mut self, location: MemoryLocation) -> &mut Slice {
+    pub fn slice_at(&mut self, location: MemoryLocation) -> &mut Slice {
         self.pages[location.page as usize].slice_at_index_mut(location.slice as usize)
-    }
-
-    /// The storage behind the slice `location` names, giving its page real
-    /// device backing first if it was carved lazily.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
-    ///
-    /// # Panics
-    ///
-    /// When the pool holds no slice there.
-    pub(crate) fn mapped_storage_at<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
-        location: MemoryLocation,
-    ) -> Result<StorageHandle, IoError> {
-        self.pages[location.page as usize].map(storage)?;
-        Ok(self.slice_at(location).storage.clone())
     }
 
     /// The copy of `source`'s bytes into the slice `target` names, giving its
@@ -137,7 +118,7 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When the pool holds no slice at `target`.
-    pub(crate) fn copy_into<Storage: StorageAllocator>(
+    pub fn copy_into<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         source: Option<StorageHandle>,
@@ -152,7 +133,7 @@ impl PagedSliceReserver {
 
     /// Reserve `size` bytes on a page already held, coalescing as it goes. A
     /// guarded page is carved only when `room` shares it.
-    pub(crate) fn try_reserve_sharing(
+    pub fn try_reserve_sharing(
         &mut self,
         size: u64,
         room: PinnedRoom,
@@ -180,7 +161,7 @@ impl PagedSliceReserver {
     /// # Panics
     ///
     /// When `size` is one [`accept`](SliceReserver::accepts_bytes) refuses.
-    pub(crate) fn reserve_sharing<Storage: StorageAllocator>(
+    pub fn reserve_sharing<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -196,7 +177,7 @@ impl PagedSliceReserver {
 
     /// Return every page nothing is live on and nothing guards to the driver,
     /// and renumber the rest.
-    pub(crate) fn release_empty<Storage: StorageAllocator>(
+    pub fn release_empty<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -206,6 +187,27 @@ impl PagedSliceReserver {
         for (index, page) in self.pages.iter_mut().enumerate() {
             page.set_page_index(index as u16);
         }
+    }
+}
+
+impl PagedSliceReserver {
+    /// The storage behind the slice `location` names, giving its page real
+    /// device backing first if it was carved lazily.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    ///
+    /// # Panics
+    ///
+    /// When the pool holds no slice there.
+    fn mapped_storage_at<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        location: MemoryLocation,
+    ) -> Result<StorageHandle, IoError> {
+        self.pages[location.page as usize].map(storage)?;
+        Ok(self.slice_at(location).storage.clone())
     }
 
     /// Allocate a page and reserve `size` bytes on it.

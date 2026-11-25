@@ -5,7 +5,7 @@ use crate::{memory_management::ErrorGraph, storage::StorageUtilization};
 /// slice to the allocation it serves: where the Commands on a [`Slice`] live,
 /// since a slice is plain data the pools' pages and views hold.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SliceBinder;
+pub struct SliceBinder;
 
 impl SliceBinder {
     /// Bind `assigned` to the allocation on `slice` at `cursor`: whatever
@@ -15,7 +15,7 @@ impl SliceBinder {
     /// # Assumptions
     ///
     /// `failures` holds the failures the slice carries.
-    pub(crate) fn bind(
+    pub fn bind(
         &self,
         slice: &mut Slice,
         assigned: ManagedMemoryHandle,
@@ -39,12 +39,7 @@ impl SliceBinder {
     /// # Assumptions
     ///
     /// `failures` holds the failures the target carries.
-    pub(crate) fn hand_over(
-        &self,
-        source: &mut Slice,
-        target: &mut Slice,
-        failures: &mut ErrorGraph,
-    ) {
+    pub fn hand_over(&self, source: &mut Slice, target: &mut Slice, failures: &mut ErrorGraph) {
         target.tainted.clear(failures);
         let freed = ManagedMemoryHandle::new();
         freed
@@ -62,7 +57,7 @@ impl SliceBinder {
 
     /// Serve `size` bytes from the start of a slice that owns its whole
     /// allocation, which `padded_size` bytes take once aligned.
-    pub(crate) fn fit_whole(&self, slice: &mut Slice, size: u64, padded_size: u64) {
+    pub fn fit_whole(&self, slice: &mut Slice, size: u64, padded_size: u64) {
         slice.storage.utilization = StorageUtilization {
             offset_bytes: 0,
             size_bytes: size,

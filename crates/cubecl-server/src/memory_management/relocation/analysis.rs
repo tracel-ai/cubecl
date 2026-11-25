@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 /// read-back that points into the page on a runtime that reads in place.
 /// Moving the allocation would leave it pointing at freed bytes.
 #[derive(Debug)]
-pub(crate) struct OutdatedPages {
+pub struct OutdatedPages {
     /// The movable pages, cheapest first: the fewest live bytes (Ordered),
     /// kept in that order as they are found.
     pages: Vec<MovablePage>,
@@ -22,7 +22,7 @@ pub(crate) struct OutdatedPages {
 
 /// An outdated page whose live allocations can all move.
 #[derive(Debug)]
-pub(crate) struct MovablePage {
+pub struct MovablePage {
     /// The allocations to move, as their owners hold them, in the page's
     /// offset order (Arrival).
     pub live: Vec<LiveAllocation>,
@@ -30,7 +30,7 @@ pub(crate) struct MovablePage {
 
 /// One live allocation on an outdated page.
 #[derive(Debug)]
-pub(crate) struct LiveAllocation {
+pub struct LiveAllocation {
     /// The allocation, bound rather than held: a handle of the relocation's own would count
     /// among its owners' while the move runs (see [`ManagedMemoryHandle::to_binding`](crate::memory_management::ManagedMemoryHandle::to_binding)).
     pub handle: ManagedMemoryBinding,
@@ -41,7 +41,7 @@ pub(crate) struct LiveAllocation {
 impl OutdatedPages {
     /// The movable pages among `pages`, cheapest first, pages of equal cost
     /// in the order found.
-    pub(crate) fn new<'a>(pages: impl IntoIterator<Item = &'a PageSuballocator>) -> Self {
+    pub fn new<'a>(pages: impl IntoIterator<Item = &'a PageSuballocator>) -> Self {
         let mut ordered: Vec<MovablePage> = Vec::new();
         for page in pages
             .into_iter()
@@ -58,7 +58,7 @@ impl OutdatedPages {
     /// The pages to empty, cheapest first — the fewest live bytes — so that
     /// when the room for targets runs out, the pages already emptied are as
     /// many as that room allowed.
-    pub(crate) fn into_plan(self) -> Vec<MovablePage> {
+    pub fn into_plan(self) -> Vec<MovablePage> {
         self.pages
     }
 }
@@ -82,7 +82,7 @@ impl MovablePage {
     }
 
     /// The bytes moving this page's allocations copies.
-    pub(crate) fn live_bytes(&self) -> u64 {
+    fn live_bytes(&self) -> u64 {
         self.live
             .iter()
             .map(|allocation| allocation.size_bytes)

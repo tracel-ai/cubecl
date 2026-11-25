@@ -24,7 +24,7 @@ impl Default for FlushingPolicy {
 /// Tracks what is staged and evaluates it against the [`FlushingPolicy`] it
 /// holds.
 #[derive(Debug)]
-pub(crate) struct FlushTracker {
+pub struct FlushTracker {
     policy: FlushingPolicy,
     staged_count: u32,
     staged_bytes: u32,
@@ -32,7 +32,7 @@ pub(crate) struct FlushTracker {
 
 impl FlushTracker {
     /// A tracker of nothing staged, flushing as `policy` says.
-    pub(crate) fn new(policy: FlushingPolicy) -> Self {
+    pub fn new(policy: FlushingPolicy) -> Self {
         Self {
             policy,
             staged_count: 0,
@@ -42,7 +42,7 @@ impl FlushTracker {
 
     /// Count a newly staged allocation of `staged_bytes`, saturating at the
     /// largest count.
-    pub(crate) fn track_staged_bytes(&mut self, staged_bytes: usize) {
+    pub fn track_staged_bytes(&mut self, staged_bytes: usize) {
         self.staged_count = self.staged_count.saturating_add(1);
         self.staged_bytes = self
             .staged_bytes
@@ -50,13 +50,13 @@ impl FlushTracker {
     }
 
     /// Forget everything staged, once a flush took it.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.staged_count = 0;
         self.staged_bytes = 0;
     }
 
     /// Whether either threshold of the policy has been reached.
-    pub(crate) fn should_flush(&self) -> bool {
+    pub fn should_flush(&self) -> bool {
         self.staged_count >= self.policy.max_staged_count
             || self.staged_bytes >= self.policy.max_staged_bytes
     }

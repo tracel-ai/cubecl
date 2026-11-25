@@ -24,7 +24,7 @@ const DEALLOC_FREE_CHECK_COUNT: u32 = 5;
 /// Only one slice is supported per page, due to the limitations in WGPU where
 /// each buffer should only bound with either read only or `read_write` slices
 /// but not a mix of both.
-pub(crate) struct ExclusiveSliceReserver {
+pub struct ExclusiveSliceReserver {
     /// Every page, read by the position a location carries (Position) and
     /// added at the end (Arrival); a reservation scans them all for the free
     /// page that fits and was found free the fewest times.
@@ -56,7 +56,7 @@ struct ExclusivePage {
 
 /// What an [`ExclusiveSliceReserver`] serves, and the pool index its pages carry.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ExclusiveLayout {
+pub struct ExclusiveLayout {
     /// The largest allocation the pool accepts, a multiple of the alignment.
     pub max_alloc_bytes: u64,
     /// The alignment every page is allocated at.
@@ -70,7 +70,7 @@ pub(crate) struct ExclusiveLayout {
 
 impl ExclusiveSliceReserver {
     /// The pool's shape, usage and high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
+    pub fn report(&self) -> MemoryPoolReport {
         MemoryPoolReport {
             kind: MemoryPoolKind::Exclusive {
                 max_alloc_size: self.max_alloc_size,
@@ -92,7 +92,7 @@ impl ExclusiveSliceReserver {
     /// # Panics
     ///
     /// When the layout's largest allocation is not a multiple of its alignment.
-    pub(crate) fn new(layout: ExclusiveLayout) -> Self {
+    pub fn new(layout: ExclusiveLayout) -> Self {
         assert_eq!(
             layout.max_alloc_bytes % layout.alignment_bytes,
             0,
@@ -111,7 +111,9 @@ impl ExclusiveSliceReserver {
             largest_alloc_bytes: 0,
         }
     }
+}
 
+impl ExclusiveSliceReserver {
     /// The free page that has been free the least, among those that fit
     /// `size_bytes`.
     fn free_page_fitting_bytes(&mut self, size_bytes: u64) -> Option<&mut ExclusivePage> {

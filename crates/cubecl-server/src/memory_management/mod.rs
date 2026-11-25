@@ -27,7 +27,8 @@ mod memory_manage;
 pub use memory_manage::*;
 
 mod options;
-pub use options::*;
+use options::MemoryAllocationOption;
+pub use options::MemoryManagementOptions;
 
 /// Moving live allocations off outdated pages.
 pub mod relocation;

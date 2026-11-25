@@ -5,7 +5,7 @@ use super::TargetRoom;
 /// What a [`RelocationDecider`] reads of the pools a workload's allocations
 /// are carved from, while a growth left some of them outdated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ArenaState {
+pub struct ArenaState {
     /// The size the current pages are carved at, which the next page has.
     pub page_size_bytes: u64,
     /// Whether every slot holds a pool, so the next growth has nowhere to go.
@@ -22,7 +22,7 @@ pub(crate) struct ArenaState {
 /// as their owners drop them: that room is found by the plan after the next
 /// page, growth or explicit cleanup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ArenaShape {
+pub struct ArenaShape {
     /// Pages the current pool holds.
     pub current_page_count: u64,
     /// Pools a growth left behind.
@@ -36,7 +36,7 @@ pub(crate) struct ArenaShape {
 /// Decides when a relocation is worth its copies: what the device holds, and
 /// how the last relocation went.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RelocationDecider {
+pub struct RelocationDecider {
     /// The pools as the last relocation found them with nothing to move, so
     /// the next is not planned until something changed.
     stalled: Option<ArenaShape>,
@@ -97,7 +97,7 @@ enum MemoryPressure {
 impl RelocationDecider {
     /// Whether the outdated pools `arena` describes want a relocation, on a
     /// device that holds `capacity` bytes where it says.
-    pub(crate) fn decide(&self, arena: &ArenaState, capacity: Option<u64>) -> RelocationNeed {
+    pub fn decide(&self, arena: &ArenaState, capacity: Option<u64>) -> RelocationNeed {
         if self.stalled == Some(arena.shape) {
             return RelocationNeed::Settled;
         }
@@ -114,13 +114,13 @@ impl RelocationDecider {
 
     /// A relocation moved something: the next is planned whenever it is
     /// wanted.
-    pub(crate) fn moved(&mut self) {
+    pub fn moved(&mut self) {
         self.stalled = None;
     }
 
     /// A relocation moved nothing: none is planned again until the pools
     /// `arena` describes change.
-    pub(crate) fn stalled(&mut self, arena: &ArenaState) {
+    pub fn stalled(&mut self, arena: &ArenaState) {
         self.stalled = Some(arena.shape);
     }
 }

@@ -23,7 +23,7 @@ use cubecl_environment::sync::Arc;
 ///
 /// `failures`, in every function that takes it, is the [`ErrorGraph`] that
 /// holds the failures the page's slices carry.
-pub(crate) struct PageSuballocator {
+pub struct PageSuballocator {
     storage: StorageHandle,
     /// The slices in offset order, read by the position a location carries
     /// (Position) and scanned in offset order for room (Ordered).
@@ -45,7 +45,7 @@ pub(crate) struct PageSuballocator {
 
 /// What a [`PageSuballocator`] holds, as its readers see it.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PageView<'a> {
+pub struct PageView<'a> {
     /// The page's slices, read by the position a location carries (Position)
     /// and in offset order (Ordered).
     pub slices: &'a [Slice],
@@ -62,7 +62,7 @@ pub(crate) struct PageView<'a> {
 impl PageSuballocator {
     /// A page of one free slice over `storage`, whose slices start at
     /// `alignment`, backed now or later as `mapping` says.
-    pub(crate) fn new(
+    pub fn new(
         storage: StorageHandle,
         alignment: u64,
         location_base: MemoryLocation,
@@ -81,7 +81,7 @@ impl PageSuballocator {
     }
 
     /// What the page holds right now.
-    pub(crate) fn view(&self) -> PageView<'_> {
+    pub fn view(&self) -> PageView<'_> {
         PageView {
             slices: &self.slices,
             is_mapped: self.mapped,
@@ -96,7 +96,7 @@ impl PageSuballocator {
     /// # Errors
     ///
     /// [`IoError::NotFound`] when the page holds no slice there.
-    pub(crate) fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+    pub fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let index = binding.descriptor().slice();
         self.slices
             .get(index)
@@ -108,10 +108,7 @@ impl PageSuballocator {
     /// # Errors
     ///
     /// [`IoError::NotFound`] when the page holds no slice there.
-    pub(crate) fn find_mut(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-    ) -> Result<&mut Slice, IoError> {
+    pub fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let index = binding.descriptor().slice();
         self.slices
             .get_mut(index)
@@ -123,25 +120,13 @@ impl PageSuballocator {
     /// # Panics
     ///
     /// When the page holds no slice at `index`.
-    pub(crate) fn slice_at_index_mut(&mut self, index: usize) -> &mut Slice {
+    pub fn slice_at_index_mut(&mut self, index: usize) -> &mut Slice {
         &mut self.slices[index]
     }
 
     /// Keep the page as it is for as long as the guard lives.
-    pub(crate) fn guard(&mut self) -> PageGuard {
+    pub fn guard(&mut self) -> PageGuard {
         PageGuard::page(&self.guards)
-    }
-
-    /// Bind the page to the real device allocation `id`: the page and every
-    /// slice take it (offsets and sizes are already correct — the virtual
-    /// carving *is* the layout). The old minted id simply ceases to exist; it
-    /// never reached the driver.
-    pub(crate) fn rebind_storage(&mut self, id: StorageId) {
-        for slice in self.slices.iter_mut() {
-            slice.storage.id = id;
-        }
-        self.storage.id = id;
-        self.mapped = true;
     }
 
     /// Bind `assigned` to the slice `reserved` holds, at `cursor`.
@@ -149,7 +134,7 @@ impl PageSuballocator {
     /// # Panics
     ///
     /// When `reserved` names no slice of the page.
-    pub(crate) fn bind(
+    pub fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
@@ -167,7 +152,7 @@ impl PageSuballocator {
     /// fits them, padded, splitting off the room it leaves. `None` when no
     /// free slice fits them: [`coalesce`](Self::coalesce) merges neighbouring
     /// free slices into larger ones.
-    pub(crate) fn suballocate_bytes(&mut self, size_bytes: u64) -> Option<ManagedMemoryHandle> {
+    pub fn suballocate_bytes(&mut self, size_bytes: u64) -> Option<ManagedMemoryHandle> {
         let effective_size = padded_size(size_bytes, self.alignment)?;
         let index = self
             .slices
@@ -183,7 +168,7 @@ impl PageSuballocator {
     }
 
     /// Number the page `page_index` in every location its slices carry.
-    pub(crate) fn set_page_index(&mut self, page_index: u16) {
+    pub fn set_page_index(&mut self, page_index: u16) {
         self.location_base.page = page_index;
         self.number_slices();
     }
@@ -192,7 +177,7 @@ impl PageSuballocator {
     /// allocations fit the page again. A merged slice is dropped here, so the
     /// failure it carried is released on the spot; nobody holds a handle to a
     /// free slice, so losing the tag costs nothing but the decrement.
-    pub(crate) fn coalesce(&mut self, failures: &mut ErrorGraph) {
+    pub fn coalesce(&mut self, failures: &mut ErrorGraph) {
         self.slices
             .dedup_by(|later, earlier| Self::merge_free(later, earlier, failures));
         self.number_slices();
@@ -204,10 +189,7 @@ impl PageSuballocator {
     /// # Errors
     ///
     /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
-    pub(crate) fn map<Storage: StorageAllocator>(
-        &mut self,
-        storage: &mut Storage,
-    ) -> Result<(), IoError> {
+    pub fn map<Storage: StorageAllocator>(&mut self, storage: &mut Storage) -> Result<(), IoError> {
         if self.mapped {
             return Ok(());
         }
@@ -221,7 +203,7 @@ impl PageSuballocator {
     /// its slices still carry are released, since a tag must not outlive its
     /// carrier; an unmapped page has nothing behind its minted id, so the
     /// driver is handed nothing for it.
-    pub(crate) fn release_if_unused<Storage: StorageAllocator>(
+    pub fn release_if_unused<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         failures: &mut ErrorGraph,
@@ -235,6 +217,20 @@ impl PageSuballocator {
             storage.deallocate(self.storage.id);
         }
         true
+    }
+}
+
+impl PageSuballocator {
+    /// Bind the page to the real device allocation `id`: the page and every
+    /// slice take it (offsets and sizes are already correct — the virtual
+    /// carving *is* the layout). The old minted id simply ceases to exist; it
+    /// never reached the driver.
+    fn rebind_storage(&mut self, id: StorageId) {
+        for slice in self.slices.iter_mut() {
+            slice.storage.id = id;
+        }
+        self.storage.id = id;
+        self.mapped = true;
     }
 
     /// Release every failure the page's slices still carry, for a page about
@@ -301,18 +297,13 @@ impl PageSuballocator {
 }
 
 impl<'a> PageView<'a> {
-    /// Whether no allocation on the page is live.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.slices.iter().all(Slice::is_free)
-    }
-
     /// The slices holding a live allocation, in offset order.
-    pub(crate) fn live(&self) -> impl Iterator<Item = &'a Slice> + 'a {
+    pub fn live(&self) -> impl Iterator<Item = &'a Slice> + 'a {
         self.slices.iter().filter(|slice| !slice.is_free())
     }
 
     /// The page's usage: its live allocations and the bytes it holds.
-    pub(crate) fn usage(&self) -> MemoryUsage {
+    pub fn usage(&self) -> MemoryUsage {
         slices_usage(self.slices.iter())
     }
 
@@ -323,13 +314,13 @@ impl<'a> PageView<'a> {
     /// # Panics
     ///
     /// When the page holds no slice at `index`.
-    pub(crate) fn mapped_storage_at_index(&self, index: usize) -> Option<StorageHandle> {
+    pub fn mapped_storage_at_index(&self, index: usize) -> Option<StorageHandle> {
         self.is_mapped.then(|| self.slices[index].storage.clone())
     }
 
     /// The page's free and full room, and each slice as a block when
     /// `with_blocks` asks for them.
-    pub(crate) fn summary_with_blocks(&self, with_blocks: bool) -> MemoryPageSummary {
+    pub fn summary_with_blocks(&self, with_blocks: bool) -> MemoryPageSummary {
         MemoryPageSummary {
             blocks: self.blocks(with_blocks),
             free_bytes: self.free().map(Slice::effective_size).sum(),
@@ -339,6 +330,13 @@ impl<'a> PageView<'a> {
             full_count: self.live().count(),
             total_count: self.slices.len(),
         }
+    }
+}
+
+impl<'a> PageView<'a> {
+    /// Whether no allocation on the page is live.
+    fn is_empty(&self) -> bool {
+        self.slices.iter().all(Slice::is_free)
     }
 
     /// The free slices, in offset order.
@@ -363,7 +361,7 @@ impl<'a> PageView<'a> {
 
 /// One slice of a page, as a summary lists it.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct MemoryBlock {
+pub struct MemoryBlock {
     /// Whether no allocation is live on it.
     pub is_free: bool,
     /// Its padded size.
@@ -372,7 +370,7 @@ pub(crate) struct MemoryBlock {
 
 /// A page's free and full room.
 #[derive(Default, PartialEq, Eq)]
-pub(crate) struct MemoryPageSummary {
+pub struct MemoryPageSummary {
     /// The page's slices, in offset order as they were listed (Arrival),
     /// when asked for.
     pub blocks: Vec<MemoryBlock>,

@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 /// Host memory that records every deallocation it is asked for, so a test
 /// can tell whether a release reached the driver.
 #[derive(Default)]
-pub(crate) struct CountingStorageAllocator {
+pub struct CountingStorageAllocator {
     host: BytesStorage,
     /// The ids handed back, in order (Arrival).
     deallocated: Vec<StorageId>,
@@ -15,7 +15,7 @@ pub(crate) struct CountingStorageAllocator {
 
 impl CountingStorageAllocator {
     /// The ids handed back, in order.
-    pub(crate) fn into_deallocated(self) -> Vec<StorageId> {
+    pub fn into_deallocated(self) -> Vec<StorageId> {
         self.deallocated
     }
 }

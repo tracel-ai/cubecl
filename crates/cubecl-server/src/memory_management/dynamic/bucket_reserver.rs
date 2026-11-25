@@ -28,7 +28,7 @@ const DEALLOC_SCALE_BYTES: u64 = 1024 * 1024 * 1024;
 /// pool wants whatever the device. Nothing is ever outdated here.
 ///
 /// A bucket is addressed by the index a slice's location carries.
-pub(crate) struct BucketReserver {
+pub struct BucketReserver {
     /// The buckets, smallest first, read by the index a location carries
     /// (Position) and scanned in size order for the first that accepts a
     /// size (Ordered).
@@ -37,7 +37,7 @@ pub(crate) struct BucketReserver {
 
 impl BucketReserver {
     /// The buckets for a device with `properties`.
-    pub(crate) fn new(properties: &MemoryDeviceProperties) -> Self {
+    pub fn new(properties: &MemoryDeviceProperties) -> Self {
         let buckets = bucket_sizes(properties.max_page_size, properties.alignment)
             .into_iter()
             .enumerate()
@@ -54,15 +54,12 @@ impl BucketReserver {
     }
 
     /// The bucket `pool_index` names.
-    pub(crate) fn pool_by_index(&self, pool_index: u8) -> Option<&ExclusiveSliceReserver> {
+    pub fn pool_by_index(&self, pool_index: u8) -> Option<&ExclusiveSliceReserver> {
         self.buckets.get(pool_index as usize)
     }
 
     /// The bucket `pool_index` names, mutably.
-    pub(crate) fn pool_by_index_mut(
-        &mut self,
-        pool_index: u8,
-    ) -> Option<&mut ExclusiveSliceReserver> {
+    pub fn pool_by_index_mut(&mut self, pool_index: u8) -> Option<&mut ExclusiveSliceReserver> {
         self.buckets.get_mut(pool_index as usize)
     }
 
@@ -73,7 +70,7 @@ impl BucketReserver {
     ///
     /// [`IoError::BufferTooBig`] when no bucket accepts the size, and whatever
     /// the device refused when one does.
-    pub(crate) fn reserve<Storage: StorageAllocator>(
+    pub fn reserve<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         size: u64,
@@ -98,7 +95,7 @@ impl BucketReserver {
 
     /// Reserve `size` bytes on a page a bucket already holds. `None` when
     /// none has one free.
-    pub(crate) fn try_reserve(
+    pub fn try_reserve(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
@@ -110,7 +107,7 @@ impl BucketReserver {
     }
 
     /// Release what the buckets no longer need.
-    pub(crate) fn cleanup<Storage: StorageAllocator>(
+    pub fn cleanup<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,
         reservation_count: u64,
@@ -123,7 +120,7 @@ impl BucketReserver {
     }
 
     /// A report per bucket, smallest first.
-    pub(crate) fn report(&self) -> Vec<MemoryPoolReport> {
+    pub fn report(&self) -> Vec<MemoryPoolReport> {
         self.buckets
             .iter()
             .map(ExclusiveSliceReserver::report)

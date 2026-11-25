@@ -7,24 +7,29 @@ use crate::memory_management::{
 /// What a [`PagedSliceReserver`] holds, as its readers see it: a handle on
 /// the pool that reads each part only when asked.
 #[derive(Clone, Copy)]
-pub(crate) struct PagedView<'a> {
-    pub(super) pool: &'a PagedSliceReserver,
+pub struct PagedView<'a> {
+    pool: &'a PagedSliceReserver,
 }
 
 impl<'a> PagedView<'a> {
+    /// A view of `pool`.
+    pub fn new(pool: &'a PagedSliceReserver) -> Self {
+        Self { pool }
+    }
+
     /// The pages the pool holds, in the order a location numbers them.
-    pub(crate) fn pages(&self) -> &'a [PageSuballocator] {
+    pub fn pages(&self) -> &'a [PageSuballocator] {
         &self.pool.pages
     }
 
     /// Whether graphs guard every page the pool holds, and it holds some: room
     /// for work outside a capture comes only from a new page then.
-    pub(crate) fn is_pinned(&self) -> bool {
+    pub fn is_pinned(&self) -> bool {
         !self.pool.pages.is_empty() && self.pool.pages.iter().all(|page| page.view().is_guarded)
     }
 
     /// The pool's shape, usage and high-water marks.
-    pub(crate) fn report(&self) -> MemoryPoolReport {
+    pub fn report(&self) -> MemoryPoolReport {
         let pool = self.pool;
         MemoryPoolReport {
             kind: MemoryPoolKind::Sliced {

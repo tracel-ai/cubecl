@@ -14,7 +14,7 @@ const FIRST_SLICE_INDEX: u32 = 0;
 
 /// One stretch of a device allocation, and the allocation on it if any.
 #[derive(Debug)]
-pub(crate) struct Slice {
+pub struct Slice {
     /// The bytes the allocation on it uses, its padding excluded.
     pub storage: StorageHandle,
     /// The handle the allocation is reached through, free while no owner
@@ -71,30 +71,30 @@ impl Slice {
 }
 
 /// The first location of the pool `pool_index` names.
-pub(crate) fn pool_origin(pool_index: u8) -> MemoryLocation {
+pub fn pool_origin(pool_index: u8) -> MemoryLocation {
     MemoryLocation::new(pool_index, FIRST_PAGE_INDEX, FIRST_SLICE_INDEX)
 }
 
 /// `size` bytes rounded up to `memory_alignment`, what an allocation of them
 /// takes: `None` past the largest size a `u64` holds, which no device
 /// allocates.
-pub(crate) fn padded_size(size: u64, memory_alignment: u64) -> Option<u64> {
+pub fn padded_size(size: u64, memory_alignment: u64) -> Option<u64> {
     size.checked_add(calculate_padding(size, memory_alignment))
 }
 
 /// `size` bytes rounded up to `memory_alignment`, when that fits in
 /// `max_size`: `None` for a size no allocation of at most `max_size` takes.
-pub(crate) fn padded_size_within(size: u64, memory_alignment: u64, max_size: u64) -> Option<u64> {
+pub fn padded_size_within(size: u64, memory_alignment: u64, max_size: u64) -> Option<u64> {
     padded_size(size, memory_alignment).filter(|padded| *padded <= max_size)
 }
 
 /// The bytes alignment adds past `size`, for a buffer aligned to `memory_alignment`.
-pub(crate) fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
+fn calculate_padding(size: u64, memory_alignment: u64) -> u64 {
     (memory_alignment - size % memory_alignment) % memory_alignment
 }
 
 /// The error a lookup of a `kind` that a pool does not hold at `index` answers.
-pub(crate) fn missing(kind: &str, index: usize) -> IoError {
+pub fn missing(kind: &str, index: usize) -> IoError {
     IoError::NotFound {
         backtrace: BackTrace::capture(),
         reason: format!("Memory {kind} {index} doesn't exist").into(),
@@ -103,17 +103,17 @@ pub(crate) fn missing(kind: &str, index: usize) -> IoError {
 
 /// What `slices` hold: the live ones' count, bytes and padding, and every
 /// slice's padded size as the bytes reserved.
-pub(crate) fn slices_usage<'a>(slices: impl Iterator<Item = &'a Slice>) -> MemoryUsage {
+pub fn slices_usage<'a>(slices: impl Iterator<Item = &'a Slice>) -> MemoryUsage {
     sum_usage(slices.map(slice_usage))
 }
 
 /// How many of `slices` own an allocation the device never backed.
-pub(crate) fn unmapped_count<'a>(slices: impl Iterator<Item = &'a Slice>) -> u64 {
+pub fn unmapped_count<'a>(slices: impl Iterator<Item = &'a Slice>) -> u64 {
     slices.filter(|slice| !slice.mapped).count() as u64
 }
 
 /// The usages `usages` add up to.
-pub(crate) fn sum_usage(usages: impl Iterator<Item = MemoryUsage>) -> MemoryUsage {
+pub fn sum_usage(usages: impl Iterator<Item = MemoryUsage>) -> MemoryUsage {
     usages.fold(MemoryUsage::default(), |total, usage| total.combine(usage))
 }
 

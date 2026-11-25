@@ -1,7 +1,7 @@
 pub(crate) mod artifact;
 pub(crate) mod controller;
 pub(crate) mod device_poison;
-pub(crate) mod relocation_copier;
+mod relocation_copier;
 
 mod graph;
 mod storage;

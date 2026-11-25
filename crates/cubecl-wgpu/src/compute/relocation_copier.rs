@@ -16,7 +16,7 @@ use cubecl_server::storage::StorageAllocator;
 /// Every stream submitted what it queued before a relocation starts, as the
 /// [`StreamsSubmitted`] it is built with proves, so the copies here follow
 /// every launch that could still read what moves.
-pub(crate) struct WgpuRelocationCopier {
+pub struct WgpuRelocationCopier {
     device: wgpu::Device,
     queue: wgpu::Queue,
     poison: PoisonWatch,
@@ -33,7 +33,7 @@ struct Batch {
 }
 
 impl WgpuRelocationCopier {
-    pub(crate) fn new(
+    pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
         poison: PoisonWatch,
@@ -46,7 +46,9 @@ impl WgpuRelocationCopier {
             batch: None,
         }
     }
+}
 
+impl WgpuRelocationCopier {
     /// Wait for the device, up to `submission` when one is named.
     fn wait(&self, submission: Option<wgpu::SubmissionIndex>) -> Result<(), ServerError> {
         self.poison

@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 /// Nothing has moved before [`land`](Self::land) returns: dropping it abandons
 /// the relocation with nothing lost, the reserved slices freed with it.
 #[derive(Debug)]
-pub(crate) struct RelocationLander {
+pub struct RelocationLander {
     /// The moves, in the order they were planned (Arrival).
     moves: Vec<Move>,
 }
@@ -52,7 +52,7 @@ pub struct StorageCopy {
 /// One live allocation moving to a reserved slice: `allocation`'s handle is
 /// handed over to the target once `copy` has landed.
 #[derive(Debug)]
-pub(crate) struct Move {
+pub struct Move {
     /// The allocation being moved, bound rather than held, so the move does not count among
     /// its owners' handles while it runs.
     pub allocation: ManagedMemoryBinding,
@@ -75,12 +75,12 @@ impl RelocationLander {
     /// each padded up to the device's alignment, the target held by nobody
     /// but its move. Only the pools of memory management plan moves, so the
     /// contract never leaves it.
-    pub(in crate::memory_management) unsafe fn new(moves: Vec<Move>) -> Self {
+    pub unsafe fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }
 
     /// Whether there is nothing to move.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.moves.is_empty()
     }
 
@@ -101,7 +101,7 @@ impl RelocationLander {
     ///
     /// The first copy the device refused, or the fault a wait revealed. The
     /// relocation is abandoned either way.
-    pub(crate) fn land<Storage: StorageAllocator>(
+    pub fn land<Storage: StorageAllocator>(
         self,
         storage: &mut Storage,
         copier: &mut dyn RelocationCopier<Storage>,
@@ -139,7 +139,7 @@ impl Move {
     /// The location the allocation moves from and the one it moves to, read
     /// from the handles, which the pools keep current: a move stores no
     /// location of its own, so it can never hold a stale one.
-    pub(crate) fn locations(&self) -> (MemoryLocation, MemoryLocation) {
+    pub fn locations(&self) -> (MemoryLocation, MemoryLocation) {
         (
             self.allocation.descriptor().location(),
             self.target.descriptor().location(),

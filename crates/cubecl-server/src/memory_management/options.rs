@@ -35,7 +35,7 @@ impl MemoryManagementOptions {
 
 /// Where the [`MemoryAllocationMode`] a memory starts in comes from.
 #[derive(Default, Debug)]
-pub(crate) enum MemoryAllocationOption {
+pub enum MemoryAllocationOption {
     /// The runtime config's persistent-memory setting.
     #[default]
     FromConfig,

@@ -10,13 +10,13 @@ use cubecl_environment::backtrace::BackTrace;
 /// backs it when it was allocated lazily, and releases it.
 ///
 /// A reserver builds one over its storage for the steps that touch it.
-pub(crate) struct SliceAllocator<'s, Storage> {
+pub struct SliceAllocator<'s, Storage> {
     storage: &'s mut Storage,
 }
 
 impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// An allocator over `storage`.
-    pub(crate) fn new(storage: &'s mut Storage) -> Self {
+    pub fn new(storage: &'s mut Storage) -> Self {
         Self { storage }
     }
 
@@ -27,7 +27,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// # Errors
     ///
     /// Whatever the storage refuses, for an eager mapping.
-    pub(crate) fn allocate_storage(
+    pub fn allocate_storage(
         &mut self,
         mapping: PageMapping,
         size: u64,
@@ -50,7 +50,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// # Errors
     ///
     /// [`IoError::StorageMappingFailed`] when the storage refuses it.
-    pub(crate) fn allocate_backing(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+    pub fn allocate_backing(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         self.storage
             .allocate_bytes(size)
             .map_err(|err| IoError::StorageMappingFailed {
@@ -67,7 +67,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// # Errors
     ///
     /// Whatever the storage refuses.
-    pub(crate) fn allocate_whole(
+    pub fn allocate_whole(
         &mut self,
         size: u64,
         padded_size: u64,
@@ -91,7 +91,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// # Errors
     ///
     /// [`IoError::StorageMappingFailed`] when the storage refuses the allocation.
-    pub(crate) fn materialize_whole(
+    pub fn materialize_whole(
         &mut self,
         slice: Option<&mut Slice>,
         binding: &ManagedMemoryBinding,
@@ -114,7 +114,7 @@ impl<'s, Storage: StorageAllocator> SliceAllocator<'s, Storage> {
     /// # Panics
     ///
     /// When `failures` does not hold the failures the slice carries.
-    pub(crate) fn release_whole(&mut self, slice: &mut Slice, failures: &mut ErrorGraph) {
+    pub fn release_whole(&mut self, slice: &mut Slice, failures: &mut ErrorGraph) {
         slice.tainted.clear(failures);
         if slice.mapped {
             self.storage.deallocate(slice.storage.id);

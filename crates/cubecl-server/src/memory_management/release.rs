@@ -1,7 +1,7 @@
 /// Release `memory` after a wait failed with `err`, only when the device is
 /// poisoned and can no longer use it. Otherwise completion is unknown, so the
 /// allocations stay reserved: their owners are leaked.
-pub(crate) fn release_or_leak<T>(memory: T, err: &crate::server::ServerError) {
+pub fn release_or_leak<T>(memory: T, err: &crate::server::ServerError) {
     if err.is_device_poisoned() {
         return core::mem::drop(memory);
     }

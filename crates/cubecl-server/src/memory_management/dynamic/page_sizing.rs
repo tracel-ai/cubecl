@@ -11,7 +11,7 @@ const PAGE_GRANULE_BYTES: u64 = 1024 * 1024;
 /// How the pages of an [`ArenaReserver`](super::ArenaReserver) are sized:
 /// from a floor up to the largest page the device allocates.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PageSizing {
+pub struct PageSizing {
     /// The smallest page, so a workload of small allocations still carves
     /// pages worth carving.
     pub min_page_bytes: u64,
@@ -24,7 +24,7 @@ pub(crate) struct PageSizing {
 
 /// How an allocation fits the pages the arena carves now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Fit {
+pub enum Fit {
     /// A page of the current size holds it.
     Fits,
     /// It needs pages of `page_size_bytes`, which outdates the current ones.
@@ -39,7 +39,7 @@ pub(crate) enum Fit {
 impl PageSizing {
     /// Pages from `min_page_size` up to the largest the device with
     /// `properties` allocates.
-    pub(crate) fn new(min_page_size: u64, properties: &MemoryDeviceProperties) -> Self {
+    pub fn new(min_page_size: u64, properties: &MemoryDeviceProperties) -> Self {
         let alignment = properties.alignment;
         let max_page_bytes = (properties.max_page_size / alignment * alignment).max(alignment);
         Self {
@@ -61,7 +61,7 @@ impl PageSizing {
     ///
     /// `page_size` is no smaller than the floor, so neither is a growth past
     /// it.
-    pub(crate) fn fit(&self, size: u64, page_size: u64) -> Fit {
+    pub fn fit(&self, size: u64, page_size: u64) -> Fit {
         let Some(needed) = padded_size(size, self.alignment_bytes) else {
             return Fit::TooLarge;
         };
@@ -85,7 +85,7 @@ impl PageSizing {
     ///
     /// It takes every size it is handed, so nothing is refused for being
     /// larger than a slice of a page it fits.
-    pub(crate) fn layout(&self, page_size: u64, index: u8) -> PagedLayout {
+    pub fn layout(&self, page_size: u64, index: u8) -> PagedLayout {
         PagedLayout {
             page_size_bytes: page_size,
             max_slice_bytes: page_size,
