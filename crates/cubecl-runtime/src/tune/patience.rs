@@ -165,6 +165,7 @@ mod tests {
                 .map(|(index, groups)| BatchEntry {
                     index,
                     groups: groups.to_vec(),
+                    priority: None,
                 })
                 .collect(),
             patience: patience.iter().copied().collect(),
