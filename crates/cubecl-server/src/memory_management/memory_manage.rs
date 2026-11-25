@@ -203,7 +203,12 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ///
     /// # Assumptions
     ///
-    /// Every binding of `kept` names a page this memory holds.
+    /// - Every binding of `kept` names a page this memory holds.
+    /// - Nothing outside `kept` holds a moved allocation's raw address: what
+    ///   [`managed_resource`](Self::managed_resource) handed out for one is
+    ///   read by no one once it moves. A graph capture holds this, since it
+    ///   keeps apart only what its planning runs left alive and recorded
+    ///   nowhere.
     ///
     /// # Guarantees
     ///
@@ -414,28 +419,6 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         failures: &mut ErrorGraph,
     ) {
         self.reserver.written(binding, range, failures);
-    }
-}
-
-#[cfg(feature = "storage-bytes")]
-impl MemoryManagement<crate::storage::BytesStorage> {
-    /// [`relocate`](Self::relocate) host memory, where a copy is a `memcpy`
-    /// that has landed by the time it returns.
-    ///
-    /// # Panics
-    ///
-    /// When `failures` is not the graph this memory's failures are in.
-    ///
-    /// # Safety
-    ///
-    /// No work runs against this memory's storage from the call until it
-    /// returns: the copies wait on nothing.
-    pub unsafe fn relocate_on_host(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        self.reserver.relocate(
-            &mut crate::memory_management::relocation::HostRelocationCopier,
-            reason,
-            failures,
-        );
     }
 }
 

@@ -73,8 +73,9 @@ impl RelocationLander {
     /// the storage of the slice reserved for it: of the same size, on distinct
     /// device allocations of the storage later passed to [`land`](Self::land),
     /// each padded up to the device's alignment, the target held by nobody
-    /// but its move.
-    pub(crate) unsafe fn new(moves: Vec<Move>) -> Self {
+    /// but its move. Only the pools of memory management plan moves, so the
+    /// contract never leaves it.
+    pub(in crate::memory_management) unsafe fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }
 
@@ -89,9 +90,10 @@ impl RelocationLander {
     /// # Guarantees
     ///
     /// The wait for the copies happens whether every one of them was enqueued
-    /// or not, so a relocation abandoned here never frees a target a copy is
-    /// still writing: when that wait fails on a device that is not poisoned,
-    /// the targets and the allocations they were for stay reserved for good.
+    /// or not, so a relocation abandoned here frees a target only once every
+    /// later use of it runs after the copies: when that wait fails on a
+    /// device that is not poisoned, the targets and the allocations they were
+    /// for stay reserved for good.
     ///
     /// # Errors
     ///
@@ -114,11 +116,9 @@ impl RelocationLander {
             // nothing alive, but the source's page can be neither released nor
             // carved again while this runs, since the caller holds its pool
             // mutably borrowed for the whole call; the target handle keeps the
-            // target slice taken. `wait_device` answered `Ok` above, so by the
-            // copier's own contract nothing reads or writes them until the next
-            // work is issued, or every later use is ordered after these copies;
-            // and none is issued while the copier and the storage are borrowed
-            // here.
+            // target slice taken. No other work is issued while the copier and
+            // the storage are borrowed here, and the copier orders the copies
+            // after every earlier work and before every later one.
             .try_for_each(|copy| unsafe { copier.copy(storage, copy) });
         if let Err(err) = copier.wait_copies() {
             release_or_leak(self.moves, &err);

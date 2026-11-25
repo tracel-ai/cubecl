@@ -5,7 +5,9 @@ use crate::memory_management::drop_queue::DeviceWaiter;
 use crate::memory_management::relocation::{RelocationCopier, StorageCopy};
 use crate::server::{IoError, ServerError};
 use crate::storage::StorageAllocator;
+use crate::stream::ResolvedStreams;
 use alloc::vec::Vec;
+use cubecl_environment::stream::StreamId;
 
 /// A command's streams, as the queue a relocation copies on: the current one
 /// carries the copies, and the wait covers every stream the pool has created
@@ -19,17 +21,17 @@ pub(crate) struct StreamCopies<'a, D: Driver> {
 }
 
 impl<'a, D: Driver> StreamCopies<'a, D> {
-    /// The queue `queue` names, waiting on the streams `signals` name.
-    ///
-    /// # Safety
-    ///
-    /// `signals` holds a signal of every stream of the device: the copier's
-    /// `wait_device` waits on those alone.
-    pub(crate) unsafe fn new(
-        signals: Vec<<D::Stream as DeviceStream>::Signal>,
-        queue: <D::Stream as DeviceStream>::Signal,
+    /// The copies of a relocation queued on `queue`, waiting on a signal of
+    /// every stream `streams` holds.
+    pub(crate) fn new(
+        streams: &mut ResolvedStreams<'_, D::Backend>,
+        queue: StreamId,
         ctx: &'a mut D::Context,
     ) -> Self {
+        // Rare enough to gather the signals as it goes: it waits on the whole
+        // device anyway.
+        let signals = streams.all().map(|stream| stream.signal()).collect();
+        let queue = streams.get(&queue).signal();
         Self {
             signals,
             queue,
@@ -38,9 +40,11 @@ impl<'a, D: Driver> StreamCopies<'a, D> {
     }
 }
 
-// SAFETY: `wait_device` waits on a fence of every stream of the device and on
-// what the driver runs outside them, and `wait_copies` waits on a fence of the
-// queue every copy went on, recorded after the last of them.
+// SAFETY: `new` reads a signal of every stream the command's pool holds, so
+// `wait_device` waits on a fence of every stream of the device, each recorded
+// after the work it enqueued, and on what the driver runs outside them: every
+// earlier work has finished before the first copy. `wait_copies` waits on a
+// fence of the queue every copy went on, recorded after the last of them.
 unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStorage>
     for StreamCopies<'_, D>
 {
@@ -58,10 +62,10 @@ unsafe impl<D: Driver> RelocationCopier<<D::Stream as DeviceStream>::DeviceStora
     ) -> Result<(), IoError> {
         let source = storage.get(&copy.source);
         let target = storage.get(&copy.target);
-        // SAFETY: the caller upholds `RelocationCopier::copy`'s contract: the
-        // two storages are of the same size on distinct allocations, and
-        // nothing reads the target or writes the source until `wait_copies`
-        // returns.
+        // SAFETY: the caller upholds `RelocationCopier::copy`'s contract (the
+        // two storages are of the same size on distinct live allocations), and
+        // this copier's waits order the copy after every earlier work and
+        // before every later one.
         unsafe { D::copy_on_device(&source, &target, self.queue) }
     }
 

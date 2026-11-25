@@ -2,18 +2,16 @@ use super::{RelocationCopier, StorageCopy};
 use crate::server::{IoError, ServerError};
 use crate::storage::{BytesStorage, StorageAllocator};
 
-/// Copies between the allocations of a [`BytesStorage`]: host memory, so a
-/// copy is a `memcpy` and has landed by the time it returns.
+/// Copies between the allocations of a [`BytesStorage`] for tests: host
+/// memory, so a copy is a `memcpy` and has landed by the time it returns.
 ///
-/// Waits on nothing: whoever runs work against the memory waits for it before
-/// handing the relocation over.
+/// Waits on nothing: the tests that build it run no work against the memory.
 #[derive(Debug, Default)]
 pub(crate) struct HostRelocationCopier;
 
 // SAFETY: a host copy has landed by the time `copy` returns, so `wait_copies`
-// has nothing left to wait for. `wait_device` waits on nothing: the copier is
-// built only by `MemoryManagement::relocate_on_host`, whose caller runs no work
-// against the memory until it returns, and by tests that run none.
+// has nothing left to wait for. `wait_device` waits on nothing: the copier
+// exists only in tests, which run no work against the memory.
 unsafe impl RelocationCopier<BytesStorage> for HostRelocationCopier {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())

@@ -223,7 +223,8 @@ impl ArenaReserver {
     /// new page.
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
-    /// was. Targets are freed only once the device is known to be done with them.
+    /// was. Targets are freed only once every later use of them runs after the
+    /// copies.
     pub(crate) fn relocate<Storage: StorageAllocator>(
         &mut self,
         storage: &mut Storage,

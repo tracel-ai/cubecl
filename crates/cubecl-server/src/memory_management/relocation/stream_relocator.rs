@@ -1,4 +1,4 @@
-use super::{RelocationReason, StreamRelocationState};
+use super::{RelocationReason, StreamRelocationState, StreamsSubmitted};
 use crate::memory_management::ErrorGraph;
 
 /// Relocates one stream's memory: what a runtime whose streams share one way
@@ -19,13 +19,14 @@ pub trait StreamRelocator {
     /// device records a graph.
     fn relocation_state(&self) -> StreamRelocationState;
 
-    /// Move what the stream's memory holds on outdated pages.
-    ///
-    /// # Safety
-    ///
-    /// Every stream's queued work has been submitted (for a runtime that runs
-    /// it on submission, run), and none is issued until it returns.
-    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph);
+    /// Move what the stream's memory holds on outdated pages, with a copier
+    /// whose wait covers the work `submitted` proves was handed to the device.
+    fn relocate(
+        &mut self,
+        reason: RelocationReason,
+        submitted: &StreamsSubmitted,
+        failures: &mut ErrorGraph,
+    );
 
     /// Give back every page the stream's memory holds and nothing needs.
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph);

@@ -1,5 +1,6 @@
 use crate::compute::{
     alloc_controller::CpuAllocController,
+    copies::CpuCopies,
     schedule::ScheduleTask,
     threadpool::{Threadpool, completion_counter::LaunchProgress},
 };
@@ -11,7 +12,7 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_server::memory_management::relocation::{
-    RelocationReason, StreamRelocationState, StreamRelocator,
+    RelocationReason, StreamRelocationState, StreamRelocator, StreamsSubmitted,
 };
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
@@ -66,11 +67,15 @@ impl StreamRelocator for CpuStream {
         }
     }
 
-    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        // SAFETY: by `relocate`'s contract every stream's queued work has run,
-        // since the CPU runs a task when it is submitted, and none is issued
-        // until this returns.
-        unsafe { self.memory_management.relocate_on_host(reason, failures) };
+    fn relocate(
+        &mut self,
+        reason: RelocationReason,
+        submitted: &StreamsSubmitted,
+        failures: &mut ErrorGraph,
+    ) {
+        let mut copier = CpuCopies::new(&mut self.progress, submitted);
+        self.memory_management
+            .relocate(&mut copier, reason, failures);
     }
 
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {

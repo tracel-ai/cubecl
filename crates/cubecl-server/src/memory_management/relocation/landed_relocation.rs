@@ -10,7 +10,8 @@ pub(crate) struct LandedRelocation {
 }
 
 impl LandedRelocation {
-    /// The relocation of `moves`, whose copies landed.
+    /// The relocation of `moves`, whose copies every later use of their
+    /// storages runs after.
     pub(super) fn new(moves: Vec<Move>) -> Self {
         Self { moves }
     }

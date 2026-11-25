@@ -3,7 +3,9 @@
 use crate::compute::device_poison::PoisonWatch;
 use crate::compute::storage::WgpuStorage;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::memory_management::relocation::{RelocationCopier, StorageCopy};
+use cubecl_server::memory_management::relocation::{
+    RelocationCopier, StorageCopy, StreamsSubmitted,
+};
 use cubecl_server::server::{IoError, ServerError};
 use cubecl_server::storage::StorageAllocator;
 
@@ -11,8 +13,9 @@ use cubecl_server::storage::StorageAllocator;
 /// encoder of their own, submitted together and waited on outside the stream's
 /// encoder.
 ///
-/// The stream submits what it has queued before a relocation starts, so the
-/// copies here follow every launch that could still read what moves.
+/// Every stream submitted what it queued before a relocation starts, as the
+/// [`StreamsSubmitted`] it is built with proves, so the copies here follow
+/// every launch that could still read what moves.
 pub(crate) struct WgpuCopies {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -30,7 +33,12 @@ struct Batch {
 }
 
 impl WgpuCopies {
-    pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue, poison: PoisonWatch) -> Self {
+    pub(crate) fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        poison: PoisonWatch,
+        _submitted: &StreamsSubmitted,
+    ) -> Self {
         Self {
             device,
             queue,
@@ -46,16 +54,17 @@ impl WgpuCopies {
     }
 }
 
-// SAFETY: natively, `wait_device` polls the device until every submission so
-// far completed, the stream's own work submitted by its caller first, and
-// `wait_copies` submits the batch and polls until that submission completed.
-// On wasm the polls return at once, but WebGPU runs its one queue in order and
-// defers a buffer's destruction until the submissions using it finish, so
-// every later use of the moved allocations is ordered after the copies.
+// SAFETY: every stream submitted its queued work before the copier was built,
+// as the `StreamsSubmitted` `new` takes proves, and the copies go on the same
+// queue after it. Natively, `wait_device` polls the device until every
+// submission so far completed, and `wait_copies` submits the batch and polls
+// until that submission completed. On wasm the polls return at once, but
+// WebGPU runs its one queue in order: the copies run after every earlier
+// submission, and every later one runs after the copies.
 unsafe impl RelocationCopier<WgpuStorage> for WgpuCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
-        // The stream's own work is submitted by the caller; this waits for the
-        // device to finish it.
+        // Every stream's work is submitted already; this waits for the device
+        // to finish it.
         self.wait(None)
     }
 

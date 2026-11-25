@@ -15,9 +15,11 @@ use crate::storage::StorageAllocator;
 /// # Safety
 ///
 /// An implementation promises what [`wait_device`](Self::wait_device) and
-/// [`wait_copies`](Self::wait_copies) guarantee: the copies a relocation
-/// enqueues rely on both, so a copier that answers `Ok` early lets a copy
-/// race the work that reads or writes its memory.
+/// [`wait_copies`](Self::wait_copies) guarantee, for the device it was built
+/// from, establishing it itself rather than assuming it of its caller: the
+/// copies a relocation enqueues rely on both, so a copier that answers `Ok`
+/// early lets a copy race the work that reads or writes its memory. A host
+/// copier meets both by having the work finished when it answers.
 pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     /// Wait until the device is done with everything that could still touch
     /// the allocations about to move: every stream, and whatever the driver
@@ -25,9 +27,8 @@ pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     ///
     /// # Guarantees
     ///
-    /// `Ok` only once nothing will read or write the storage's allocations
-    /// until the next work is issued, or once every later use of them is
-    /// ordered after the copies issued next.
+    /// `Ok` only once every copy issued after it returns runs after all the
+    /// work issued on the device before it.
     ///
     /// # Errors
     ///
@@ -51,8 +52,6 @@ pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     /// - Each is followed, within its device allocation, by the padding that
     ///   rounds its size up to the device's alignment: a copier may copy that
     ///   rounded size, writing into the target's padding.
-    /// - Nothing reads `copy.target` or writes `copy.source` until
-    ///   [`wait_copies`](Self::wait_copies) returns.
     unsafe fn copy(&mut self, storage: &mut Storage, copy: &StorageCopy) -> Result<(), IoError>;
 
     /// Submit the copies added so far, if they were held, and wait until they
@@ -60,8 +59,8 @@ pub unsafe trait RelocationCopier<Storage: StorageAllocator> {
     ///
     /// # Guarantees
     ///
-    /// `Ok` only once every copy added has landed, or once every later use
-    /// of its storages is ordered after it.
+    /// `Ok` only once every use of the storages issued after it returns runs
+    /// after every copy added.
     ///
     /// # Errors
     ///

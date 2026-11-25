@@ -730,16 +730,12 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
         }
     }
 
-    /// Nothing here: `StreamCopies` waits on every stream before its first
-    /// copy, so a relocation with nothing to move waits on none.
-    fn finish(&mut self) {}
-
     fn cleanup_memory(&mut self) {
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(Cleanup::Explicit, failures);
     }
 
-    unsafe fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.streams.current],
             RelocationScope::Device => self.streams.stream_ids(),
@@ -772,11 +768,8 @@ impl<D: Driver> Command<'_, D> {
             return Ok(());
         }
         self.refuse_while_recording()?;
-        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.current().signal();
-        // SAFETY: `signals` holds a signal of every stream of the device, read
-        // from `streams.all()` just above.
-        let mut copier = unsafe { StreamCopies::<D>::new(signals, queue, self.ctx) };
+        let current = self.streams.current;
+        let mut copier = StreamCopies::<D>::new(&mut self.streams, current, self.ctx);
         let (stream, failures) = self.streams.current_and_failures();
         stream
             .device_memory()
@@ -798,13 +791,7 @@ impl<D: Driver> Command<'_, D> {
     /// Move what `stream_id`'s memory holds on outdated pages, with the copies
     /// queued on that stream.
     fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {
-        // Rare enough to gather the signals as it goes: it waits on the whole
-        // device anyway.
-        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.get(&stream_id).signal();
-        // SAFETY: `signals` holds a signal of every stream of the device, read
-        // from `streams.all()` just above.
-        let mut copier = unsafe { StreamCopies::<D>::new(signals, queue, self.ctx) };
+        let mut copier = StreamCopies::<D>::new(&mut self.streams, stream_id, self.ctx);
         let (stream, failures) = self.streams.get_and_failures(&stream_id);
         stream
             .device_memory()

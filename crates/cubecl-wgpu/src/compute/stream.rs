@@ -31,7 +31,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::relocation::{
-    RelocationReason, StreamRelocationState, StreamRelocator,
+    RelocationReason, StreamRelocationState, StreamRelocator, StreamsSubmitted,
 };
 use cubecl_server::memory_management::{Cleanup, MemoryManagement};
 use cubecl_server::{
@@ -152,9 +152,18 @@ impl StreamRelocator for WgpuStream {
         }
     }
 
-    unsafe fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        let mut copier =
-            WgpuCopies::new(self.device.clone(), self.queue.clone(), self.poison.clone());
+    fn relocate(
+        &mut self,
+        reason: RelocationReason,
+        submitted: &StreamsSubmitted,
+        failures: &mut ErrorGraph,
+    ) {
+        let mut copier = WgpuCopies::new(
+            self.device.clone(),
+            self.queue.clone(),
+            self.poison.clone(),
+            submitted,
+        );
         self.memory.relocate(&mut copier, reason, failures);
     }
 

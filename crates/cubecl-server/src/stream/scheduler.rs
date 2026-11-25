@@ -1,5 +1,6 @@
 use crate::memory_management::relocation::{
     DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope, StreamRelocator,
+    StreamsSubmitted,
 };
 use crate::{
     config::streaming::StreamingLogLevel,
@@ -179,22 +180,21 @@ where
         }
     }
 
-    fn finish(&mut self) {
-        self.scheduler.flush_all();
-    }
-
-    unsafe fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
         let stream_ids: Vec<_> = match scope {
             RelocationScope::Stream => alloc::vec![self.stream_id],
             RelocationScope::Device => self.scheduler.stream_ids().collect(),
         };
+        self.scheduler.flush_all();
+        // SAFETY: `flush_all` just ran every stream's queued tasks and flushed
+        // each stream with the backend, which submits what it queued (and on
+        // the CPU, runs it); nothing is issued until the loop below returns,
+        // since the scheduler stays borrowed for the whole call.
+        let submitted = unsafe { StreamsSubmitted::new() };
         for stream_id in stream_ids {
             let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
             if stream.relocation_state().need.has_outdated() {
-                // SAFETY: by `relocate_memory`'s contract, `finish` flushed
-                // every stream's queued tasks, submitting them, and none is
-                // issued until this returns.
-                unsafe { stream.relocate(reason, failures) };
+                stream.relocate(reason, &submitted, failures);
             }
         }
     }
