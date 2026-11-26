@@ -890,22 +890,28 @@ pub(crate) fn cdna_quantized_product_kernel<
     )
 }
 
-/// One `(m, n, k)` manual tile product on CDNA: a cube of one 64-lane plane.
+/// One `(m, n, k)` manual tile product on `core`: a cube of one plane of its wavefront's width,
+/// with the manual MMA register layout the HIP runtime hands its devices.
 #[cfg(feature = "amdgpu")]
-pub(crate) fn cdna_manual_product_kernel<
+pub(crate) fn manual_product_kernel<
     A: Scalar + cubecl_core::CubeElement,
     B: Scalar + cubecl_core::CubeElement,
     CD: Numeric + cubecl_core::CubeElement,
 >(
+    core: cubecl_core::ir::amd::AmdMatrixCore,
     (m, n, k): (usize, usize, usize),
 ) -> impl CubeKernel {
-    const PLANE_DIM: u32 = 64;
+    use cubecl_core::ir::amd::AmdMatrixCore;
+    let plane_dim = match core {
+        AmdMatrixCore::Wmma(_) => 32,
+        AmdMatrixCore::Mfma(_) => 64,
+    };
     let settings = KernelSettings::new(
-        *CubeDim::new_1d(PLANE_DIM),
+        *CubeDim::new_1d(plane_dim),
         ExecutionMode::Unchecked,
         AddressType::U32,
     );
-    let mut props = (*device_properties(PLANE_DIM)).clone();
+    let mut props = (*device_properties(plane_dim)).clone();
     props.features.matmul.mma.insert(MmaConfig {
         a_type: A::cube_type(),
         b_type: B::cube_type(),
@@ -917,7 +923,9 @@ pub(crate) fn cdna_manual_product_kernel<
     manual_product::ManualProduct::<A, B, CD>::new(
         settings,
         Arc::new(props),
-        Arc::new(cdna_target_properties()),
+        Arc::new(TargetProperties {
+            mma: core.mma_properties(),
+        }),
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },

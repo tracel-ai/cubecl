@@ -1412,7 +1412,12 @@ pub fn test_cmma_manual<
     let actual = CD::from_bytes(&actual);
 
     // The reference multiplies the operands as the device holds them, so fp8 rounding is part of
-    // the expected value. Only the f32 accumulation order may differ.
+    // the expected value. Only the accumulation may differ: its order for a 32-bit sum, and a
+    // rounding at each of the `k` additions, half an ulp each, for a 16-bit one.
+    let tolerance = match size_of::<CD>() {
+        2 => k as f64 * 2f64.powi(-11),
+        _ => 1e-5,
+    };
     let lhs_values: Vec<f64> = lhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     let rhs_values: Vec<f64> = rhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     assert_eq!(actual.len(), m * n, "the kernel wrote no tile");
@@ -1423,7 +1428,7 @@ pub fn test_cmma_manual<
         let magnitude: f64 = products.map(f64::abs).sum();
         let actual_val = actual_val.to_f64().unwrap();
         let difference = (expected_val - actual_val).abs();
-        if difference > magnitude * 1e-5 {
+        if difference > magnitude * tolerance {
             panic!(
                 "Expected != actual at position {position}: (expected: {expected_val}, actual: {actual_val}, difference: {difference})"
             )
@@ -3333,6 +3338,7 @@ macro_rules! testgen_cmma {
             // HIP
             test::<f16, f16, f32>(16, 16, 16);
             test::<f16, f16, f32>(16, 16, 32);
+            test::<f16, f16, f16>(16, 16, 16);
             test::<i8, i8, i32>(16, 16, 16);
             test::<i8, u8, i32>(16, 16, 16);
             test::<u8, i8, i32>(16, 16, 32);
