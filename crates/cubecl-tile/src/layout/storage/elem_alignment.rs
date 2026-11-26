@@ -38,8 +38,10 @@ impl ElemAlignment {
     /// The alignment of a buffer of `shape` at `strides`, its axes taken in the order the buffer
     /// steps them, whatever order the view names them in.
     ///
-    /// This ordering treats each axis independently. For a folded dimension of an untiled buffer, use
-    /// [`Geometry::in_stride_order`] with its labels and check the width with [`Geometry::serves`].
+    /// Using this alignment to choose a binding's width assumes every axis can be reordered
+    /// independently. For an untiled binding with folded dimensions or fixed leading batch axes,
+    /// pass only the trailing axis labels to [`Geometry::in_stride_order`]. Check the width with
+    /// [`Geometry::serves`] on the returned geometry using the returned labels.
     /// For storage-tiled buffers, check the original geometry with its physical-axis labels.
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
         let mut axes: Vec<(usize, usize)> =

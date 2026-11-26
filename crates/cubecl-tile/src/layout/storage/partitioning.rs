@@ -269,7 +269,10 @@ impl StoragePartitioning {
     /// The buffer storing a tensor of `extents`: its axes in [`labels`](Self::labels)' order and
     /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest piece
     /// of more than one by its [`stagger`](Self::stagger)'s pitch over that run where it has one.
-    /// A partitioning read from a folded broadcast materializes the full requested extents.
+    ///
+    /// For a folded broadcast, the retained [`order`](Self::order) must contain exactly the
+    /// requested dimensions, each once, or this returns [`Decline::StorageOrderUnmatched`].
+    /// Successful materialization uses the full requested extents.
     pub fn physical(&self, extents: &[(Dimension, usize)]) -> Result<Geometry, Decline> {
         let dimensions: SmallVec<[Dimension; Space::MAX_RANK]> =
             extents.iter().map(|&(dimension, _)| dimension).collect();
@@ -586,19 +589,26 @@ mod tests {
         assert_eq!(read.order(), &[N]);
     }
 
-    #[test]
-    fn a_folded_broadcast_materializes_the_requested_extent() {
+    fn folded_broadcast() -> StoragePartitioning {
         let source = Geometry::new(&[(3, 0), (2, 1)]);
-        let storage = StoragePartitioning::new(&source, &[K, K]).unwrap();
-        let extents = [(K, 6)];
+        StoragePartitioning::new(&source, &[K, K]).unwrap()
+    }
 
+    #[test]
+    fn a_folded_broadcast_holds_only_the_addressing_piece() {
+        let storage = folded_broadcast();
+        let extents = [(K, 6)];
         assert_eq!(storage.holds(&[(K, 2)], &extents), Ok(()));
         assert_eq!(
             storage.holds(&[(K, 6)], &extents),
             Err(TileMisfit::RunsOut { wanted: K })
         );
+    }
+
+    #[test]
+    fn a_folded_broadcast_materializes_the_requested_extent() {
         assert_eq!(
-            storage.physical(&extents).unwrap(),
+            folded_broadcast().physical(&[(K, 6)]).unwrap(),
             Geometry::row_major(&[6])
         );
     }

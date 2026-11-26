@@ -222,13 +222,13 @@ impl Geometry {
             return Err(LineMisfit::NoAxes);
         }
         let storage = StoragePartitioning::new(self, labels).ok_or(LineMisfit::NotPartitioned)?;
-        let plain_line = self.plain_line_dimension(tile).map(|dim| (dim, values));
+        let plain_line = plain_line_dimension(self.tiling(), tile).map(|dim| (dim, values));
         let tile = plain_line.as_ref().map_or(tile, core::slice::from_ref);
         storage
             .holds(tile, &self.extents(labels))
             .map_err(LineMisfit::Tile)?;
         let inside = match plain_line {
-            Some((dimension, width)) => self.plain_line_axes(labels, dimension, width)?,
+            Some((dimension, width)) => plain_line_axes(self, labels, dimension, width)?,
             None => self.stored_run_axes(labels.len(), values)?,
         };
         // An axis of one element steps nowhere, so its stride lands no value inside a line.
@@ -283,48 +283,6 @@ impl Geometry {
 }
 
 impl Geometry {
-    /// All non-singleton factors of a plain line advance the same logical coordinate.
-    fn plain_line_dimension(&self, tile: &[(Dimension, usize)]) -> Option<Dimension> {
-        if self.tiling.is_tiled() {
-            return None;
-        }
-        let mut dimensions = tile
-            .iter()
-            .filter(|(_, count)| *count != 1)
-            .map(|&(dim, _)| dim);
-        let dimension = dimensions.next()?;
-        dimensions
-            .all(|other| other == dimension)
-            .then_some(dimension)
-    }
-
-    fn plain_line_axes(
-        &self,
-        labels: &[Dimension],
-        dimension: Dimension,
-        width: usize,
-    ) -> Result<SmallVec<[usize; Space::MAX_RANK]>, LineMisfit> {
-        let axis = labels
-            .iter()
-            .rev()
-            .zip((0..self.rank()).rev())
-            .find_map(|(&label, axis)| (label == dimension).then_some(axis))
-            .ok_or(LineMisfit::Tile(TileMisfit::RunsOut { wanted: dimension }))?;
-        let stride = self.strides[axis];
-        if stride != 1 {
-            return Err(LineMisfit::InnermostStrided(stride));
-        }
-        let extent = self.shape[axis];
-        if extent < width || !extent.is_multiple_of(width) {
-            return Err(LineMisfit::Tile(TileMisfit::Unwhole {
-                dimension,
-                extent,
-                tile: width,
-            }));
-        }
-        Ok(SmallVec::from_slice(&[axis]))
-    }
-
     fn stored_run_axes(
         &self,
         labelled: usize,
@@ -353,6 +311,48 @@ impl Geometry {
         }
         Ok(inside)
     }
+}
+
+/// All non-singleton factors of a plain line advance the same logical coordinate.
+fn plain_line_dimension(tiling: Tiling, tile: &[(Dimension, usize)]) -> Option<Dimension> {
+    if tiling.is_tiled() {
+        return None;
+    }
+    let mut dimensions = tile
+        .iter()
+        .filter(|(_, count)| *count != 1)
+        .map(|&(dim, _)| dim);
+    let dimension = dimensions.next()?;
+    dimensions
+        .all(|other| other == dimension)
+        .then_some(dimension)
+}
+
+fn plain_line_axes(
+    geometry: &Geometry,
+    labels: &[Dimension],
+    dimension: Dimension,
+    width: usize,
+) -> Result<SmallVec<[usize; Space::MAX_RANK]>, LineMisfit> {
+    let axis = labels
+        .iter()
+        .rev()
+        .zip((0..geometry.rank()).rev())
+        .find_map(|(&label, axis)| (label == dimension).then_some(axis))
+        .ok_or(LineMisfit::Tile(TileMisfit::RunsOut { wanted: dimension }))?;
+    let stride = geometry.strides()[axis];
+    if stride != 1 {
+        return Err(LineMisfit::InnermostStrided(stride));
+    }
+    let extent = geometry.shape()[axis];
+    if extent < width || !extent.is_multiple_of(width) {
+        return Err(LineMisfit::Tile(TileMisfit::Unwhole {
+            dimension,
+            extent,
+            tile: width,
+        }));
+    }
+    Ok(SmallVec::from_slice(&[axis]))
 }
 
 /// Why a [`Geometry`] cannot be read a tile at a time ([`Geometry::serves`]).
