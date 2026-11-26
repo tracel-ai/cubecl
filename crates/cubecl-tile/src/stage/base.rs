@@ -42,6 +42,16 @@ pub enum StageOrder {
 }
 
 impl StageOrder {
+    /// The values one line of a stage laid in this order holds, its source served `source_width`
+    /// wide: the source's width in the source's order, one value where each source line's values
+    /// are laid apart.
+    pub(crate) fn line_width(self, source_width: usize) -> usize {
+        match self {
+            StageOrder::AsSource => source_width,
+            StageOrder::AlongRun(_) => 1,
+        }
+    }
+
     /// The order a matrix instruction's fragments read a stage of an operand over `space` in at
     /// full width, the contraction summing it along `contracted`: `contracted` innermost where
     /// the target's fragment load reads a lane's run of `k` laid across its memory's rows one
@@ -225,36 +235,69 @@ impl StageStorage {
     ///
     /// # Guarantees
     ///
-    /// - The bytes cover every line of the block, and the padding after each of its rows, in the
-    ///   order the storage names or, for a tiled stage in the source's order, in any order the
-    ///   Lowering lays it down in for the fragments that read it
-    ///   ([`ordered_for_fragments`](Self::ordered_for_fragments)).
+    /// - The bytes cover every line of the block in the order the storage names, and the padding
+    ///   after each of its rows.
     ///
     /// # Panics
     ///
     /// - Where the storage is not shared memory, or a block lacks or does not divide an edge.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
-        let laid = self.laid_bytes(space, vector_size, elem_bits);
-        let reordered = self
-            .reordered()
-            .into_iter()
-            .filter(|_| elem_bits.is_multiple_of(8))
-            .flat_map(|reorder| space.dimensions().map(reorder));
-        reordered
-            .map(|storage| storage.laid_bytes(space, 1, elem_bits))
-            .fold(laid, usize::max)
+        let line = vector_size * elem_bits / 8;
+        StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
-}
 
-impl StageStorage {
+    /// Bytes a stage of a factor of a contraction summed along `contracted`, its source served
+    /// `vector_size` values of `elem_bits` bits a line and moved in by `delivery`, holds where
+    /// the fragments of `mma`'s target read it: [`bytes`](Self::bytes) of the storage the
+    /// Lowering lays it out in ([`ordered_for_fragments`](Self::ordered_for_fragments)), one
+    /// value a line where that order is not the source's. What a host sizes a stage the Lowering
+    /// builds for a plain factor staged as it lies.
+    ///
+    /// # Assumptions
+    ///
+    /// - As [`bytes`](Self::bytes).
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are those of the stage the Lowering allocates for such a factor: the source's
+    ///   order, and so [`bytes`](Self::bytes) itself, on every target that reads a strided run at
+    ///   full width.
+    ///
+    /// # Panics
+    ///
+    /// - As [`bytes`](Self::bytes).
+    #[allow(clippy::too_many_arguments)]
+    pub fn bytes_read_by_fragments(
+        &self,
+        space: &Space,
+        vector_size: usize,
+        elem_bits: usize,
+        contracted: Dimension,
+        delivery: Delivery,
+        mma: &MmaProperties,
+    ) -> usize {
+        let laid = self
+            .clone()
+            .ordered_for_fragments(space, contracted, delivery, mma);
+        let width = laid.order().line_width(vector_size);
+        laid.bytes(space, width, elem_bits)
+    }
+
     /// This storage as the Lowering lays a stage of an operand over `space` out for the fragments
     /// of a matrix instruction to read, the contraction summing it along `contracted` and its
     /// lines moved in by `delivery`: a tiled stage of unswizzled rows filled by the units' own
     /// loads and stores, in the order its fragments read at full width
     /// ([`StageOrder::for_fragments`]); any other as it is. A copy engine moves each source line
     /// whole and a swizzle permutes the chunks of the source's rows, so neither lays a stage in
-    /// another order.
-    pub(crate) fn ordered_for_fragments(
+    /// another order. The one decision the Lowering lays such a stage by and a host sizes it by
+    /// ([`bytes_read_by_fragments`](Self::bytes_read_by_fragments)).
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its row chunks: only a tiled stage's order
+    ///   changes, from the source's, and only on a target whose fragment load reads a run laid
+    ///   across its memory's rows one element at a time.
+    pub fn ordered_for_fragments(
         self,
         space: &Space,
         contracted: Dimension,
@@ -276,37 +319,14 @@ impl StageStorage {
             other => other,
         }
     }
+}
 
+impl StageStorage {
     /// The order this storage lays a shared-memory stage down in.
     pub(crate) fn order(&self) -> StageOrder {
         match self {
             Self::Tiled { order, .. } | Self::Strided { order } => *order,
             Self::Lines { .. } => StageOrder::AsSource,
-        }
-    }
-
-    /// Bytes a stage over `space` holds laid out in exactly this storage, `vector_size` values of
-    /// `elem_bits` bits a line.
-    fn laid_bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
-        let line = vector_size * elem_bits / 8;
-        StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
-    }
-
-    /// This storage laid with a Dimension moved innermost, where the Lowering may lay it so
-    /// ([`ordered_for_fragments`](Self::ordered_for_fragments)): a tiled stage of unswizzled rows
-    /// in the source's order.
-    fn reordered(&self) -> Option<impl Fn(Dimension) -> StageStorage + '_> {
-        match self {
-            Self::Tiled {
-                block,
-                chunks,
-                order: StageOrder::AsSource,
-            } if *chunks != RowChunks::Swizzled => Some(move |dimension| Self::Tiled {
-                block: block.clone(),
-                chunks: *chunks,
-                order: StageOrder::AlongRun(dimension),
-            }),
-            _ => None,
         }
     }
 
@@ -422,24 +442,34 @@ mod tests {
         assert_eq!(storage.order(), StageOrder::AsSource);
     }
 
-    /// A padded stage holding more cells along `n` than along `k` pads more rows laid along `k`:
-    /// the bytes asked for a stage in the source's order cover the order the Lowering may lay.
-    #[test]
-    fn stage_bytes_cover_the_physical_order() {
-        let rhs = Space::new(&[(K, 16), (N, 32)]);
+    /// A padded stage of `16 × 32` `[k, n]`, `f16` in 8-wide lines.
+    fn wide_rhs() -> (Space, StageStorage) {
         let storage = StageStorage::Tiled {
             block: vec![(K, 16), (N, 32)],
             chunks: RowChunks::Padded,
             order: StageOrder::AsSource,
         };
-        let along_k = StageStorage::Tiled {
-            block: vec![(K, 16), (N, 32)],
-            chunks: RowChunks::Padded,
-            order: StageOrder::AlongRun(K),
-        };
-        // 32 rows of 16 `f16` and one 16-byte chunk of padding, against 16 rows of 32 and one.
-        assert_eq!(along_k.bytes(&rhs, 1, 16), 32 * (32 + 16));
-        assert_eq!(storage.laid_bytes(&rhs, 8, 16), 16 * (64 + 16));
-        assert_eq!(storage.bytes(&rhs, 8, 16), 32 * (32 + 16));
+        (Space::new(&[(K, 16), (N, 32)]), storage)
+    }
+
+    /// On a target whose fragments read a strided run at full width, the stage keeps its order,
+    /// and its bytes are the storage's own: 16 rows of 32 `f16` and a 16-byte chunk each.
+    #[test]
+    fn a_whole_run_target_sizes_the_stage_as_before() {
+        let (rhs, storage) = wide_rhs();
+        let mma = MmaProperties::default();
+        let bytes = storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &mma);
+        assert_eq!(bytes, storage.bytes(&rhs, 8, 16));
+        assert_eq!(bytes, 16 * (64 + 16));
+    }
+
+    /// Where the target reads a strided run element by element, the stage is sized as the
+    /// Lowering lays it: 32 rows of 16 `f16` along `k`, and a 16-byte chunk each.
+    #[test]
+    fn an_element_wise_target_sizes_the_reordered_stage() {
+        let (rhs, storage) = wide_rhs();
+        let bytes =
+            storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &element_wise());
+        assert_eq!(bytes, 32 * (32 + 16));
     }
 }

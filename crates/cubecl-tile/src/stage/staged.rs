@@ -194,10 +194,7 @@ impl Memory {
                             .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
                     }
-                    None => match storage.order() {
-                        StageOrder::AsSource => source_width,
-                        StageOrder::AlongRun(_) => 1,
-                    },
+                    None => storage.order().line_width(source_width),
                 });
                 // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
                 // words a gather reads lands as the compacted window the gather stages.
