@@ -1,6 +1,6 @@
 //! Unit tests for [`Launcher`]: geometry read off the concrete space, kernel space dynamic.
 
-use super::{Form, implied};
+use super::{Form, implied, uncut};
 use cubecl::quant::scheme::QuantValue;
 use cubecl::{prelude::*, zspace::Tiling};
 use cubecl_tile::launch::{BoundaryPolicy, Decline, Delivery};
@@ -725,6 +725,20 @@ fn spec_refuses_a_width_the_geometry_cannot_serve() {
         matches!(refused, Some(Decline::WidthNotServed { width: 2, .. })),
         "{refused:?}"
     );
+}
+
+#[test]
+fn stride_order_vectorizes_the_varying_dimension_of_a_broadcast_view() {
+    let client = cubecl::test_device().client();
+    let space = Space::new(&[(K, 2), (N, 3)]);
+    let launcher = uncut(&client, &space, &space);
+    launcher
+        .unbound(&Geometry::new(&[(2, 1), (3, 0)]))
+        .dimensions(&[K, N])
+        .in_stride_order()
+        .vectorize(2)
+        .build_spec()
+        .expect("the binding should serve a pair along K");
 }
 
 // ---- StridedTileSource::gathered -------------------------------------------

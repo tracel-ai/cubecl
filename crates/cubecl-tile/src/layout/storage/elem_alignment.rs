@@ -37,6 +37,10 @@ impl ElemAlignment {
 
     /// The alignment of a buffer of `shape` at `strides`, its axes taken in the order the buffer
     /// steps them, whatever order the view names them in.
+    ///
+    /// This ordering treats each axis independently. For a folded dimension of an untiled buffer, use
+    /// [`Geometry::in_stride_order`] with its labels and check the width with [`Geometry::serves`].
+    /// For storage-tiled buffers, check the original geometry with its physical-axis labels.
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
         let mut axes: Vec<(usize, usize)> =
             shape.iter().copied().zip(strides.iter().copied()).collect();
@@ -63,7 +67,7 @@ impl ElemAlignment {
             .filter(|&(&extent, _)| extent != 1)
             .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
-            (Some((&extent, _)), Some((&1, coarser))) => {
+            (Some((&extent, _)), Some((&1, coarser))) if extent > 0 => {
                 coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
             }
             _ => 1,
@@ -151,6 +155,25 @@ mod tests {
         let (_, dimensions) =
             Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Dimension(2), Dimension(1)]);
         assert_eq!(dimensions, [Dimension(1), Dimension(2)]);
+    }
+
+    #[test]
+    fn stride_order_alignment_depends_on_whether_the_axes_are_folded() {
+        let k = Dimension(0);
+        let n = Dimension(1);
+        let geometry = Geometry::new(&[(2, 1), (3, 0)]);
+        assert!(ElemAlignment::in_stride_order(geometry.shape(), geometry.strides()).admits(2));
+
+        for (labels, expected) in [([k, n], true), ([k, k], false)] {
+            let (ordered, labels) = geometry.in_stride_order(&labels);
+            assert_eq!(ordered.serves(&[(k, 2)], &labels).is_ok(), expected);
+        }
+    }
+
+    #[test]
+    fn an_empty_innermost_axis_admits_only_scalar_access() {
+        let alignment = ElemAlignment::in_stride_order(&[3, 0], &[0, 1]);
+        assert_eq!(alignment, ElemAlignment::ONE);
     }
 
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.
