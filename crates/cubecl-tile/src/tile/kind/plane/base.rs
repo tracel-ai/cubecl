@@ -949,37 +949,43 @@ impl PlanePartition {
                 comptime!(1usize)
             }
         };
-        let manual_plain = comptime!(
-            matches!(form, Instruction::Mma { .. }) && !scaled && packing == Packing::Plain
-        );
-        if comptime!(block_scaled || lane_runs > 1 || manual_plain) {
-            // The instruction reads the stored values and their scales as they lie, a fragment
-            // deeper than it decodes them as it loads, or a manual fragment reads plain values
-            // through their view wherever they lie, global memory included: nothing lands on the
-            // way, so each fragment loads its own window of the source.
-            match &frags.kind {
-                TileKind::PlanePartition(partition) => partition.fill_from::<T>(src, load),
-                TileKind::Memory(_)
-                | TileKind::PlaneTile(_)
-                | TileKind::TmaGmem(_)
-                | TileKind::Procedural(_)
-                | TileKind::Lines(_) => {
-                    panic!("PlanePartition::fragments: operand fragments are a partition")
-                }
-            }
-        } else if comptime!(scaled || !packing.as_stored() || !shared) {
-            // A scaled or packed operand, or a global one the fragment API loads, loads from its
-            // plane's landing, as the direct contraction does: a cmma fragment reads a shared,
-            // plain window as it lies.
-            let side = comptime!(Side::of(&src.place.space, &acc.place.space));
-            let landing = src.landed::<T>(side, &acc.place.space);
-            frags.copy_from(&landing);
-            // The landing is this region's until every unit's load has read it.
-            sync_plane();
-        } else {
-            frags.copy_from(src);
+        let fill = comptime!(FragmentFill::of(
+            form,
+            block_scaled || lane_runs > 1,
+            scaled,
+            packing,
+            shared
+        ));
+        match fill {
+            FragmentFill::EachWindow => PlanePartition::fill_each_window::<T>(&frags, src, load),
+            FragmentFill::Landed => PlanePartition::fill_landed::<T>(&mut frags, src, acc),
+            FragmentFill::AsItLies => frags.copy_from(src),
         }
         frags
+    }
+
+    /// `src` loaded into `frags` one fragment's window at a time, nothing landing on the way.
+    fn fill_each_window<T: Numeric>(frags: &Tile, src: &Tile, #[comptime] load: DeepLoad) {
+        match &frags.kind {
+            TileKind::PlanePartition(partition) => partition.fill_from::<T>(src, load),
+            TileKind::Memory(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => {
+                panic!("PlanePartition::fragments: operand fragments are a partition")
+            }
+        }
+    }
+
+    /// `src` landed in its plane's window, as the direct contraction lands it, then loaded into
+    /// `frags`, whose loads every unit has made once it returns.
+    fn fill_landed<T: Numeric>(frags: &mut Tile, src: &Tile, acc: &Tile) {
+        let side = comptime!(Side::of(&src.place.space, &acc.place.space));
+        let landing = src.landed::<T>(side, &acc.place.space);
+        frags.copy_from(&landing);
+        // The landing is this region's until every unit's load has read it.
+        sync_plane();
     }
 
     /// [`fill_from`](Self::fill_from) with every cell cast from `R`, the element `src` serves, one
@@ -1366,6 +1372,42 @@ impl PlaneTile {
                 "PlaneTile: a cmma fragment's slices are read after draining it into its plane's \
                  window; a manual-mma fragment's are read in place"
             ),
+        }
+    }
+}
+
+/// How an operand reaches the fragments of a plane's partition.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FragmentFill {
+    /// Each fragment loads its own window of the operand where it lies: the instruction reads
+    /// stored values and their scales as they lie, a fragment deeper than the instruction decodes
+    /// them as it loads, or a manual fragment reads plain values through their view, global memory
+    /// included.
+    EachWindow,
+    /// The operand lands in its plane's window first: a scaled or packed operand, or a global one
+    /// the fragment API loads.
+    Landed,
+    /// The fragment API reads a shared, plain window as it lies.
+    AsItLies,
+}
+
+impl FragmentFill {
+    /// How an operand reaches fragments of `form`, given whether they load it as stored, whether
+    /// it is under scales, how it is packed and whether it lies in shared memory.
+    fn of(
+        form: Instruction,
+        loads_as_stored: bool,
+        scaled: bool,
+        packing: Packing,
+        shared: bool,
+    ) -> Self {
+        let manual_plain =
+            matches!(form, Instruction::Mma { .. }) && !scaled && packing == Packing::Plain;
+        let lands = scaled || !packing.as_stored() || !shared;
+        match (loads_as_stored || manual_plain, lands) {
+            (true, _) => Self::EachWindow,
+            (false, true) => Self::Landed,
+            (false, false) => Self::AsItLies,
         }
     }
 }
