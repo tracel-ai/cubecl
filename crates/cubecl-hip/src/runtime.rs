@@ -491,7 +491,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
-            host_memory_import: props.canMapHostMemory != 0,
+            host_memory_import: props.canMapHostMemory != 0 && props.hostRegisterSupported != 0,
             physical,
         }
     }

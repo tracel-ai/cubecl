@@ -151,8 +151,8 @@ struct PendingRelease {
 }
 
 impl PendingRelease {
-    /// None for no imports. Leaks `imported` when no event can be recorded: a kernel may still be
-    /// reading.
+    /// None for no imports. Lets go of `imported` as [`let_go_unread`] says when no event can be
+    /// recorded.
     fn record(stream: cubecl_hip_sys::hipStream_t, imported: Vec<Arc<HostMemory>>) -> Option<Self> {
         if imported.is_empty() {
             return None;
@@ -166,32 +166,31 @@ impl PendingRelease {
             )
         };
         if let Err(err) = checked("hipEventCreateWithFlags", status) {
-            log::warn!("leaking imported host memory a kernel may still read: {err}");
-            core::mem::forget(imported);
+            let_go_unread(imported, &err);
             return None;
         }
         let mut release = Self { event, imported };
         // SAFETY: the event was just created, and `stream` lives as long as this storage.
         let status = unsafe { cubecl_hip_sys::hipEventRecord(event, stream) };
-        release.leak_on_error(checked("hipEventRecord", status));
+        release.let_go_on_error(checked("hipEventRecord", status));
         Some(release)
     }
 
-    /// Whether the device may still read the imports. A failed query leaks them.
+    /// Whether the device may still read the imports. A failed query lets go of them as
+    /// [`let_go_unread`] says.
     fn is_pending(&mut self) -> bool {
         // SAFETY: the event lives until this release is dropped.
         let status = unsafe { cubecl_hip_sys::hipEventQuery(self.event) };
         if status == cubecl_hip_sys::hipError_t_hipErrorNotReady {
             return true;
         }
-        self.leak_on_error(checked("hipEventQuery", status));
+        self.let_go_on_error(checked("hipEventQuery", status));
         false
     }
 
-    fn leak_on_error(&mut self, waited: Result<(), DriverError>) {
+    fn let_go_on_error(&mut self, waited: Result<(), DriverError>) {
         if let Err(err) = waited {
-            log::warn!("leaking imported host memory a kernel may still read: {err}");
-            self.imported.drain(..).for_each(core::mem::forget);
+            let_go_unread(self.imported.drain(..), &err);
         }
     }
 }
@@ -227,9 +226,17 @@ impl Drop for HostImporter {
         // SAFETY: no pointer is passed; the call waits for this device's work.
         let status = unsafe { cubecl_hip_sys::hipDeviceSynchronize() };
         if let Err(err) = checked("hipDeviceSynchronize", status) {
-            log::warn!("leaking imported host memory a kernel may still read: {err}");
-            core::mem::forget(imported);
+            let_go_unread(imported, &err);
         }
+    }
+}
+
+/// `imported`, whose reads `failed` left unknown, dropped where the failure poisoned the device,
+/// whose work stopped with it, and leaked otherwise: a kernel may still be reading them.
+fn let_go_unread(imported: impl IntoIterator<Item = Arc<HostMemory>>, failed: &DriverError) {
+    if !failed.is_device_poisoned() {
+        log::warn!("leaking imported host memory a kernel may still read: {failed}");
+        imported.into_iter().for_each(core::mem::forget);
     }
 }
 
