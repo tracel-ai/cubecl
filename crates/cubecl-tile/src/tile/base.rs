@@ -1156,9 +1156,11 @@ impl Tile {
         }
     }
 
-    /// Add `src`'s spilled cells into this memory window.
+    /// Add `src`'s spilled cells into this memory window, its box listed in `src`'s order as
+    /// [`copy_cast_from`](Tile::copy_cast_from) lists it, so the spilled rows land on the
+    /// accumulator's rows whatever order the window lists its dimensions in.
     pub(crate) fn add_from_scratch<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        let space = comptime!(self.place.space.clone());
+        let space = comptime!(self.place.space.in_order_of(&src.place.space));
         match (&mut self.kind, &src.kind) {
             (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.add_from_scratch::<R, S>(d, &space),
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
