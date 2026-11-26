@@ -111,11 +111,11 @@ impl Tile {
             }),
             mem,
         );
-        let scales = self.scales_per_load(comptime!(lands.clone()));
+        let scales = self.scales_per_load(lands.clone());
         let lines_under = comptime!(sw / vw / scales);
         #[unroll]
         for s in 0..scales {
-            let first = line_coords(&start, &load, comptime!(s * lines_under * vw), &space);
+            let first = line_coords(&start, &load, s * lines_under * vw, &space);
             let decode = ScaledDecode::under::<O>(
                 self.factor
                     .at_coords(&first, space.clone(), comptime!(Guard::Checked)),
@@ -125,7 +125,7 @@ impl Tile {
                 held,
                 out,
                 &start,
-                comptime!(s * lines_under),
+                s * lines_under,
                 lines_under,
                 &load,
                 &space,
@@ -483,7 +483,7 @@ impl Tile {
                 for s in 0..per_load {
                     let lines_under = comptime!(sw / vw / per_load);
                     let own = inner.scale_coords(
-                        &line_coords(&start, &load, comptime!(s * lines_under * vw), &space),
+                        &line_coords(&start, &load, s * lines_under * vw, &space),
                         &space,
                     );
                     let block = inner.scale_in_word::<f32>(scales[t * per_load + s], &own);
@@ -492,7 +492,7 @@ impl Tile {
                         held,
                         &mut out,
                         &start,
-                        comptime!(s * lines_under),
+                        s * lines_under,
                         lines_under,
                         &load,
                         &space,
