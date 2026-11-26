@@ -5,6 +5,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::any::TypeId;
 use core::mem::{ManuallyDrop, MaybeUninit};
+use core::ops::Range;
 use core::ptr::NonNull;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::{
@@ -102,6 +103,31 @@ impl HostMemory {
     /// The bytes held, for the one owner to write before the memory is shared.
     pub fn bytes_mut(&mut self) -> &mut [u8] {
         &mut self.bytes
+    }
+
+    /// Whether a device may import `range`: non-empty, inside the memory and aligned to
+    /// [`HOST_MEMORY_ALIGNMENT`].
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] for any other range.
+    pub fn ensure_importable(&self, range: &Range<u64>) -> Result<(), IoError> {
+        let alignment = HOST_MEMORY_ALIGNMENT as u64;
+        let importable = !range.is_empty()
+            && range.end <= self.len() as u64
+            && range.start.is_multiple_of(alignment)
+            && range.end.is_multiple_of(alignment);
+        match importable {
+            true => Ok(()),
+            false => Err(IoError::HostMemoryRefused {
+                reason: format!(
+                    "range {range:?} of {} bytes: it must be non-empty, inside and aligned to {alignment}",
+                    self.len()
+                )
+                .into(),
+                backtrace: BackTrace::capture(),
+            }),
+        }
     }
 
     /// Run `register` unless a registration of type `R` already exists, and keep what it returns
@@ -256,6 +282,32 @@ mod tests {
             HostMemory::new(0),
             Err(IoError::HostMemoryRefused { .. })
         ));
+    }
+
+    #[test]
+    fn an_aligned_range_inside_is_importable() {
+        let memory = HostMemory::new(2 * HOST_MEMORY_ALIGNMENT).unwrap();
+        let chunk = HOST_MEMORY_ALIGNMENT as u64;
+        assert!(memory.ensure_importable(&(chunk..2 * chunk)).is_ok());
+    }
+
+    #[test]
+    fn a_range_past_the_end_is_not_importable() {
+        let memory = HostMemory::new(HOST_MEMORY_ALIGNMENT).unwrap();
+        let chunk = HOST_MEMORY_ALIGNMENT as u64;
+        assert!(memory.ensure_importable(&(0..2 * chunk)).is_err());
+    }
+
+    #[test]
+    fn an_unaligned_range_is_not_importable() {
+        let memory = HostMemory::new(HOST_MEMORY_ALIGNMENT).unwrap();
+        assert!(memory.ensure_importable(&(0..1)).is_err());
+    }
+
+    #[test]
+    fn an_empty_range_is_not_importable() {
+        let memory = HostMemory::new(HOST_MEMORY_ALIGNMENT).unwrap();
+        assert!(memory.ensure_importable(&(0..0)).is_err());
     }
 
     struct Counted(Arc<AtomicUsize>);

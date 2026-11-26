@@ -334,6 +334,7 @@ impl StorageAllocator for GpuStorage {
         memory: &Arc<HostMemory>,
         range: Range<u64>,
     ) -> Result<StorageHandle, IoError> {
+        memory.ensure_importable(&range)?;
         let id = self.host_imports.import(memory, range.clone())?;
         Ok(StorageHandle::new(
             id,

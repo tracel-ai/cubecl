@@ -862,11 +862,6 @@ pub trait Server:
     /// Give `memory` `range` of `host`, which this device's kernels then read in place, on the
     /// given [stream](StreamId).
     ///
-    /// # Assumptions
-    ///
-    /// `range` is a non-empty range of `host`, aligned to
-    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT).
-    ///
     /// # Guarantees
     ///
     /// Every implementation keeps `host` until the last work queued on it completes, on any
@@ -877,8 +872,9 @@ pub trait Server:
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when the device imports no host memory, which is the
-    /// default, a stream records a graph, or the driver refuses the range. A runtime that
-    /// imports records the error on the memory, as in
+    /// default, a stream records a graph, `range` is not
+    /// [importable](crate::storage::HostMemory::ensure_importable), or the driver refuses it. A
+    /// runtime that imports records the error on the memory, as in
     /// [`initialize_memory`](Self::initialize_memory).
     fn import_host_memory(
         &mut self,

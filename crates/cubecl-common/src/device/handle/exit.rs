@@ -55,6 +55,10 @@ mod handler {
     /// services it holds.
     const EXIT_CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 
+    /// How long the exit waits for the [`ExitGuard`]s still held once the services are closed,
+    /// however long their closes took: the runtime's teardown must not overlap a guarded call.
+    const EXIT_GUARD_TIMEOUT: Duration = Duration::from_secs(5);
+
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
 
     /// How many [`ExitGuard`]s are held, and the exit's wait for none to be.
@@ -187,7 +191,8 @@ mod handler {
     }
 
     /// No service starts from here on, and every one that asked is closed, all within
-    /// [`EXIT_CLOSE_TIMEOUT`]. The list is taken, so whichever of the guard and the handler runs
+    /// [`EXIT_CLOSE_TIMEOUT`], then the exit guards are waited for, at least
+    /// [`EXIT_GUARD_TIMEOUT`]. The list is taken, so whichever of the guard and the handler runs
     /// second finds nothing to close.
     fn close_services() {
         let services = {
@@ -200,7 +205,7 @@ mod handler {
             let remaining = deadline.saturating_duration_since(Instant::now());
             close_service(service.device_id, service.close, remaining);
         }
-        wait_exit_guards(deadline);
+        wait_exit_guards(deadline.max(Instant::now() + EXIT_GUARD_TIMEOUT));
     }
 
     /// Closes one service with `close`, logging a close that failed or ran out of time.

@@ -982,17 +982,7 @@ impl Client {
                 self.service_id()
             )));
         }
-        let alignment = HOST_MEMORY_ALIGNMENT as u64;
-        if range.is_empty()
-            || range.end > host.len() as u64
-            || !range.start.is_multiple_of(alignment)
-            || !range.end.is_multiple_of(alignment)
-        {
-            return Err(refused(format!(
-                "range {range:?} of {} bytes: it must be non-empty, inside and aligned to {alignment}",
-                host.len()
-            )));
-        }
+        host.ensure_importable(&range)?;
 
         let stream_id = self.stream_id();
         let handle = Handle::new(self.service_id(), stream_id, range.end - range.start);
