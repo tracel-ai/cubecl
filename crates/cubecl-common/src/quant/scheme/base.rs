@@ -37,10 +37,10 @@ use crate::{e2m1, ue8m0};
 ///     .per_block([32], ScaleDtype::UE8M0)
 ///     .coarser_per_block(row, ScaleDtype::F32);
 ///
-/// // Two levels: one f32 scale per two blocks of 16 along the last axis.
+/// // Two levels: one f32 scale per 64 values along the last axis, four blocks of 16.
 /// QuantScheme::default()
 ///     .per_block([16], ScaleDtype::UE4M3)
-///     .coarser_per_block([2], ScaleDtype::F32);
+///     .coarser_per_block([64], ScaleDtype::F32);
 /// ```
 ///
 /// A two-level scheme exists so block scales can live in a narrow type: the coarser scale absorbs
@@ -62,9 +62,8 @@ pub struct QuantScheme {
     pub mode: QuantMode,
     /// The level whose scales lie beside the values, one per block of its size.
     pub finest: BlockScale,
-    /// A level over the finest one, where the scheme has one. Its block counts blocks of the
-    /// finest level, not values: a scale of the coarser level covers whole blocks of the finest
-    /// one, and its grid is the finest grid cut again ([`scale_grids`](Self::scale_grids)).
+    /// A level over the finest one, where the scheme has one: each of its blocks covers whole
+    /// blocks of the finest level.
     ///
     /// One optional level rather than a list only because no format has a third yet, and this
     /// keeps the scheme, which every quantized dtype carries, at the size two levels take. A third
@@ -136,12 +135,15 @@ impl QuantScheme {
         self
     }
 
-    /// Set the coarser level: one scale per block of `size` blocks of the finest level, stored as
-    /// `dtype`.
+    /// Set the coarser level: one scale per block of `size`, stored as `dtype`.
+    ///
+    /// # Assumptions
+    ///
+    /// Each block of `size` covers whole blocks of the finest level.
     ///
     /// # Panics
     ///
-    /// As [`BlockSize::new`], for a block given as its counts.
+    /// As [`BlockSize::new`], for a block given as its values.
     pub fn coarser_per_block(mut self, size: impl Into<BlockSize>, dtype: ScaleDtype) -> Self {
         self.coarser = Some(BlockScale {
             size: size.into(),
@@ -153,9 +155,9 @@ impl QuantScheme {
     /// The shape of each level's grid of scales over a tensor of `shape`, the finest first: one
     /// scale per block, the last block of an axis possibly in part.
     pub fn scale_grids(&self, shape: &[usize]) -> impl Iterator<Item = Vec<usize>> + use<> {
-        let finest = self.finest.size.num_blocks(shape);
-        let coarser = self.coarser.map(|coarser| coarser.size.num_blocks(&finest));
-        core::iter::once(finest).chain(coarser)
+        let shape = shape.to_vec();
+        self.levels()
+            .map(move |level| level.size.num_blocks(&shape))
     }
 
     /// The scale levels, the finest first: as many scale tensors ride along with the values.
@@ -795,13 +797,12 @@ mod tests {
         assert_eq!(scheme.coarser, Some(level(row(), ScaleDtype::F32)));
     }
 
-    /// Blocks of 16 over `[4, 64]` lay a `[4, 4]` grid; two of them along the last axis share a
-    /// coarser scale, two cells of a row, not two values.
+    /// Blocks of 16 over `[4, 64]` lay a `[4, 4]` grid; blocks of 32 a `[4, 2]` one.
     #[test]
-    fn a_coarser_level_counts_blocks_of_the_finest() {
+    fn each_level_lays_its_own_grid() {
         let scheme = QuantScheme::default()
             .per_block([16], ScaleDtype::UE4M3)
-            .coarser_per_block([2], ScaleDtype::F32);
+            .coarser_per_block([32], ScaleDtype::F32);
         let grids: Vec<Vec<usize>> = scheme.scale_grids(&[4, 64]).collect();
         assert_eq!(grids, [vec![4, 4], vec![4, 2]]);
     }
