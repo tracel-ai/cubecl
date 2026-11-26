@@ -46,6 +46,13 @@ pub fn kernel_without_generics(output: &mut [f32]) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_with_tuple(output: &mut [f32], u: (f32, f32)) {
+    if UNIT_POS == 0 {
+        output[0] = u.0 - u.1;
+    }
+}
+
 #[cube(launch, address_type = "dynamic")]
 pub fn kernel_dynamic_addressing(output: &mut [f32]) {
     if UNIT_POS == 0 {
@@ -205,6 +212,24 @@ pub fn test_kernel_without_generics<R: Runtime>(client: Client) {
     let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
 
+    assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_kernel_with_tuple<R: Runtime>(client: Client) {
+    let handle = client.create_from_slice(f32::as_bytes(&[0.0]));
+
+    kernel_with_tuple::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        (7.0, 2.0),
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = f32::from_bytes(&actual);
+
+    // 7 - 2 tells the elements apart: swapped, they would give -3.
     assert_eq!(actual[0], 5.0);
 }
 
@@ -761,6 +786,12 @@ macro_rules! testgen_launch {
         fn test_launch_without_generics() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_without_generics::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_launch_with_tuple() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_with_tuple::<TestRuntime>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
