@@ -41,12 +41,14 @@ fn first_cell_and_stride() -> (usize, usize) {
 
 /// Writes a sum's cells into `mem` through its own write, which replaces them or adds into them:
 /// `cells` writes each run of `W` cells it holds into the sink it is handed, at the run's row and
-/// line of the accumulator's trailing dimensions of `space`.
+/// line of the matrix `space`'s edges make: its innermost dimension the columns, the last one
+/// above it longer than one cell the rows, as the fragment's store intrinsic addresses them.
 ///
 /// # Guarantees
 ///
 /// - The sink addresses `mem`'s window as the accumulator's rows and columns, whatever order
-///   `space` lists the window's dimensions in past its trailing ones.
+///   `space` lists the window's dimensions in past its trailing ones, and whatever one-wide
+///   dimensions it lists between them.
 pub fn write_cells<Out: Numeric, W: Size>(
     _mem: &mut Memory,
     _space: &Space,
@@ -65,7 +67,7 @@ pub mod write_cells {
         space: &'a Space,
         cells: impl FnOnce(&Scope, &mut <MatrixViewMut<'a, Vector<Out, W>> as CubeType>::ExpandType),
     ) {
-        let dimensions = MatrixDimensions::trailing(space);
+        let dimensions = MatrixDimensions::edges(space);
         let mut sink =
             mem.__expand_matrix_mut_method::<Out, W>(scope, 0usize.into(), dimensions, space);
         cells(scope, &mut sink);

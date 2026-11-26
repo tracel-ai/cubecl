@@ -7,7 +7,7 @@
 //! atomically ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
 #![allow(non_snake_case)]
 
-use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
+use crate::support::{HostData, HostDataType, HostDataVec, TestInput, ValidationResult};
 use cubecl::{
     features::AtomicUsage,
     ir::{ElemType, FloatKind, Type},
@@ -629,11 +629,26 @@ fn fragment_matmul_into_a_window_listing_another_dimension<E: Numeric>(
 }
 
 /// A `20 × 24` product drained into an output listed `[M, J, N]` by an accumulator listed
-/// `[M, N]`: every box overhangs, so each fragment bounces through the scratch, and its rows land
-/// on the output's rows rather than on the one-wide `J`, whose rows past the first the edge's
-/// mask would drop.
+/// `[M, N]`: every box overhangs, so each fragment bounces through the scratch, or is written out
+/// of its registers where the target states its cells' positions, and its rows land on the
+/// output's rows rather than on the one-wide `J`, whose rows past the first the edge's mask would
+/// drop.
 #[test]
 fn a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists() {
+    fragment_matmul_past_a_one_wide_dimension(false);
+}
+
+/// [`a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists`] with the accumulator
+/// listed `[M, J, N]` too: the one-wide `J` it holds between its rows and columns is not the
+/// fragment's rows either.
+#[test]
+fn a_bounced_fragment_lands_its_rows_past_a_one_wide_dimension_it_holds() {
+    fragment_matmul_past_a_one_wide_dimension(true);
+}
+
+/// A `20 × 24 × 32` product drained into an output listed `[M, J, N]`, `J` one wide, by an
+/// accumulator listed `[M, J, N]` where `held_lists_j`, `[M, N]` otherwise, checked cell by cell.
+fn fragment_matmul_past_a_one_wide_dimension(held_lists_j: bool) {
     let client = cubecl::test_device().client();
     if !contracts_f16_fragments(&client) {
         return;
@@ -650,7 +665,15 @@ fn a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists() {
         .dtype(input)
         .custom(b)
         .generate_with_f32_host_data();
-    let held = TestInput::builder(client.clone(), shape![m, n])
+    let held_shape = match held_lists_j {
+        true => shape![m, 1, n],
+        false => shape![m, n],
+    };
+    let held_dimensions: &'static [Dimension] = match held_lists_j {
+        true => &[M, J, N],
+        false => &[M, N],
+    };
+    let held = TestInput::builder(client.clone(), held_shape)
         .dtype(f32::elem_type_native())
         .zeros()
         .generate_without_host_data();
@@ -684,13 +707,21 @@ fn a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists() {
         launcher.cube_dim(),
         bind(a_handle.clone().binding(), input, &[M, K]).arg(),
         bind(b_handle.clone().binding(), input, &[K, N]).arg(),
-        bind(held.clone().binding(), held.dtype, &[M, N]).arg(),
+        bind(held.clone().binding(), held.dtype, held_dimensions).arg(),
         bind(out.clone().binding(), out.dtype, &[M, J, N]).arg(),
         launcher.partitioning_arg(),
         f32::elem_type_native(),
     );
 
     let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    let read_back = match &got.data {
+        HostDataVec::F32(cells) => cells.len(),
+        HostDataVec::F64(_) | HostDataVec::I32(_) => 0,
+    };
+    assert!(
+        read_back >= m * n,
+        "the output should read back whole: {read_back} cells"
+    );
     let want = reference(m, n, k);
     for i in 0..m {
         for j in 0..n {
