@@ -83,7 +83,7 @@ impl<K> Record for TuneRecord<K> {
 /// A tune being recorded: stamped when it began, written when it ends. Every
 /// call is a no-op when the environment records nothing.
 #[derive(Debug)]
-pub(crate) struct TuneRecording<K> {
+pub struct TuneRecording<K> {
     open: Option<OpenRecording<K>>,
 }
 
@@ -98,7 +98,7 @@ struct OpenRecording<K> {
 }
 
 /// What [`TuneRecording::finish`] needs to know of the answer.
-pub(crate) struct Answer {
+pub struct Answer {
     pub winner: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
@@ -107,7 +107,7 @@ pub(crate) struct Answer {
 impl<K: AutotuneKey> TuneRecording<K> {
     /// Begin recording the tune of `key` in `cache`'s table. The key is
     /// cloned only when the environment records.
-    pub(crate) fn new(cache: &TuneCache<K>, key: &K, checksum: &str) -> Self {
+    pub fn new(cache: &TuneCache<K>, key: &K, checksum: &str) -> Self {
         let open = Span::new().map(|span| OpenRecording {
             span,
             table: cache.table().into(),
@@ -124,19 +124,19 @@ impl<K: AutotuneKey> TuneRecording<K> {
 
     /// Whether the tune is recorded, and so has to track its steps: the
     /// record's trials are the ones the log context collects.
-    pub(crate) fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
 
     /// Keep the plan the tune runs, its candidates named by `names`.
-    pub(crate) fn plan(&mut self, plan: &TunePlan, names: &[&str]) {
+    pub fn plan(&mut self, plan: &TunePlan, names: &[&str]) {
         if let Some(open) = &mut self.open {
             open.plan = plan.account(names);
         }
     }
 
     /// Write the record of the tune that just answered.
-    pub(crate) fn finish(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
+    pub fn finish(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
         let Some(open) = self.open else {
             return;
         };

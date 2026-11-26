@@ -4,19 +4,19 @@
 /// Held while a key's candidates run with their launches discarded, under a
 /// `CompileOnly` override or to compile a batch together, so a key their
 /// launches reach knows it was reached inside them.
-pub(crate) struct CandidateGathering {
+pub struct CandidateGathering {
     _private: (),
 }
 
 impl CandidateGathering {
     /// Gather a key's candidates until the guard drops.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         depth::enter();
         Self { _private: () }
     }
 
     /// Whether another key's candidates are running on this thread.
-    pub(crate) fn active() -> bool {
+    pub fn active() -> bool {
         depth::get() > 0
     }
 }
@@ -34,15 +34,15 @@ mod depth {
         static DEPTH: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     }
 
-    pub(super) fn get() -> usize {
+    pub fn get() -> usize {
         DEPTH.with(core::cell::Cell::get)
     }
 
-    pub(super) fn enter() {
+    pub fn enter() {
         DEPTH.with(|depth| depth.set(depth.get() + 1));
     }
 
-    pub(super) fn leave() {
+    pub fn leave() {
         DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
@@ -55,15 +55,15 @@ mod depth {
 
     static DEPTH: AtomicUsize = AtomicUsize::new(0);
 
-    pub(super) fn get() -> usize {
+    pub fn get() -> usize {
         DEPTH.load(Ordering::Relaxed)
     }
 
-    pub(super) fn enter() {
+    pub fn enter() {
         DEPTH.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(super) fn leave() {
+    pub fn leave() {
         DEPTH.fetch_sub(1, Ordering::Relaxed);
     }
 }

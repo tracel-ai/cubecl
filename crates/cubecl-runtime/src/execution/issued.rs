@@ -39,13 +39,13 @@ impl IssuedLaunch {
 
 impl IssuedLaunch {
     /// The purpose of the launch running on this thread, when one is.
-    pub(crate) fn running_purpose() -> Option<LaunchPurpose> {
+    pub fn running_purpose() -> Option<LaunchPurpose> {
         running::purpose()
     }
 
     /// Where the work of the launch running on this thread counts, when a
     /// launch is running: `Some(None)` for one issued with no override open.
-    pub(crate) fn running_recorder() -> Option<Option<StatisticsRecorder>> {
+    pub fn running_recorder() -> Option<Option<StatisticsRecorder>> {
         running::recorder()
     }
 }

@@ -10,7 +10,7 @@ use cubecl_common::profile::{ProfileTicks, TimingMethod};
 /// variance is zero and reads as perfect stability. This tracks the sample count explicitly so
 /// elimination can require evidence instead of inferring it from a degenerate variance.
 #[derive(Debug, Default)]
-pub(crate) struct SampleSet {
+pub struct SampleSet {
     durations: Vec<Duration>,
     stalled: u8,
 }
@@ -18,14 +18,14 @@ pub(crate) struct SampleSet {
 /// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
 /// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
 /// launched, and recorded it would be the fastest sample in the round and end it on the spot.
-pub(crate) fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
+pub fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
     ticks
         .map(|ticks| ticks.duration())
         .filter(|duration| !duration.is_zero())
 }
 
 impl SampleSet {
-    pub(crate) fn push(&mut self, duration: Duration) {
+    pub fn push(&mut self, duration: Duration) {
         let before = self.best();
         self.durations.push(duration);
 
@@ -48,11 +48,11 @@ impl SampleSet {
         };
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.durations.len()
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.durations.is_empty()
     }
 
@@ -66,11 +66,11 @@ impl SampleSet {
         }
     }
 
-    pub(crate) fn best(&self) -> Option<Duration> {
+    pub fn best(&self) -> Option<Duration> {
         self.reliable().iter().min().copied()
     }
 
-    pub(crate) fn converged(&self) -> bool {
+    pub fn converged(&self) -> bool {
         self.stalled >= CONVERGENCE_ROUNDS
     }
 
@@ -80,17 +80,17 @@ impl SampleSet {
     /// is toward being slower, so clearing the limit despite it is the conservative direction.
     /// Excluding it would also make a short circuit impossible during the first pass, where it
     /// is the only sample there is.
-    pub(crate) fn confirmed_under(&self, limit: Duration, required: usize) -> bool {
+    pub fn confirmed_under(&self, limit: Duration, required: usize) -> bool {
         self.durations.iter().filter(|d| **d <= limit).count() >= required
     }
 
     /// Whether any sample at all landed under `limit` — the cheap gate before a candidate is
     /// worth spending confirmation samples on.
-    pub(crate) fn any_under(&self, limit: Duration) -> bool {
+    pub fn any_under(&self, limit: Duration) -> bool {
         self.durations.iter().any(|d| *d <= limit)
     }
 
-    pub(crate) fn computation(&self, method: TimingMethod) -> BenchmarkComputations {
+    pub fn computation(&self, method: TimingMethod) -> BenchmarkComputations {
         BenchmarkComputations::new(&BenchmarkDurations::from_durations(
             method,
             self.reliable().to_vec(),
@@ -100,7 +100,7 @@ impl SampleSet {
 
 /// How a time compares to a baseline, once noise is set aside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TimeChange {
+pub enum TimeChange {
     /// Faster than the baseline by more than the [`IMPROVEMENT_THRESHOLD`].
     Improvement,
     /// Within the threshold of the baseline either way: indistinguishable from noise.
@@ -111,7 +111,7 @@ pub(crate) enum TimeChange {
 
 impl TimeChange {
     /// How `time` compares to `baseline`.
-    pub(crate) fn of(time: Duration, baseline: Duration) -> Self {
+    pub fn of(time: Duration, baseline: Duration) -> Self {
         if time < baseline.mul_f64(1.0 - IMPROVEMENT_THRESHOLD) {
             Self::Improvement
         } else if time > baseline.mul_f64(1.0 + IMPROVEMENT_THRESHOLD) {

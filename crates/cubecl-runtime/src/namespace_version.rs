@@ -9,7 +9,7 @@ use cubecl_environment::persistence::Namespace;
 ///
 /// The crate version in a namespace does not move when a layout changes inside a release, so the
 /// layout carries a number of its own.
-pub(crate) struct NamespaceVersion {
+pub struct NamespaceVersion {
     scope: &'static str,
     marker: &'static str,
     current: u32,
@@ -17,7 +17,7 @@ pub(crate) struct NamespaceVersion {
 }
 
 impl NamespaceVersion {
-    pub(crate) const fn new(scope: &'static str, marker: &'static str, current: u32) -> Self {
+    pub const fn new(scope: &'static str, marker: &'static str, current: u32) -> Self {
         Self {
             scope,
             marker,
@@ -27,7 +27,7 @@ impl NamespaceVersion {
     }
 
     /// The namespace `path` is stored under in the current version.
-    pub(crate) fn namespace(&self, path: &str) -> Namespace {
+    pub fn namespace(&self, path: &str) -> Namespace {
         Namespace::scoped(
             self.scope,
             format!("{}{}/{path}", self.marker, self.current),
@@ -35,7 +35,7 @@ impl NamespaceVersion {
     }
 
     /// Purge, once per process, the namespaces this crate version wrote under an earlier layout.
-    pub(crate) fn drop_earlier(&self) {
+    pub fn drop_earlier(&self) {
         if self.dropped.swap(true, Ordering::Relaxed) {
             return;
         }

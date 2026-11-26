@@ -25,7 +25,7 @@ impl AutotuneOutput for () {
 /// `stage` enters while the device is held.
 ///
 /// Returns at least one duration, otherwise an error is returned.
-pub(crate) fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
+pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
@@ -41,7 +41,7 @@ pub(crate) fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
             profile_exclusive(operation, inputs, client, evictor, stage, access)
         })
         .map_err(|err| AutotuneError::Unknown {
-            name: operation.name.to_string(),
+            name: operation.name().to_string(),
             err: err.to_string(),
         })?
 }
@@ -95,7 +95,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
 
     if durations.is_empty() {
         Err(AutotuneError::InvalidSamples {
-            name: operation.name.to_string(),
+            name: operation.name().to_string(),
         })
     } else {
         Ok(durations)
@@ -119,7 +119,7 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
         let profiled = access.profile(
             &client,
             || operation.race_contained(inputs, &client, access),
-            &operation.name,
+            operation.name(),
         );
 
         match profiled {
