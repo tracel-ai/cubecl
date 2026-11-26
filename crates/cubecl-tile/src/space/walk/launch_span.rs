@@ -20,7 +20,7 @@ pub(crate) fn launch_tiles(
 ) -> (Coords<usize>, Coords<usize>, Coords<usize>) {
     let order = level
         .launch_order()
-        .expect("a level spanning the launch states the order its instances take");
+        .expect("a level spanning the launch should state the order its instances take");
     // An instance's place in its cube: a plane's row, or a unit's place among all of its units.
     let in_cube = match level.coverage().scope() {
         Some(ComputeScope::Unit) => UNIT_POS as usize,

@@ -265,7 +265,7 @@ fn batched_scaled_stage<O: Numeric>(
         let mut stage = Tile::smem::<O>(
             comptime!(Space::new(&[(M, rows), (N, cols)])),
             output.vector_size(),
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             0usize,
         );
         stage.dequantize_from(&decoded.at(&cube));

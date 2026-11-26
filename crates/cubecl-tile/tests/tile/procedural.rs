@@ -115,7 +115,7 @@ fn sum_kernel_staged<E: Float>(
     .tile::<E>();
     let output = output.tile_mut(&space);
     let walk = source.over(&level);
-    let mut stages = Stages::smem_single(&walk, &source, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem_single(&walk, &source, StageStorage::STRIDED, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut output_region = output.at(region);
         slot.consume(|staged| {

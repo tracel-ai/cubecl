@@ -45,7 +45,7 @@ impl Memory {
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
         for line in Walk::copy(&fill, total) {
-            let i = line.coord(Level::COPIED);
+            let i = line.copied_line();
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));

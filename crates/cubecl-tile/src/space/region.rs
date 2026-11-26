@@ -153,6 +153,12 @@ impl Region {
         self.step(last).coord(dimension)
     }
 
+    /// The line of a copy walk ([`Walk::copy`]) this region is: its coordinate along the walk's
+    /// one dimension.
+    pub(crate) fn copied_line(&self) -> usize {
+        self.coord(Level::COPIED)
+    }
+
     /// The first coordinate along `dimension` of the box this region covers, counted from its
     /// root's: every level's coordinate along `dimension` times the tile it cuts there. What a
     /// kernel bounds a walk of its own by, as an attention's causal queries bound the keys they

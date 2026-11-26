@@ -107,14 +107,14 @@ fn by_plane_fragments(
             let walk = plane.walk();
             let mut query_s = query
                 .at(&plane)
-                .stage_for(&walk, StageStorage::Strided, None);
+                .stage_for(&walk, StageStorage::STRIDED, None);
             query_s.copy_from(&query.at(&plane));
             sync_plane();
             let scores = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &query_s);
-            let window = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
+            let window = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::STRIDED);
             let (bias_p, weights_p) = (bias.at(&plane), weights.at(&plane));
             let mut stages =
-                Stages::smem_single(&walk, &key.at(&plane), StageStorage::Strided, 1usize, None);
+                Stages::smem_single(&walk, &key.at(&plane), StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|key_s| {

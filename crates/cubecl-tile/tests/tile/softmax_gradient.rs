@@ -226,12 +226,12 @@ fn by_plane_fragments(
             let walk = plane.walk();
             let mut rows_s = rows
                 .at(&plane)
-                .stage_for(&walk, StageStorage::Strided, None);
+                .stage_for(&walk, StageStorage::STRIDED, None);
             rows_s.copy_from(&rows.at(&plane));
             let mut rows_gradient_s =
                 rows_gradient
                     .at(&plane)
-                    .stage_for(&walk, StageStorage::Strided, None);
+                    .stage_for(&walk, StageStorage::STRIDED, None);
             rows_gradient_s.copy_from(&rows_gradient.at(&plane));
             sync_plane();
             let scores =
@@ -247,7 +247,7 @@ fn by_plane_fragments(
                 &walk,
                 &cols.at(&plane),
                 &cols_gradient.at(&plane),
-                StageStorage::Strided,
+                StageStorage::STRIDED,
                 1usize,
                 None,
             );

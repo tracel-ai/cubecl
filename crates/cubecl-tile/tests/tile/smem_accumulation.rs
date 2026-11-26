@@ -465,6 +465,7 @@ fn fragment_matmul_into_a_short_window<E: Numeric>(
             comptime!(StageStorage::Tiled {
                 block: vec![(M, 16), (N, 16), (K, 16)],
                 chunks: RowChunks::InOrder,
+                order: StageOrder::AsSource,
             }),
             1usize,
             None,

@@ -75,7 +75,7 @@ impl DimensionDistribution {
             scope: level
                 .coverage()
                 .scope()
-                .expect("a level that distributes a dimension distributes it over a scope"),
+                .expect("a level that distributes a dimension should distribute it over a scope"),
             cube_axis,
             spread: level.cut(dimension).spread,
             workers: match level.cut(dimension).count {
@@ -206,7 +206,7 @@ impl DimensionDistribution {
     ) -> usize {
         match compute_scope {
             ComputeScope::Cube => CubeAxis::position(
-                cube_axis.expect("a cube level's distributed dimension rides a grid axis"),
+                cube_axis.expect("a cube level's distributed dimension should ride a grid axis"),
             ),
             ComputeScope::Plane | ComputeScope::PlaneGroup { .. } | ComputeScope::Unit => {
                 ComputeScope::position(compute_scope)

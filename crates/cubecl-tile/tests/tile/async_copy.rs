@@ -54,7 +54,7 @@ fn ring_matmul(
     c.zero();
 
     let walk = space.walk();
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let c_block = c.at(region);
         slot.consume(|a_s, b_s| {
@@ -87,7 +87,7 @@ fn ring_matmul_rounds(
 
     for _ in 0..rounds {
         let walk = space.walk();
-        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
         stages.pipelined(walk, |slot, region| {
             let c_block = c.at(region);
             slot.consume(|a_s, b_s| {
@@ -115,7 +115,7 @@ fn staged_copy(
 ) {
     let src = src.tile(&space);
     let dst = dst.tile_mut(&space);
-    let mut stage = src.stage(level.clone(), StageStorage::Strided);
+    let mut stage = src.stage(level.clone(), StageStorage::STRIDED);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();
@@ -137,7 +137,7 @@ fn staged_packed_copy(
 ) {
     let src = src.tile(&space);
     let dst = dst.tile_mut(&space);
-    let mut stage = src.stage(level.clone(), StageStorage::Strided);
+    let mut stage = src.stage(level.clone(), StageStorage::STRIDED);
     for region in space.over(&level) {
         stage.copy_from(&src.at(&region));
         sync_cube();

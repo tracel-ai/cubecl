@@ -2106,7 +2106,7 @@ fn scaled_matmul_cmma_staged<E: Numeric>(
     let b = b.tile(&space);
     let scale = scale.tile(&space);
     let c = c.tile_mut(&space);
-    let mut stage = b.stage(level.clone(), StageStorage::Strided);
+    let mut stage = b.stage(level.clone(), StageStorage::STRIDED);
     let acc = c.accumulator::<E>(&a, &b, Semiring::SumProd);
     for region in space.over(&level) {
         stage.copy_from(&b.at(&region));
@@ -2950,7 +2950,7 @@ fn decoded_tile_order_copy(
             CopiedThrough::AStage => {
                 let run = cube.walk();
                 let mut stages =
-                    Stages::smem_single(&run, &decoded, StageStorage::Strided, 1usize, None);
+                    Stages::smem_single(&run, &decoded, StageStorage::STRIDED, 1usize, None);
                 stages.pipelined(run, |slot, stage| {
                     let mut out_stage = out_cube.at(stage);
                     slot.consume(|b_stage| {
@@ -3133,7 +3133,7 @@ impl StagesHeld {
     /// The storage, its blocks `fragment` wide along every dimension the instruction spans.
     fn storage(self, fragment: usize) -> StageStorage {
         match self {
-            Self::Strided => StageStorage::Strided,
+            Self::Strided => StageStorage::STRIDED,
             Self::InPaddedBlocks => StageStorage::Tiled {
                 block: vec![
                     (M, fragment),
@@ -3143,6 +3143,7 @@ impl StagesHeld {
                     (KI, fragment),
                 ],
                 chunks: RowChunks::Padded,
+                order: StageOrder::AsSource,
             },
         }
     }
@@ -3499,7 +3500,7 @@ fn scaled_copy<E: Numeric>(
     let scale = scale.tile(&space);
     let mut out = out.tile_mut(&space);
     if staged {
-        let mut stage = Tile::shared::<E>(comptime!(space.space().clone()), StageStorage::Strided);
+        let mut stage = Tile::shared::<E>(comptime!(space.space().clone()), StageStorage::STRIDED);
         stage.dequantize_from(&a.mul(&scale));
         sync_cube();
         out.copy_from(&stage);
@@ -3629,7 +3630,7 @@ fn staged_scaled_matmul(
         &walk,
         &a.mul(&scale),
         &b,
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         depth,
         None,
     );

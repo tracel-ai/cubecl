@@ -34,7 +34,7 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
     let extension = WmmaExecute::from_manual(shape, elem_a, elem_c);
 
     let cd_elems = shape.num_elems(MatrixIdent::Accumulator) / 32;
-    let ab_elems = amd_wmma(ctx).frag_ab_elems(shape.k);
+    let ab_elems = amd_wmma(ctx).frag_ab_elems_at_depth(shape.k);
 
     // RDNA3 spreads a 16 bit accumulator over 32 bit lanes, using only the low half of each, so
     // its elements sit at every other index. RDNA4 packs them densely.

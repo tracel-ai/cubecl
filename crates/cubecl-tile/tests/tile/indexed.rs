@@ -158,7 +158,7 @@ fn indexed_staged_matmul_kernel(
     let out = out.tile_mut(&space);
 
     let tiles = space.over(&rows);
-    let mut stages = Stages::smem_single(&tiles, &w, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem_single(&tiles, &w, StageStorage::STRIDED, 1usize, None);
     stages.pipelined(tiles, |slot, tile| {
         let mut o = out
             .at(tile)
@@ -678,7 +678,7 @@ fn indexed_staged_ragged_sum_kernel<E: Numeric>(
         let mut total = out.at(&g);
         total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
         let blocks = g.walk_within(&rows);
-        let mut stages = Stages::smem_single(&blocks, &rows, StageStorage::Strided, depth, None);
+        let mut stages = Stages::smem_single(&blocks, &rows, StageStorage::STRIDED, depth, None);
         stages.pipelined(blocks, |slot, blk| {
             let mut cell = total.at(blk);
             slot.consume(|rows_s| {

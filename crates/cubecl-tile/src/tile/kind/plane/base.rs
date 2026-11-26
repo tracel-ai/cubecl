@@ -49,13 +49,11 @@ impl PlaneTile {
         }
     }
 
-    /// Whether this tile is a cmma fragment, which reads its factors no deeper than its
-    /// instruction.
-    pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
-        match self {
-            PlaneTile::Cmma(_) => comptime!(true),
-            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
-        }
+    /// Whether this tile hides which unit holds which of its cells
+    /// ([`Instruction::hides_cell_positions`]), so its sum drains through a scratch.
+    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
+        let instruction = self.instruction();
+        comptime!(instruction.hides_cell_positions())
     }
 
     /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
@@ -536,9 +534,10 @@ impl PlanePartition {
         }
     }
 
-    /// Whether this grid's tiles are cmma fragments, the one form that drains through a scratch.
-    pub(crate) fn is_cmma(&self) -> comptime_type!(bool) {
-        self.frags.index(0usize).is_cmma()
+    /// Whether this grid's tiles hide which unit holds which of their cells, the one form that
+    /// drains through a scratch.
+    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
+        self.frags.index(0usize).hides_cell_positions()
     }
 
     /// The `(mi, ni)` tile (a handle clone); comptime indices only.
