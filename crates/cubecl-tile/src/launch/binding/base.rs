@@ -115,7 +115,8 @@ impl<'a> Arg<'a, Labelled> {
         self
     }
 
-    /// Serve the innermost dimension in `width`-wide lines; that dimension must be contiguous.
+    /// Serve the innermost dimension in contiguous lines of `width` values. For a packed
+    /// operand, a line narrower than a word must divide the word, and the full word must fit.
     pub fn vectorize(mut self, width: usize) -> Self {
         self.data.width = width;
         self
@@ -218,7 +219,9 @@ impl<'a> Arg<'a, Labelled> {
     fn derive(&self, packing: Packing, stored: Tiling) -> Result<Derived, Decline> {
         let data = &self.data;
         let launch = data.launch;
-        let width = data.width;
+        let load_width = packing.load_width(data.width).ok_or(Decline::Unserved {
+            why: "a packed line must divide one storage word or contain a whole number of words",
+        })?;
         let stated = data.projection.is_some() || stored.is_tiled();
         let (geometry, dimensions) = match data.in_stride_order {
             true if stated => return Err(Decline::StrideOrderOfAStatedLayout),
@@ -243,20 +246,23 @@ impl<'a> Arg<'a, Labelled> {
             addressed,
         } = labels;
         if data.projection.is_some() && !stored.is_tiled() {
-            projection.dimensions_in_axis_order(width)?;
+            projection.dimensions_in_axis_order(load_width)?;
         }
-        projection.validate(width)?;
+        projection.validate(load_width)?;
         // A stated width is checked here: `stride / width` would truncate silently. A line runs
         // along the innermost axis's dimension; a buffer with no labelled axis has none.
         let labels = projection.dense_labels();
         let served = match labels.last() {
-            Some(&dimension) => VectorTile::new(&stored_tiles, dimension, width)
+            Some(&dimension) => VectorTile::new(&stored_tiles, dimension, load_width)
                 .map_err(LineMisfit::Tile)
                 .and_then(|tile| geometry.serves(tile.extents(), &labels)),
-            None if width == 1 => Ok(()),
+            None if load_width == 1 => Ok(()),
             None => Err(LineMisfit::NoAxes),
         };
-        served.map_err(|why| Decline::WidthNotServed { width, why })?;
+        served.map_err(|why| Decline::WidthNotServed {
+            width: data.width,
+            why,
+        })?;
         let may_overhang;
         let overhangs = match data.boundary {
             Some(BoundaryPolicy::AnyExtent(_)) => {
@@ -271,7 +277,7 @@ impl<'a> Arg<'a, Labelled> {
             &addressed,
             launch.space(),
             overhangs,
-            width,
+            load_width,
         )?;
         for &boundary in boundaries.modes.iter().flatten() {
             data.delivery.reads_edge(boundary)?;

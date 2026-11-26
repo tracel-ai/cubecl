@@ -7,7 +7,9 @@ use cubecl_tile::launch::{BoundaryPolicy, Decline, Delivery};
 use cubecl_tile::{
     Dimension, Geometry, Level, Monoid, Partitioning, Projection, Space, TileSpec,
     kind::{Boundary, Field, Storage},
-    layout::{Divisor, Offset, PhysicalAxisMap, Scale, StorageLevels, VectorTile},
+    layout::{
+        Divisor, LineMisfit, Offset, PhysicalAxisMap, Scale, StorageLevels, TileMisfit, VectorTile,
+    },
 };
 
 const M: Dimension = Dimension(0);
@@ -739,6 +741,37 @@ fn stride_order_vectorizes_the_varying_dimension_of_a_broadcast_view() {
         .vectorize(2)
         .build_spec()
         .expect("the binding should serve a pair along K");
+}
+
+#[test]
+fn a_packed_subword_line_requires_room_for_the_whole_word() {
+    let client = cubecl::test_device().client();
+    let space = Space::new(&[(N, 3), (K, 8)]);
+    let launch = uncut(&client, &space, &space);
+    let bind = |axes: &[(usize, usize)]| {
+        launch
+            .unbound(&Geometry::new(axes))
+            .dimensions(&[K, K, N])
+            .in_stride_order()
+            .packed(QuantValue::Q8S)
+            .vectorize(2)
+            .build_spec()
+    };
+
+    // Each Q8S word holds four fields. The first layout has two K values and two padding
+    // fields per word; the second keeps four K values together.
+    assert_eq!(
+        bind(&[(4, 4), (2, 1), (3, 0)]).err(),
+        Some(Decline::WidthNotServed {
+            width: 2,
+            why: LineMisfit::Tile(TileMisfit::Unwhole {
+                dimension: K,
+                extent: 2,
+                tile: 4,
+            }),
+        })
+    );
+    assert_eq!(bind(&[(2, 4), (4, 1), (3, 0)]).unwrap().vector_size, 2);
 }
 
 // ---- StridedTileSource::gathered -------------------------------------------

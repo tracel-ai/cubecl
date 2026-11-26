@@ -474,6 +474,16 @@ impl Packing {
         }
     }
 
+    /// Values addressed by one load. A subword line must divide its word, and a wider
+    /// line must hold whole words. Zero is left to the geometry's zero-width check.
+    pub(crate) fn load_width(&self, requested: usize) -> Option<usize> {
+        let fields = self.factor();
+        if requested.is_multiple_of(fields) {
+            return Some(requested);
+        }
+        fields.is_multiple_of(requested).then_some(fields)
+    }
+
     /// The physical line a `served`-wide logical line occupies.
     pub(crate) fn physical(&self, served: usize) -> usize {
         served / self.factor()
@@ -489,6 +499,22 @@ impl Packing {
 mod tests {
     use cubecl::ir::{ElemType, FloatKind};
     use cubecl::quant::scheme::QuantValue;
+
+    #[test]
+    fn packed_lines_divide_a_word_or_hold_whole_words() {
+        let packing = super::Packing::Packed {
+            field: super::Field::from(QuantValue::Q8S),
+        };
+        for (requested, load) in [
+            (1, Some(4)),
+            (3, None),
+            (4, Some(4)),
+            (6, None),
+            (8, Some(8)),
+        ] {
+            assert_eq!(packing.load_width(requested), load);
+        }
+    }
 
     const E4M3: ElemType = ElemType::Float(FloatKind::E4M3);
     const E5M2: ElemType = ElemType::Float(FloatKind::E5M2);
