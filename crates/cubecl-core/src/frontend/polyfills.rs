@@ -203,9 +203,31 @@ pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Valu
     dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
+/// `ln(1 + x)` that stays accurate for small `|x|`.
+///
+/// `1 + x` rounds away the low bits of `x`, so `(1 + x).ln()` alone is 0 for tiny `x` and
+/// loses relative precision below about `1e-3`. Recovering those bits with `(1 + x) - 1` does
+/// not survive compilers that fold it back to `x` (the Vulkan drivers do), so near zero this
+/// uses `ln(1 + x) = 2 atanh(s)` with `s = x / (2 + x)` instead, which has no cancellation.
+/// For `|s| < 1/3` (`-0.5 < x < 1`) eight terms of the odd atanh series keep f32 within a few
+/// ulp; outside that range `1 + x` is exact or its rounding is already small relative to the
+/// result, so the plain log is used. `s` is NaN for infinite `x`, which also picks the plain log.
 #[cube]
-pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    (input + Vector::one()).ln()
+pub fn log1p<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
+    let two = Vector::new(T::new(2.0));
+    let s = x / (x + two);
+    let s2 = s * s;
+    let mut p = Vector::new(T::new(1.0 / 15.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 13.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 11.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 9.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 7.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 5.0));
+    p = p * s2 + Vector::new(T::new(1.0 / 3.0));
+    p = p * s2 + Vector::one();
+    let series = two * s * p;
+    let near_zero = s.abs().less_than(&Vector::new(T::new(1.0 / 3.0)));
+    select_many(near_zero, series, (x + Vector::one()).ln())
 }
 
 #[cube]
