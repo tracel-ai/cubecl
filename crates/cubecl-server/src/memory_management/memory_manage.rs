@@ -1209,6 +1209,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(exclusive_memory_only))]
     #[test_log::test]
     fn a_binding_whose_offsets_reach_past_its_memory_is_refused() {
         let mut memory_management = memory(MemoryConfiguration::Adaptive);
@@ -1218,6 +1219,7 @@ mod tests {
     }
 
     /// A binding's offsets trim the resource it resolves to.
+    #[cfg(not(exclusive_memory_only))]
     #[test_log::test]
     fn a_binding_resolves_to_its_trimmed_resource() {
         let mut memory_management = memory(MemoryConfiguration::Adaptive);

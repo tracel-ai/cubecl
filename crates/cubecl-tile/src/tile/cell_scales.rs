@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand};
 use cubecl::ir::Scope;
 use cubecl::prelude::*;
 use cubecl::unexpanded;
@@ -233,8 +233,12 @@ impl ExpandTypeClone for CellScalesExpand {
         self.clone()
     }
 }
-impl IntoMut for CellScalesExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for CellScalesExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
+        self
+    }
+
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }
