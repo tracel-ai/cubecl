@@ -1350,7 +1350,8 @@ impl Tile {
     }
 
     /// The two tiles this one is the product of ([`mul`](Tile::mul)), the inverse of it: stored
-    /// values are the product of themselves and one ([`Procedural::one`]).
+    /// values are the product of themselves and one ([`Procedural::one`]). Values that index a
+    /// table are read with their scales, so they too are the product of themselves and one.
     pub fn factor(&self) -> (Tile, Tile) {
         unexpanded!()
     }
@@ -1516,6 +1517,9 @@ impl TileExpand {
     }
 
     pub fn __expand_factor_method(&self, scope: &Scope) -> (TileExpand, TileExpand) {
+        if self.looks_up() {
+            return (self.clone(), Procedural::__expand_one_tile(scope));
+        }
         let mut values = self.clone();
         let (inner, outermost) = self.factor.clone().split();
         values.factor = inner;
@@ -2046,6 +2050,10 @@ mod tests {
 
     const ROW: Dimension = Dimension(0);
     const COL: Dimension = Dimension(1);
+    /// The positions of a table that values index.
+    const ENTRY: Dimension = Dimension(2);
+    /// The width of an index into a table.
+    const INDEX_BITS: usize = 2;
 
     use crate::test_scope::test_scope;
 
@@ -2074,6 +2082,26 @@ mod tests {
     fn factor_of_a_tile_under_no_scale_is_one() {
         let scope = test_scope();
         let values = shared(&scope, &[(ROW, 4)]);
+
+        let (_, scale) = values.__expand_factor_method(&scope);
+
+        assert!(scale.is_one());
+    }
+
+    #[test]
+    fn factor_of_values_indexing_a_table_is_one() {
+        let scope = test_scope();
+        let table = shared(&scope, &[(ENTRY, 1 << INDEX_BITS)]);
+        let norms = shared(&scope, &[(ROW, 4)]);
+        let values = shared(&scope, &[(ROW, 4), (COL, 8)])
+            .__expand_served_as_method(
+                &scope,
+                Packing::Packed {
+                    field: Field::Index { bits: INDEX_BITS },
+                },
+            )
+            .__expand_lookup_method(&scope, &table)
+            .__expand_mul_method(&scope, &norms);
 
         let (_, scale) = values.__expand_factor_method(&scope);
 
