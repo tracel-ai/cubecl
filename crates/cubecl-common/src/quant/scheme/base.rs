@@ -1002,6 +1002,7 @@ mod tests {
     /// both ends of the axis), mode and dtype, and levels of every extent and rest, alone and
     /// together. The variants come from the code tables, which the build holds to every variant.
     #[test]
+    #[cfg_attr(miri, ignore = "safe code only, and too slow under miri")]
     fn every_scheme_round_trips_through_its_code() {
         let values: Vec<_> = (0..1 << 4).filter_map(QuantValue::from_code).collect();
         let modes: Vec<_> = (0..1 << 2).filter_map(QuantMode::from_code).collect();
