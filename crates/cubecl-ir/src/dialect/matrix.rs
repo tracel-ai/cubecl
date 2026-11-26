@@ -144,24 +144,6 @@ pub struct CastOp {
     pub output: Value,
 }
 
-#[cube_op(name = "matrix.row_index")]
-#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).into())]
-#[op_traits(CanMaterialize, Pure)]
-pub struct RowIndexOp {
-    pub lane_id: Value,
-    pub i: Value,
-    pub matrix_ty: MatrixTypeAttr,
-}
-
-#[cube_op(name = "matrix.col_index")]
-#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).into())]
-#[op_traits(CanMaterialize, Pure)]
-pub struct ColIndexOp {
-    pub lane_id: Value,
-    pub i: Value,
-    pub matrix_ty: MatrixTypeAttr,
-}
-
 #[cube_op(name = "matrix.ldmatrix")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]

@@ -31,7 +31,8 @@ impl AxesBuilder {
         }
     }
 
-    /// The next buffer axis, coarsest first: a [`Dimension`] or a [`split`].
+    /// The next buffer axis, coarsest first: a [`Dimension`], one of the pieces it is stored as, or
+    /// a [`split`].
     pub fn axis(mut self, axis: impl Into<PhysicalAxisMap>) -> Self {
         self.physical.push(axis.into());
         self
@@ -44,13 +45,20 @@ impl AxesBuilder {
     }
 
     /// The projection, its dimensions derived from the axes, the innermost axis's last.
-    /// Panics on no axes, or on a dimension both [`spanning`](Self::spanning) and addressed.
+    ///
+    /// # Panics
+    ///
+    /// On no axes, on a dimension both [`spanning`](Self::spanning) and addressed, or as
+    /// [`Projection::new`] does.
     pub fn build(self) -> Projection {
         assert!(
             !self.physical.is_empty(),
             "Projection::axes: an operand has at least one axis"
         );
-        let (innermost, outer) = self.physical.split_last().expect("checked non-empty");
+        let (innermost, outer) = self
+            .physical
+            .split_last()
+            .expect("the axes should be non-empty, as checked");
         let mut dimensions: SmallVec<[Dimension; Space::MAX_RANK]> = SmallVec::new();
         let mention =
             |dimension: Dimension, dimensions: &mut SmallVec<[Dimension; Space::MAX_RANK]>| {
@@ -260,13 +268,13 @@ mod tests {
             .axis(B)
             .axis(M)
             .axis(K)
-            .axis(M)
-            .axis(K)
+            .axis(PhysicalAxisMap::piece_of(M, 1))
+            .axis(PhysicalAxisMap::piece_of(K, 1))
             .axis(C)
             .build();
 
         assert_eq!(p.dimensions(), &[B, M, K, C]);
-        assert_eq!(p.tiling().fragments(4).as_slice(), &[1, 2, 2, 1]);
+        assert_eq!(p.carriers(K).as_slice(), &[2, 4]);
     }
 
     #[test]

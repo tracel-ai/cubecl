@@ -80,7 +80,7 @@ fn role_split_matmul(
                 stages.fill(0usize, &region);
                 stages.slot_mut(0usize).publish();
                 let c_block = c.at(&region);
-                stages.consume(0usize, |a_s, b_s| {
+                stages.consume(0usize, &region, |a_s, b_s| {
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)

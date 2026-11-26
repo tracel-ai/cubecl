@@ -17,7 +17,7 @@ use crate::{
 /// (i.e. `SyncScope::Plane` may be implemented by a `workgroupBarrier()`)
 ///
 /// Every scope up to [`Cube`](SyncScope::Cube) synchronizes the units that share it and orders the
-/// memory they wrote for each other. [`Device`](SyncScope::Device) contains
+/// shared memory they wrote for each other. [`Device`](SyncScope::Device) contains
 /// [`Cube`](SyncScope::Cube) — the units of the cube meet at it and their shared memory is
 /// ordered — and reaches past it: it is also a release and an acquire at device scope, so a write
 /// one cube published before it is visible to any other cube that synchronizes at this scope

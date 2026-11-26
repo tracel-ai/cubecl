@@ -94,14 +94,13 @@ fn lane_run_matmul(
 ) {
     let a = a.tile(&space);
     let mut c = c.tile_mut(&space);
-    let b = b.tile(&space);
+    let (b, b_global) = b.tile(&space).factor();
     // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
     // its registers.
     let acc = match first {
         First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SumProd),
         First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SumProd),
     };
-    let (b, b_factor) = b.factor(&acc);
     match staged {
         Staged::Nothing => {
             for region in space.over(&level) {
@@ -152,7 +151,7 @@ fn lane_run_matmul(
             });
         }
     }
-    c.dequantize_from(&acc.scaled(&b_factor));
+    c.dequantize_from(&acc.mul(&b_global));
 }
 
 /// The `m × n` of the 16-bit, 16-deep instruction the device lays lane runs out on: NVIDIA's
@@ -563,7 +562,10 @@ impl Nvfp4 {
             launcher.cube_dim(),
             a_op.arg(),
             match global {
-                None => b_op.arg().scales(s_op.arg()),
+                None => b_op
+                    .arg()
+                    .scales(s_op.arg())
+                    .scales(TileTensorLaunch::one()),
                 Some(value) => {
                     // One `f32` over the whole weight, read as the word it is stored in.
                     let global = launcher

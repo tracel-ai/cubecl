@@ -190,7 +190,7 @@ impl MmaData {
         #[comptime] operands: MmaOperands,
     ) -> MmaData {
         let form = operands.block_scaled().expect(
-            "MmaData::block_scaled: a block-scaled fragment is allocated under a block-scaled form",
+            "MmaData::block_scaled: a block-scaled fragment should be allocated under a block-scaled form",
         );
         register_scaled_elements(form);
         let def = block_scaled_definition::<f32>(form, m, n, k);
@@ -235,66 +235,43 @@ impl MmaData {
         }
     }
 
-    /// Multiply every cell of this (accumulator) fragment by `factor`: its registers are the
-    /// unit's own cells, so the scale needs no bounce.
-    pub(crate) fn scale<T: Numeric>(&mut self, factor: T) {
-        match &mut self.fragment {
-            MmaFragment::Acc(f) => {
-                let f = f.at_mut::<T>();
-                let factor = Vector::<T, NA>::cast_from(factor);
-                #[unroll]
-                for i in 0..f.len() {
-                    f[i] *= factor;
-                }
-            }
-            MmaFragment::Lhs(_)
-            | MmaFragment::Rhs(_)
-            | MmaFragment::LhsBlockScaled(..)
-            | MmaFragment::RhsBlockScaled(..) => {
-                panic!("MmaData::scale: an operand fragment is contracted, not scaled")
-            }
-        }
-    }
-
-    /// Multiply each cell of this (accumulator) fragment by `factor` at the cell's place in
-    /// `space`, the fragment's window: scales varying across the output, a row's and a column's,
-    /// read where each unit holds its cells.
-    #[allow(dead_code)] // Reached through its expand, from `Tile::scale_own_cells`.
-    pub(crate) fn scale_cells<T: Numeric>(&mut self, factor: &Factor, #[comptime] space: &Space) {
+    /// This (accumulator) fragment, whose first cell lies at `origin` of the sum's window, with
+    /// each cell under its `scales`, in the register that holds it.
+    pub(crate) fn scale<T: Numeric>(
+        &mut self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         let def = MmaDefinition::<T, T, T>::new(self.m, self.n, self.k);
         let layout = comptime!(self.layout);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let dimensions = comptime!(MatrixDimensions::trailing(space));
-        match &mut self.fragment {
-            MmaFragment::Acc(f) => {
-                let acc = f.at_mut::<T>();
-                #[unroll]
-                for i in 0..acc.len() {
-                    let mut vector = acc[i];
-                    #[unroll]
-                    for e in 0..vector_size {
-                        let (row, col) = def.position_of_nth(
-                            UNIT_POS_PLANE,
-                            comptime!((i * vector_size + e) as u32),
-                            MatrixIdent::Accumulator,
-                        );
-                        let (row, col) = laid_out(row, col, layout);
-                        // The cell alone: the first value of a run one wide.
-                        let (first, alone) = (0usize, 1usize);
-                        let at =
-                            TileMatrix::value_coords(row, col, first, space, dimensions, alone);
-                        let scale = factor.at_coords(&at, space.clone(), comptime!(Guard::Checked));
-                        vector.insert(e, vector.extract(e) * T::cast_from(scale));
-                    }
-                    acc[i] = vector;
-                }
+        let positions = def.element_positions(MatrixIdent::Accumulator);
+        let positions = comptime!(
+            positions.expect("a device with a manual mma should state its lanes' positions")
+        );
+        let acc = self.acc_registers_mut::<T>();
+        #[unroll]
+        for i in 0..acc.len() {
+            let mut cells = Sequence::<HeldCell>::new();
+            #[unroll]
+            for e in 0..vector_size {
+                let nth = comptime!(i * vector_size + e);
+                let (row, col) =
+                    def.position_of_nth(UNIT_POS_PLANE, nth as u32, MatrixIdent::Accumulator);
+                let (row, col) = laid_out(row, col, layout);
+                cells.push(HeldCell {
+                    row: row + comptime!(origin.0 as u32),
+                    col: col + comptime!(origin.1 as u32),
+                    first_unit: comptime!({
+                        let (row, col) = match (positions.of_nth(0, nth), layout) {
+                            ((row, col), MatrixLayout::RowMajor) => (row, col),
+                            ((row, col), _) => (col, row),
+                        };
+                        Some((row + origin.0, col + origin.1))
+                    }),
+                });
             }
-            MmaFragment::Lhs(_)
-            | MmaFragment::Rhs(_)
-            | MmaFragment::LhsBlockScaled(..)
-            | MmaFragment::RhsBlockScaled(..) => {
-                panic!("MmaData::scale_cells: an operand fragment is contracted, not scaled")
-            }
+            acc[i] = scales.applied::<T, NA>(acc[i], &cells);
         }
     }
 
@@ -366,7 +343,7 @@ impl MmaData {
                 src,
                 values.at_mut::<LhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                form.expect("a block-scaled fragment is held under its form"),
+                form.expect("a block-scaled fragment should be held under its form"),
                 MatrixIdent::A,
                 layout,
                 io,
@@ -376,7 +353,7 @@ impl MmaData {
                 src,
                 values.at_mut::<RhsCodes>(),
                 scales.at_mut::<BlockScale>(),
-                form.expect("a block-scaled fragment is held under its form"),
+                form.expect("a block-scaled fragment should be held under its form"),
                 MatrixIdent::B,
                 layout,
                 io,
@@ -518,23 +495,14 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let acc = self.acc_registers_mut::<E>();
         #[unroll]
         for i in 0..acc.len() {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let cell = bias.value_at::<E>(
-                    row + comptime!(row0 as u32),
-                    col + comptime!(col0 as u32),
-                    space,
-                );
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
+                let cell = bias.value_at::<E>(row, col, space);
                 vector.insert(e, vector.extract(e) * scale + cell);
             }
             acc[i] = vector;
@@ -551,23 +519,14 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let acc = self.acc_registers_mut::<E>();
         #[unroll]
         for i in 0..acc.len() {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let cell = bias.value_at::<E>(
-                    row + comptime!(row0 as u32),
-                    col + comptime!(col0 as u32),
-                    space,
-                );
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
+                let cell = bias.value_at::<E>(row, col, space);
                 vector.insert(
                     e,
                     DimensionSlices::mul_exp_cell::<E>(vector.extract(e), cell),
@@ -591,7 +550,6 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = logsumexp.flat::<E, W>();
@@ -601,12 +559,7 @@ impl MmaData {
             let mut vector = acc[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
                 let score = vector.extract(e) * scale + bias.value_at::<E>(row, col, space);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let held = read.read(at).extract(0usize);
@@ -628,7 +581,6 @@ impl MmaData {
     ) {
         let def = MmaDefinition::<E, E, E>::new(self.m, self.n, self.k);
         let vector_size = def.vector_size(MatrixIdent::Accumulator);
-        let (row0, col0) = comptime!(origin);
         let (first, per_row, per_col) = broadcast.strides();
         let size!(W) = 1usize;
         let read = delta.flat::<E, W>();
@@ -640,12 +592,7 @@ impl MmaData {
             let probability = held[i];
             #[unroll]
             for e in 0..vector_size {
-                let (row, col) = def.position_of_nth(
-                    UNIT_POS_PLANE,
-                    comptime!((i * vector_size + e) as u32),
-                    MatrixIdent::Accumulator,
-                );
-                let (row, col) = (row + comptime!(row0 as u32), col + comptime!(col0 as u32));
+                let (row, col) = held_cell(&def, comptime!(i * vector_size + e), origin);
                 let at = first + row as usize * per_row + col as usize * per_col;
                 let gradient = vector.extract(e) - read.read(at).extract(0usize);
                 vector.insert(e, probability.extract(e) * gradient);
@@ -1363,7 +1310,9 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     // or a lone cell; one that decodes them as it reads them (packed words, or values under
     // scales) has no cells to slice, and is read a line at a time, its cells picked out of it.
     let (quantized, packing) = (src.quantized(), src.packing());
-    let as_stored = comptime!(!quantized && packing == Packing::Plain);
+    // So is a window the problem's edge cuts short: a read through the view is zero past it.
+    let whole = view.reads_unmasked();
+    let as_stored = comptime!(!quantized && packing == Packing::Plain && whole);
     comptime!(assert!(
         !along_lines || vector_size.is_multiple_of(width) || width.is_multiple_of(vector_size),
         "MmaData::load: a {vector_size}-cell register vector neither holds whole {width}-wide \
@@ -1385,7 +1334,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, T::from_int(0));
                 }
-            } else if comptime!(width >= vector_size && !as_stored) {
+            } else if comptime!(width > vector_size && !as_stored) {
                 // A register vector starts at a multiple of its size, so it stays within `width`.
                 let line = view.read((line_row, cell / comptime!(width as u32)));
                 let start = cell % comptime!(width as u32);
@@ -1393,7 +1342,7 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
                 for e in 0..vector_size {
                     vector.insert(e, line.extract_dynamic((start + e as u32).cast::<usize>()));
                 }
-            } else if comptime!(width >= vector_size) {
+            } else if comptime!(width > vector_size) {
                 // A register vector starts at a multiple of its size, so it stays within `width`:
                 // the line read at the register's width holds it whole, one load at the unit's
                 // offset. Picking its cells out of the whole line instead indexes the line's
@@ -1470,6 +1419,21 @@ fn covered_edges(space: &Space, ident: MatrixIdent, edges: (usize, usize)) -> (u
         MatrixIdent::B if cells.is_multiple_of(rows) && cells / rows < cols => (rows, cells / rows),
         MatrixIdent::A | MatrixIdent::B | MatrixIdent::Accumulator => edges,
     }
+}
+
+/// Where the `nth` cell of an accumulator this unit holds lies, in the tile the accumulator is at
+/// `origin` of.
+#[cube]
+fn held_cell<A: Numeric, B: Numeric, CD: Numeric>(
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] nth: usize,
+    #[comptime] origin: (usize, usize),
+) -> (u32, u32) {
+    let (row, col) = def.position_of_nth(UNIT_POS_PLANE, nth as u32, MatrixIdent::Accumulator);
+    (
+        row + comptime!(origin.0 as u32),
+        col + comptime!(origin.1 as u32),
+    )
 }
 
 /// The cell an instruction names at `(row, col)` where a sum laid out as `layout` holds it.

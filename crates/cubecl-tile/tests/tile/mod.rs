@@ -51,6 +51,7 @@ mod space;
 mod split_contraction;
 mod stored_window;
 mod stream;
+mod tensor_core_layout;
 mod tma_folded;
 mod tma_store;
 mod top_k;

@@ -42,7 +42,7 @@ pub struct TensorBinding {
     pub handle: cubecl_runtime::server::BufferBinding,
     pub strides: Strides,
     pub shape: Shape,
-    /// How many fragments each logical dim is stored as; untiled by default.
+    /// The fragments each logical dim is stored as; untiled by default.
     /// The shape and strides stay physical, as on [`Metadata`](cubecl_zspace::metadata::Metadata).
     pub tiling: Tiling,
 }

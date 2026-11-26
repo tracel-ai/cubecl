@@ -164,7 +164,7 @@ fn dimensions_out_of_axis_order_are_refused() {
     );
     let refused = launcher
         .arg(input.binding(), f32_ty)
-        .gathered(Projection::tiled(&[B, K], &[B, K, B]))
+        .gathered(Projection::tiled(&[B, K], &[(B, 0), (K, 0), (B, 1)]))
         .vectorize(4)
         .build()
         .err();

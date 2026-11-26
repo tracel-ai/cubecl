@@ -20,6 +20,9 @@ pub enum Decline {
     RankBelowLabels { rank: usize, block: usize },
     /// More leading axes than batch dimensions to label them.
     UnlabelledBatchAxes { axes: usize, dimensions: usize },
+    /// The tiling stores a batch axis as several pieces, or among the pieces of the labelled axes:
+    /// batch axes are ahead of them, one each.
+    BatchAxesInPieces(Tiling),
     /// An operand must address at least one coordinate.
     NoCoordinate,
     /// The buffer cannot be served `width` wide.
@@ -246,6 +249,11 @@ impl Display for Decline {
                     "Arg: {axes} batch axes but only {dimensions} batch dimensions given"
                 )
             }
+            Decline::BatchAxesInPieces(tiling) => write!(
+                f,
+                "Arg: batch axes are ahead of the labelled ones, one each, and {tiling:?} stores \
+                 one otherwise"
+            ),
             Decline::NoCoordinate => {
                 write!(f, "Arg: an operand must address at least one coordinate")
             }

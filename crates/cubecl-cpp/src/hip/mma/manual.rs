@@ -1,14 +1,9 @@
 use cubecl_core::{
-    self as cubecl,
     cmma::MatrixIdent,
     ir::{
-        ElemType, FloatKind,
-        dialect::matrix::{ColIndexOp, MmaManualOp, RowIndexOp},
-        features::MmaConfig,
-        interfaces::TypedExt,
-        prelude::*,
+        ElemType, FloatKind, dialect::matrix::MmaManualOp, features::MmaConfig,
+        interfaces::TypedExt, prelude::*,
     },
-    prelude::*,
 };
 use itertools::Itertools;
 use pliron::{context::Context, value::Value};
@@ -19,102 +14,8 @@ use crate::{
         hip_op,
         mma::{WmmaExecute, amd_wmma, compile_fragment_intrinsic},
     },
-    shared::{
-        CppValue, SupportedMmaCombinations, SupportedScaledMmaCombinations, lowering::LowerOp,
-        ty::TypeExtCPP,
-    },
-    target::Hip,
+    shared::{CppValue, SupportedMmaCombinations, SupportedScaledMmaCombinations, ty::TypeExtCPP},
 };
-
-#[op_interface_impl]
-impl LowerOp<Hip> for RowIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let matrix = self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let (ident, k) = (matrix.ident, matrix.shape.k as u32);
-        let rdna4 = amd_wmma(scope.ctx()) == AmdWmma::Rdna4;
-        let lane_id = self.lane_id(scope.ctx());
-        let i = self.i(scope.ctx());
-        vec![row_index::expand(scope, lane_id.into(), i.into(), ident, k, rdna4).value(scope)]
-    }
-}
-
-#[op_interface_impl]
-impl LowerOp<Hip> for ColIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let matrix = self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let (ident, n, k) = (matrix.ident, matrix.shape.n as u32, matrix.shape.k as u32);
-        let rdna4 = amd_wmma(scope.ctx()) == AmdWmma::Rdna4;
-        let lane_id = self.lane_id(scope.ctx());
-        let i = self.i(scope.ctx());
-        vec![col_index::expand(scope, lane_id.into(), i.into(), ident, n, k, rdna4).value(scope)]
-    }
-}
-
-/// RDNA4 splits a dimension between lanes 0-15 and 16-31, giving each lane a contiguous half of
-/// it. Every RDNA4 fragment is built this way: A and B split `k`, the accumulator splits `n`.
-#[cube]
-fn split_half(lane_id: u32, i: u32, #[comptime] dim: u32) -> u32 {
-    (lane_id / 16) * (dim / 2) + i
-}
-
-#[cube]
-fn row_index(
-    lane_id: u32,
-    i: u32,
-    #[comptime] ident: MatrixIdent,
-    #[comptime] k: u32,
-    #[comptime] rdna4: bool,
-) -> u32 {
-    match ident {
-        MatrixIdent::A => lane_id % 16,
-        MatrixIdent::B => {
-            if rdna4 {
-                split_half(lane_id, i, k)
-            } else {
-                // RDNA3 hands every lane the whole `k` range, duplicated across the lane halves.
-                i
-            }
-        }
-        MatrixIdent::Accumulator => {
-            if rdna4 {
-                // The instruction runs with A and B swapped (see `compile_manual_mma`), so it
-                // writes the transposed accumulator: each lane holds one row, as in A.
-                lane_id % 16
-            } else {
-                // 2 * i, offset by 1 if lane_id >= 16
-                i * 2 + (lane_id / 16)
-            }
-        }
-    }
-}
-
-#[cube]
-fn col_index(
-    lane_id: u32,
-    i: u32,
-    #[comptime] ident: MatrixIdent,
-    #[comptime] n: u32,
-    #[comptime] k: u32,
-    #[comptime] rdna4: bool,
-) -> u32 {
-    match ident {
-        MatrixIdent::A => {
-            if rdna4 {
-                split_half(lane_id, i, k)
-            } else {
-                i
-            }
-        }
-        MatrixIdent::B => lane_id % 16,
-        MatrixIdent::Accumulator => {
-            if rdna4 {
-                split_half(lane_id, i, n)
-            } else {
-                lane_id % 16
-            }
-        }
-    }
-}
 
 hip_op!(MmaManualOp, compile_manual_mma);
 

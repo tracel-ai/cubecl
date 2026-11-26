@@ -9,6 +9,7 @@ extern crate self as cubecl_ir;
 pub mod features;
 
 mod address;
+mod element_positions;
 mod enum_set;
 mod properties;
 mod runtime_properties;
@@ -37,6 +38,7 @@ pub mod settings;
 pub mod types;
 
 pub use address::*;
+pub use element_positions::*;
 pub use enum_set::*;
 pub use properties::*;
 pub use runtime_properties::*;

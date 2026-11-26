@@ -152,8 +152,8 @@ pub struct TileTensorExpand<'a> {
     pub spec: TileSpec,
     /// The element the buffer holds.
     pub element: ElemType,
-    /// The scales the values are read under: none, or a coarser operand carrying its own.
-    scale: Option<Box<TileTensorExpand<'static>>>,
+    /// What the values are multiplied by, the innermost first ([`Tile::mul`]).
+    scales: Vec<TileTensorExpand<'static>>,
     /// The table that places the values' windows, and what its entry places ([`Indexing`]).
     index: Option<(Box<TileTensorExpand<'static>>, Indexing)>,
     /// The table the values index, where they are stored as indices.
@@ -178,6 +178,7 @@ enum ValuesExpand<'a> {
         layout: VirtualLayoutExpand<CoordsDyn, Sequence<i32>>,
         width: usize,
     },
+    One,
 }
 
 impl<'a> TileTensorExpand<'a> {
@@ -300,6 +301,7 @@ impl<'a> TileTensorExpand<'a> {
                 *width,
                 writable,
             ),
+            ValuesExpand::One => Procedural::__expand_one_tile(scope),
         }
     }
 
@@ -373,14 +375,12 @@ impl<'a> TileTensorExpand<'a> {
         partitioning: &PartitioningExpand,
         writable: bool,
     ) -> TileExpand {
-        let Some(level) = &self.scale else {
-            return values;
-        };
-        let scaled =
-            values.__expand_mul_method(scope, &level.served(scope, partitioning, writable));
+        let scaled = self.scales.iter().fold(values, |values, scale| {
+            values.__expand_mul_method(scope, &scale.served(scope, partitioning, writable))
+        });
         match self.values {
             ValuesExpand::TensorMap { .. } => scaled.__expand_scales_kept_beside_method(scope),
-            _ => scaled,
+            ValuesExpand::Tensor { .. } | ValuesExpand::One => scaled,
         }
     }
 }
@@ -392,7 +392,7 @@ pub struct TileTensorLaunch {
     values: ValuesLaunch,
     spec: Arc<TileSpec>,
     element: ElemType,
-    scale: Option<Box<TileTensorLaunch>>,
+    scales: Vec<TileTensorLaunch>,
     index: Option<(Box<TileTensorLaunch>, Indexing)>,
     codebook: Option<Box<TileTensorLaunch>>,
     runtime_map: (Vec<u32>, Vec<i32>),
@@ -410,6 +410,7 @@ enum ValuesLaunch {
         layout: VirtualViewLayoutLaunch<CoordsDyn, Sequence<i32>, TensorMapArg<Tiled>>,
         width: usize,
     },
+    One,
 }
 
 impl TileTensorLaunch {
@@ -444,14 +445,13 @@ impl TileTensorLaunch {
     ///
     /// # Panics
     ///
-    /// On a tensor, whose width is the one it is bound at ([`new`](Self::new)).
+    /// On anything but a tensor map: a tensor's width is the one it is bound at
+    /// ([`new`](Self::new)).
     pub fn served_wide(mut self, width: usize) -> Self {
         match &mut self.values {
             ValuesLaunch::TensorMap { width: served, .. } => *served = width,
-            ValuesLaunch::Tensor { .. } => {
-                panic!(
-                    "TileTensorLaunch::served_wide: a tensor is read at the width it is bound at"
-                )
+            ValuesLaunch::Tensor { .. } | ValuesLaunch::One => {
+                panic!("TileTensorLaunch::served_wide: only a tensor map states its width")
             }
         }
         self
@@ -467,7 +467,7 @@ impl TileTensorLaunch {
             values,
             spec: Arc::new(spec),
             element,
-            scale: None,
+            scales: Vec::new(),
             index: None,
             codebook: None,
             runtime_map: (Vec::new(), Vec::new()),
@@ -496,7 +496,7 @@ impl TileTensorLaunch {
             && table.spec.dimensions().len() == 1
             && table.spec.packing.as_stored()
             && table.spec.projection.is_direct()
-            && table.scale.is_none()
+            && table.scales.is_empty()
             && table.index.is_none()
             && table.codebook.is_none();
         if !plain {
@@ -560,14 +560,24 @@ impl TileTensorLaunch {
         self
     }
 
-    /// These values under `scale`, outside the scales they carry already: words of block scales
-    /// where `scale` is bound as [words](TileSpec::words), scales read as numbers otherwise.
+    /// These values multiplied by `scale`, outside what they are multiplied by already
+    /// ([`Tile::mul`]): words of block scales where `scale` is bound as [words](TileSpec::words),
+    /// scales read as numbers otherwise. `c.scales(g).scales(t)` is `((c, g), t)`, which
+    /// [`Tile::factor`] takes `t` out of, and `c.scales(g.scales(t))` is `(c, (g, t))`.
     pub fn scales(mut self, scale: TileTensorLaunch) -> Self {
-        self.scale = Some(Box::new(match self.scale {
-            None => scale,
-            Some(inner) => inner.scales(scale),
-        }));
+        self.scales.push(scale);
         self
+    }
+
+    /// An operand that is one everywhere, along no dimension, bound to no buffer: what values that
+    /// keep every scale they carry are multiplied by, for a kernel that factors them
+    /// ([`Tile::factor`]).
+    pub fn one() -> Self {
+        Self::of(
+            ValuesLaunch::One,
+            f32::elem_type_native(),
+            TileSpec::direct(&[]),
+        )
     }
 
     /// These values with their windows placed by `table`, whose axes are its keys, as `indexing`
@@ -634,7 +644,7 @@ impl TileTensorLaunch {
             && *width == 1
             && table.spec.packing.as_stored()
             && table.spec.projection.is_direct()
-            && table.scale.is_none()
+            && table.scales.is_empty()
             && table.index.is_none();
         if !plain_u32 {
             return Err(Decline::IndexTableNotU32);
@@ -651,27 +661,29 @@ impl TileTensorLaunch {
             && first == *sequence
         {
             self.spec = Arc::new(self.paged_spec(*sequence, position, covering)?);
-            let mut level = self.scale.as_deref();
-            while let Some(scale) = level {
+            for scale in self.every_scale() {
                 let spans = |dimension| scale.spec.dimensions().contains(&dimension);
                 if (spans(first) || spans(position)) && scale.spec.paging.is_none() {
                     return Err(Decline::ScalesOfAPoolUnpaged);
                 }
-                level = scale.scale.as_deref();
             }
             self.index = Some((Box::new(table), indexing));
             return Ok(self);
         }
         indexing.validate(&self.spec, self.indexed_width()?, keys)?;
-        let mut level = self.scale.as_deref();
-        while let Some(scale) = level {
+        for scale in self.every_scale() {
             if scale.spec.dimensions().contains(&indexing.dimension()) {
                 indexing.places(&scale.spec, scale.indexed_width()?)?;
             }
-            level = scale.scale.as_deref();
         }
         self.index = Some((Box::new(table), indexing));
         Ok(self)
+    }
+
+    /// Every operand these values are under: what they are multiplied by, and what that is
+    /// multiplied by in turn.
+    fn every_scale(&self) -> Box<dyn Iterator<Item = &TileTensorLaunch> + '_> {
+        crate::nested::each_and_nested(&self.scales, TileTensorLaunch::every_scale)
     }
 
     /// This operand's spec read as a pool of pages along `sequence` and `position`: its paging, and
@@ -717,6 +729,7 @@ impl TileTensorLaunch {
         match &self.values {
             ValuesLaunch::Tensor { width, .. } => Ok(*width),
             ValuesLaunch::TensorMap { .. } => Err(Decline::IndexOfAStatedLayout),
+            ValuesLaunch::One => Ok(1),
         }
     }
 }
@@ -727,7 +740,7 @@ pub struct TileTensorCompilationArg {
     values: ValuesCompilationArg,
     spec: Arc<TileSpec>,
     element: ElemType,
-    scale: Option<Box<TileTensorCompilationArg>>,
+    scales: Vec<TileTensorCompilationArg>,
     index: Option<(Box<TileTensorCompilationArg>, Indexing)>,
     codebook: Option<Box<TileTensorCompilationArg>>,
     /// How many dynamic coefficients and offsets the runtime map holds.
@@ -745,6 +758,7 @@ enum ValuesCompilationArg {
         layout: VirtualViewLayoutCompilationArg<CoordsDyn, Sequence<i32>>,
         width: usize,
     },
+    One,
 }
 
 impl<'a> CubeType for TileTensor<'a> {
@@ -760,7 +774,7 @@ impl LaunchArg for TileTensor<'static> {
             values,
             spec,
             element,
-            scale,
+            scales,
             index,
             codebook,
             runtime_map: (coefficients, offsets),
@@ -784,8 +798,12 @@ impl LaunchArg for TileTensor<'static> {
                 launcher.register_tensor_map(*map, element.size());
                 ValuesCompilationArg::TensorMap { layout, width }
             }
+            ValuesLaunch::One => ValuesCompilationArg::One,
         };
-        let scale = scale.map(|level| Box::new(TileTensor::register(*level, launcher)));
+        let scales = scales
+            .into_iter()
+            .map(|scale| TileTensor::register(scale, launcher))
+            .collect();
         // The tables the values are read through are never written, whichever way the operand
         // is taken: a launch refused before it runs leaves them unclaimed.
         let index = index.map(|(table, indexing)| {
@@ -809,7 +827,7 @@ impl LaunchArg for TileTensor<'static> {
             values,
             spec,
             element,
-            scale,
+            scales,
             index,
             codebook,
             runtime_map: (coefficients.len(), offsets.len()),
@@ -866,11 +884,13 @@ impl LaunchArg for TileTensor<'static> {
                 map: builder.tensor_map(),
                 width: *width,
             },
+            ValuesCompilationArg::One => ValuesExpand::One,
         };
-        let scale = arg
-            .scale
-            .as_ref()
-            .map(|level| Box::new(TileTensor::expand(level, builder)));
+        let scales = arg
+            .scales
+            .iter()
+            .map(|scale| TileTensor::expand(scale, builder))
+            .collect();
         let index = arg.index.as_ref().map(|(table, indexing)| {
             (
                 Box::new(TileTensor::expand(table, builder)),
@@ -900,7 +920,7 @@ impl LaunchArg for TileTensor<'static> {
             values,
             spec: TileSpec::clone(&arg.spec),
             element: arg.element,
-            scale,
+            scales,
             index,
             codebook,
             runtime_map,
@@ -978,7 +998,7 @@ mod tests {
             },
             spec: Arc::new(TileSpec::direct(&[Dimension(0)])),
             element: ElemType::Float(FloatKind::F32),
-            scale: None,
+            scales: Vec::new(),
             index: None,
             codebook: None,
             runtime_map: (0, 0),
@@ -1014,7 +1034,7 @@ mod tests {
             },
             spec: Arc::new(TileSpec::direct(keys)),
             element: u32::elem_type_native(),
-            scale: None,
+            scales: Vec::new(),
             index: None,
             codebook: None,
             runtime_map: (0, 0),

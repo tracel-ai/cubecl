@@ -15,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
-        PhysicalDevice, TargetProperties, Type, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, OperandFact,
+        PciVendor, PhysicalDevice, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
@@ -530,6 +530,9 @@ impl Runtime for CudaRuntime {
                 register_duplication_b: 1,
                 register_duplication_acc: 1,
                 contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
+                element_positions: OperandFact::new(|ctx, _, matrix| {
+                    Some(SmArch::element_positions(ctx, &matrix.deref(ctx)))
+                }),
             },
         }
     }

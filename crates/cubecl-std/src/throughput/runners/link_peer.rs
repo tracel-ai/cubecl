@@ -288,10 +288,12 @@ fn peer_store<N: Size>(local: &[Vector<u32, N>], peer: &mut Peer<[Vector<u32, N>
         peer[index] = local[index];
         index += stride;
     }
-    // One fence per cube: a fence per unit costs more than its stores below a few MiB.
+    // The barrier orders shared memory alone, so each unit hands its stores to the cube itself.
+    fence(MemoryOrder::Release, SyncScope::Cube);
     sync_cube();
+    // One system fence per cube: one per unit costs more than its stores below a few MiB.
     if UNIT_POS == 0 {
-        fence(MemoryOrder::Release, SyncScope::System);
+        fence(MemoryOrder::AcqRel, SyncScope::System);
     }
 }
 

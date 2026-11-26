@@ -109,8 +109,8 @@ impl ElemAlignment {
 impl From<&TensorBinding> for ElemAlignment {
     /// The alignment of a bound matrix operand: its geometry's, or, for a storage-tiled one, the
     /// piece its storage partitioning states as the finest along its columns, and a piece one
-    /// element wide where none does: no partitioning describes it, or its tiles step down a
-    /// column first, which the matmul kernels refuse before reading this.
+    /// element wide where none does: no partitioning describes it, its batch axes are not ahead,
+    /// or its tiles step down a column first, which the matmul kernels refuse before reading this.
     fn from(binding: &TensorBinding) -> Self {
         if !binding.tiling.is_tiled() {
             return Self::new(&binding.shape, &binding.strides);
@@ -118,7 +118,8 @@ impl From<&TensorBinding> for ElemAlignment {
         const ROWS: Dimension = Dimension(0);
         const COLS: Dimension = Dimension(1);
         let geometry = Geometry::from(binding);
-        let storage = StoragePartitioning::new(&geometry, &geometry.labels(&[ROWS, COLS]));
+        let labels = geometry.labels(&[ROWS, COLS]).ok();
+        let storage = labels.and_then(|labels| StoragePartitioning::new(&geometry, &labels));
         match storage.as_ref().and_then(|storage| storage.tiles().first()) {
             Some(&(COLS, read)) => Self::stored_piece(read),
             _ => Self::stored_piece(1),

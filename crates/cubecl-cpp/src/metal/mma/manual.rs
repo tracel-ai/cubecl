@@ -10,23 +10,18 @@
 //! device they run on.
 
 use cubecl_core::{
-    self as cubecl,
     cmma::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType},
     ir::{
-        ContiguousElements, MmaProperties,
-        dialect::matrix::{ColIndexOp, MmaManualOp, RowIndexOp},
-        interfaces::TypedExt,
-        prelude::*,
+        ContiguousElements, CoordinatePart, ElementIndex, ElementPositions, MmaProperties,
+        OperandFact, dialect::matrix::MmaManualOp, interfaces::TypedExt, prelude::*,
     },
-    prelude::*,
 };
 use itertools::Itertools;
-use pliron::{context::Context, r#type::TypedHandle, value::Value};
+use pliron::{context::Context, r#type::TypedHandle};
 
 use crate::{
     metal::{arch::MetalArchitecture, metal_op, supported_cmma_combinations_metal},
-    shared::{CppValue, SupportedMmaCombinations, lowering::LowerOp, ty::TypeExtCPP},
-    target::Metal,
+    shared::{CppValue, SupportedMmaCombinations, ty::TypeExtCPP},
 };
 
 /// The cells a lane holds of any operand: two adjacent columns of one row.
@@ -50,6 +45,7 @@ pub fn mma_properties_metal() -> MmaProperties {
         register_duplication_b: 1,
         register_duplication_acc: 1,
         contiguous_elements: ContiguousElements::new(contiguous_elements_metal),
+        element_positions: OperandFact::new(|_, _, _| Some(element_positions_metal())),
     }
 }
 
@@ -62,33 +58,20 @@ fn contiguous_elements_metal(
     CELLS_PER_LANE
 }
 
-#[op_interface_impl]
-impl LowerOp<Metal> for RowIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let lane_id = self.lane_id(scope.ctx());
-        vec![row_index::expand(scope, lane_id.into()).value(scope)]
+/// Where a lane's cells lie, whatever the operand (see the module documentation).
+fn element_positions_metal() -> ElementPositions {
+    let lane = CoordinatePart::of(ElementIndex::Lane);
+    ElementPositions {
+        row: vec![
+            lane.in_runs_of(16).spaced_by(4),
+            lane.in_runs_of(2).counted_over(4),
+        ],
+        col: vec![
+            lane.in_runs_of(8).counted_over(2).spaced_by(4),
+            lane.counted_over(2).spaced_by(CELLS_PER_LANE),
+            CoordinatePart::of(ElementIndex::Nth),
+        ],
     }
-}
-
-#[op_interface_impl]
-impl LowerOp<Metal> for ColIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let lane_id = self.lane_id(scope.ctx());
-        let i = self.i(scope.ctx());
-        vec![col_index::expand(scope, lane_id.into(), i.into()).value(scope)]
-    }
-}
-
-/// The row lane `lane_id` holds: the same for both of its cells.
-#[cube]
-fn row_index(lane_id: u32) -> u32 {
-    (lane_id / 16) * 4 + (lane_id / 2) % 4
-}
-
-/// The column of the `i`th cell lane `lane_id` holds.
-#[cube]
-fn col_index(lane_id: u32, i: u32) -> u32 {
-    ((lane_id / 8) % 2) * 4 + (lane_id % 2) * 2 + i
 }
 
 metal_op!(MmaManualOp, |op, ctx| {
@@ -133,3 +116,22 @@ metal_op!(MmaManualOp, |op, ctx| {
     out.push_str("}\n");
     out
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_lanes_of_a_plane_hold_every_cell_once() {
+        const LANES: usize = 32;
+        let positions = element_positions_metal();
+        let mut held = [[0; 8]; 8];
+        for lane in 0..LANES {
+            for nth in 0..CELLS_PER_LANE {
+                let (row, col) = positions.of_nth(lane, nth);
+                held[row][col] += 1;
+            }
+        }
+        assert_eq!(held, [[1; 8]; 8]);
+    }
+}

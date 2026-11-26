@@ -601,8 +601,8 @@ impl StageForm {
     /// `pieces` axes.
     fn positional(rank: usize, pieces: usize) -> Projection {
         let dimensions: Vec<Dimension> = (0..rank).map(|p| Dimension(p as u8)).collect();
-        let labels = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);
-        Projection::tiled(&dimensions, &labels)
+        let pieces = StoragePartitioning::level_major(&dimensions, &vec![pieces; rank]);
+        Projection::tiled(&dimensions, &pieces)
     }
 
     /// A dense stage's physical line extents: `[extents…]` or `[grid…, …, block…]`.

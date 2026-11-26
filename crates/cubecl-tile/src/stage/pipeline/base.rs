@@ -171,9 +171,24 @@ impl Stages<OperandPair> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<OperandPair> {
+        let staged = comptime!(StagedOperands::Both);
+        Stages::smem_staging(walk, lhs, rhs, staged, storage, depth, decoded)
+    }
+
+    /// [`smem`](Stages::smem) staging the operands `staged` names, the other read where it lies.
+    pub fn smem_staging(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
         let sources = OperandPair {
             lhs: lhs.clone(),
             rhs: rhs.clone(),
+            staged,
         };
         Stages::new(walk, &sources, storage, comptime!(None), depth, decoded)
     }
@@ -341,6 +356,7 @@ impl Stages<OperandPair> {
     /// cases [`Prefetch::InRegisters`] lists.
     pub fn prefetches_in_registers(&self) -> comptime_type!(bool) {
         let staged = self.slots.index(FIRST_SLOT);
+        let operands = comptime!(staged.data.staged);
         let fixed = staged.has_fixed();
         let lhs_beside = self.sources.lhs.scales_beside();
         let rhs_beside = self.sources.rhs.scales_beside();
@@ -355,7 +371,8 @@ impl Stages<OperandPair> {
             .rhs
             .register_fetched_registers(&self.sources.rhs);
         comptime!(
-            !fixed
+            operands == StagedOperands::Both
+                && !fixed
                 && !lhs_beside
                 && !rhs_beside
                 && self.fillers == 0
@@ -444,35 +461,46 @@ impl Stages<OperandPair> {
 
 // `consume` is spelled per payload shape, as [`Slot::consume`] is.
 impl Stages<OperandPair> {
-    /// Consume slot `slot`: one step of a [`Compute`](Role::Compute) plane's walk.
-    pub fn consume(&mut self, _slot: usize, _compute: impl FnOnce(&Tile, &Tile)) {
+    /// Consume slot `slot`, filled for `region`: one step of a [`Compute`](Role::Compute) plane's
+    /// walk.
+    pub fn consume(&mut self, _slot: usize, _region: &Region, _compute: impl FnOnce(&Tile, &Tile)) {
         unexpanded!()
     }
 }
 
 impl StagesExpand<OperandPair> {
-    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, slot: usize, compute: F)
-    where
+    pub fn __expand_consume_method<F>(
+        &mut self,
+        scope: &Scope,
+        slot: usize,
+        region: &RegionExpand,
+        compute: F,
+    ) where
         F: FnOnce(&Scope, &TileExpand, &TileExpand),
     {
-        self.__expand_slot_mut_method(scope, slot)
+        self.placed_slot(scope, slot, region)
             .__expand_consume_method(scope, compute);
     }
 }
 
 impl Stages<Tile> {
     /// [`consume`](Stages::consume) for the sole operand.
-    pub fn consume(&mut self, _slot: usize, _compute: impl FnOnce(&Tile)) {
+    pub fn consume(&mut self, _slot: usize, _region: &Region, _compute: impl FnOnce(&Tile)) {
         unexpanded!()
     }
 }
 
 impl StagesExpand<Tile> {
-    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, slot: usize, compute: F)
-    where
+    pub fn __expand_consume_method<F>(
+        &mut self,
+        scope: &Scope,
+        slot: usize,
+        region: &RegionExpand,
+        compute: F,
+    ) where
         F: FnOnce(&Scope, &TileExpand),
     {
-        self.__expand_slot_mut_method(scope, slot)
+        self.placed_slot(scope, slot, region)
             .__expand_consume_method(scope, compute);
     }
 }

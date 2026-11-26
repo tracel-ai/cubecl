@@ -3,7 +3,7 @@
 //! step spans one block (a dimension of one beside the columns), and its scales are a packed factor
 //! one word wide, read between the values' loads. The answer is the host's.
 
-use crate::support::{HostData, HostDataType, TestInput};
+use crate::support::{HostData, HostDataType, TestInput, stored_tiles_spec};
 use cubecl::quant::scheme::ScaleDtype;
 use cubecl::zspace::shape;
 use cubecl::{bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle};
@@ -76,7 +76,7 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
 
     let code = |n: usize, kb: usize, ki: usize| ((n * 7 + kb * 3 + ki) % 16) as u32;
     let mut words = vec![0u32; cols * blocks * BLOCK / PER_WORD];
@@ -128,9 +128,7 @@ fn tile_order_reads_two_words_by_two_columns_a_load() {
         Form::Static,
     );
 
-    let mut w_spec =
-        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
-    w_spec.stored_tiles = storage.tiles().to_vec();
+    let w_spec = stored_tiles_spec(&dimensions, &storage, &geometry).packed(QuantValue::E2M1);
     let s_spec = TileSpec::direct(&[N, KB]).packed(Field::of_scale(ScaleDtype::F32));
     // A load: two words along `K` by two columns, four words.
     let load_words = 2 * BLOCK / PER_WORD;

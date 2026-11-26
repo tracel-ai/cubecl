@@ -1533,6 +1533,85 @@ pub fn test_cmma_manual_places_every_cell<
     );
 }
 
+/// Whether each element a lane holds of role `ident` is where the host places it.
+#[cube(launch)]
+fn kernel_manual_positions<A: Scalar, B: Scalar, CD: Scalar>(
+    out: &mut [u32],
+    #[comptime] shape: cmma::MatrixShape,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] lanes: usize,
+) {
+    let def = cmma::MmaDefinition::<A, B, CD>::new(shape.m, shape.n, shape.k);
+    let positions = def.element_positions(ident);
+    let elems = def.elems_per_lane(ident);
+    let lane_id = UNIT_POS_PLANE;
+    #[unroll]
+    for nth in 0..elems {
+        let (row, col) = def.position_of_nth(lane_id, nth as u32, ident);
+        #[unroll]
+        for lane in 0..lanes {
+            let (host_row, host_col) = comptime!(
+                positions
+                    .as_ref()
+                    .expect("a device with a manual mma should state its positions")
+                    .of_nth(lane, nth)
+            );
+            if lane_id == lane as u32 {
+                out[nth * lanes + lane] =
+                    u32::cast_from(row == host_row as u32 && col == host_col as u32);
+            }
+        }
+    }
+}
+
+/// [`MmaDefinition::element_positions`] answers on the host what
+/// [`MmaDefinition::position_of_nth`] answers on the device, for every lane and element.
+pub fn test_cmma_manual_positions_on_the_host<
+    R: Runtime,
+    A: CubeElement + Scalar,
+    B: CubeElement + Scalar,
+    CD: CubeElement + Scalar,
+>(
+    client: Client,
+    cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
+) {
+    if !client.features().matmul.mma.contains(&MmaConfig {
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        println!("Skipping test for m: {m}, n: {n}, k: {k}");
+        return;
+    }
+
+    let shape = cmma::MatrixShape::from((m, n, k));
+    let mma = &client.target_properties().mma;
+    let lanes = mma.const_plane_size as usize;
+    for (ident, duplication) in [
+        (MatrixIdent::A, mma.register_duplication_a),
+        (MatrixIdent::B, mma.register_duplication_b),
+        (MatrixIdent::Accumulator, mma.register_duplication_acc),
+    ] {
+        let held = shape.num_elems(ident) * duplication;
+        let out = client.create_from_slice(u32::as_bytes(&vec![0; held]));
+        kernel_manual_positions::launch::<A, B, CD>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            unsafe { BufferArg::from_raw_parts(out.clone(), held) },
+            shape,
+            ident,
+            lanes,
+        );
+        let out = client.read_one_unchecked(out);
+        assert_eq!(u32::from_bytes(&out), vec![1; held], "{ident}");
+    }
+}
+
 /// An FP8 manual MMA on operands scattered over signs and magnitudes matches an f64 CPU product.
 pub fn test_cmma_manual_fp8_matches_cpu_reference<
     R: Runtime,
@@ -3304,6 +3383,43 @@ macro_rules! testgen_cmma {
             test::<f16, f16, f16>(8);
             test::<bf16, bf16, bf16>(8);
             test::<f32, f32, f32>(8);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_manual_positions_on_the_host() {
+            use cubecl_common::{e4m3, *};
+            use half::{bf16, f16};
+
+            fn test<
+                A: CubeElement + Scalar,
+                B: CubeElement + Scalar,
+                CD: CubeElement + Scalar,
+            >(
+                shape: (usize, usize, usize),
+            ) {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual_positions_on_the_host::<
+                    TestRuntime,
+                    A,
+                    B,
+                    CD,
+                >(client, cube_dimensions, shape)
+            }
+
+            // CUDA
+            test::<f16, f16, f32>((16, 8, 8));
+            test::<f16, f16, f32>((16, 8, 16));
+            test::<i8, i8, i32>((16, 8, 32));
+
+            // HIP
+            test::<f16, f16, f32>((16, 16, 16));
+            test::<e4m3, e4m3, f32>((16, 16, 32));
+            test::<i8, i8, i32>((16, 16, 32));
+
+            // Metal
+            test::<f16, f16, f32>((8, 8, 8));
+            test::<bf16, bf16, bf16>((8, 8, 8));
         }
 
         #[$crate::runtime_tests::test_log::test]

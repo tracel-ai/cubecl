@@ -134,6 +134,8 @@ pub struct PhysicalAxisMap {
     offset: Offset,
     divisor: Divisor,
     composition: Composition,
+    /// Which piece of its dimension an axis stored as one of several is, the coarsest the first.
+    piece: usize,
 }
 
 /// What a physical axis is addressed by.
@@ -151,7 +153,13 @@ impl PhysicalAxisMap {
         PhysicalAxisMap::scaled(&[])
     }
 
+    /// `dimension` whole, or the coarsest of the pieces it is stored as.
     pub fn of(dimension: Dimension) -> Self {
+        PhysicalAxisMap::piece_of(dimension, 0)
+    }
+
+    /// One of the pieces `dimension` is stored as, an axis each, `piece` of them coarser.
+    pub fn piece_of(dimension: Dimension, piece: usize) -> Self {
         PhysicalAxisMap {
             terms: SmallVec::from_slice(&[DimensionTerm {
                 dimension,
@@ -160,6 +168,7 @@ impl PhysicalAxisMap {
             offset: Offset::Static(0),
             divisor: Divisor::Static(1),
             composition: Composition::Disjoint,
+            piece,
         }
     }
 
@@ -207,6 +216,7 @@ impl PhysicalAxisMap {
             offset: Offset::Static(0),
             divisor: Divisor::Static(1),
             composition,
+            piece: 0,
         }
     }
 
@@ -283,6 +293,17 @@ impl PhysicalAxisMap {
 
     pub(crate) fn terms(&self) -> &[DimensionTerm] {
         &self.terms
+    }
+
+    /// How many of the pieces its dimension is stored as are coarser.
+    pub(crate) fn piece(&self) -> usize {
+        self.piece
+    }
+
+    /// This axis and the other pieces of its dimension as one axis.
+    pub(crate) fn whole(mut self) -> Self {
+        self.piece = 0;
+        self
     }
 
     /// How this dimension's terms sit on it ([`Composition`]).

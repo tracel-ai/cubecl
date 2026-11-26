@@ -10,9 +10,12 @@ mod comptime_only;
 pub mod dialect;
 pub mod launch;
 pub mod layout;
+mod nested;
 pub mod ops;
 pub mod space;
 pub mod stage;
+#[cfg(test)]
+mod test_scope;
 pub(crate) mod tile;
 
 /// What a [`Tile`] can be in the kernel.
@@ -81,7 +84,7 @@ pub use stage::base::StageStorage;
 pub use stage::pipeline::base::Stages;
 pub use tile::accumulator::base::Scratch;
 pub use tile::base::{Tile, TileExpand};
-pub use tile::factor::{Factor, FactorExpand};
+pub(crate) use tile::factor::{Factor, FactorExpand};
 pub use tile::index::Indexing;
 pub use tile::kind::plane::mma::lane_runs::LaneMap;
 pub use tile::slices::{DimensionSlices, DimensionSlicesExpand};
