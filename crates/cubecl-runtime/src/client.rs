@@ -14,7 +14,7 @@ use crate::{
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{HOST_MEMORY_ALIGNMENT, HostMemory, ManagedResource, StorageAllocator},
+    storage::{HostMemory, ManagedResource, StorageAllocator},
     throughput::{
         CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
@@ -962,7 +962,8 @@ impl Client {
     ///
     /// [`IoError::HostMemoryRefused`] when the device lacks
     /// [`Features::host_memory_import`], when a stream of the device records a graph, when
-    /// `range` is empty, past the end of `host` or not aligned to [`HOST_MEMORY_ALIGNMENT`], or
+    /// `range` is empty, past the end of `host` or not aligned to
+    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT), or
     /// when the driver refuses it, such as past a limit on the memory it pins.
     pub fn import_host_memory(
         &self,
