@@ -66,8 +66,9 @@ mod handler {
         (std::sync::Mutex::new(0), std::sync::Condvar::new());
 
     /// Held across a runtime call made on a thread outside every service, such as releasing memory
-    /// where its last owner drops it. The exit waits for every guard held before the runtime's
-    /// teardown, as it does for the services.
+    /// where its last owner drops it. The exit waits for the guards held before the runtime's
+    /// teardown, as it does for the services, and like theirs the wait is bounded: a call stuck past
+    /// it can still overlap the teardown.
     #[derive(Debug)]
     pub struct ExitGuard {
         _private: (),
@@ -192,12 +193,13 @@ mod handler {
 
     /// No service starts from here on, and every one that asked is closed, all within
     /// [`EXIT_CLOSE_TIMEOUT`], then the exit guards are waited for, at least
-    /// [`EXIT_GUARD_TIMEOUT`]. The list is taken, so whichever of the guard and the handler runs
-    /// second finds nothing to close.
+    /// [`EXIT_GUARD_TIMEOUT`]. Whichever of the guard and the handler runs second returns at once.
     fn close_services() {
         let services = {
             let mut services = SERVICES.lock();
-            EXITING.store(true, Ordering::Release);
+            if EXITING.swap(true, Ordering::AcqRel) {
+                return;
+            }
             core::mem::take(&mut *services)
         };
         let deadline = Instant::now() + EXIT_CLOSE_TIMEOUT;

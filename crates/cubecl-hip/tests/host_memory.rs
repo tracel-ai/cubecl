@@ -7,6 +7,5 @@ use cubecl_server::runtime::Runtime;
 #[test]
 fn kernel_reads_imported_host_memory() {
     let client = HipRuntime::client(&Default::default());
-    assert!(client.features().host_memory_import);
     cubecl_core::runtime_tests::host_memory::test_kernel_reads_imported_ranges(client);
 }

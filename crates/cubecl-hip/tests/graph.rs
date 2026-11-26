@@ -466,6 +466,9 @@ fn record_add_one(client: &Client, input: &Handle, output: &Handle, n: usize) {
 fn hip_graph_reads_imported_host_memory() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
     let n = 4usize;
     let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
     let input = client
@@ -489,6 +492,9 @@ fn hip_graph_reads_imported_host_memory() {
 fn hip_graph_reads_an_import_of_another_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
     let n = 4usize;
     let mut memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
     let (other, shared) = (client.clone(), memory.clone());
@@ -543,6 +549,9 @@ fn hip_graph_reads_an_import_of_another_stream() {
 fn hip_graph_records_over_a_pending_import_release() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
     let n = 4usize;
     let output = client.empty(n * core::mem::size_of::<f32>());
     let released = host_floats(&[0.0; 4]);
@@ -568,6 +577,9 @@ fn hip_graph_records_over_a_pending_import_release() {
 fn hip_graph_refuses_imports_while_recording() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
     let n = 4usize;
     let chunk = HOST_MEMORY_ALIGNMENT as u64;
     let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);

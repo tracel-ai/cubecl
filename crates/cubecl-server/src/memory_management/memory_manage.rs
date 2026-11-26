@@ -482,8 +482,10 @@ struct MemoryReserver<Storage> {
     /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectSliceReserver,
-    /// Host memory the storage imported ([`import`](MemoryManagement::import)): never handed out
-    /// by a reservation, released to the storage on the tick after it is freed.
+    /// Host memory the storage
+    /// [imported](crate::storage::StorageAllocator::import_host_memory), placed here by
+    /// [`adopt_import`](MemoryManagement::adopt_import): never handed out by a reservation, released
+    /// to the storage on the tick after it is freed.
     imported: DirectSliceReserver,
     dynamic: MemoryReserverDispatch,
     storage: Storage,
