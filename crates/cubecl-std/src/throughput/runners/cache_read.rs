@@ -1,7 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-/// The smallest window a probe reads: one the last-level cache of every GPU holds whole.
+/// The smallest window a probe reads: one the last-level cache of every GPU holds whole. A power
+/// of two, as every window is.
 pub const MIN_WINDOW_BYTES: u64 = 1 << 20;
 
 /// The largest window a probe reads: past every GPU's last-level cache, where the read is
@@ -11,7 +12,8 @@ pub const MAX_WINDOW_BYTES: u64 = 256 << 20;
 /// Vectors each unit reads for the one it writes, so the writes are noise against the reads.
 const READS_PER_UNIT: u32 = 64;
 
-/// Units of a cube, and cubes of a launch: enough units to fill any device many times over.
+/// Units of a cube where the device launches that many, and cubes of a launch: enough units to
+/// fill any device many times over.
 const UNITS: u32 = 256;
 const CUBES: u32 = 16 * 1024;
 
@@ -22,15 +24,20 @@ const VECTOR: usize = 4;
 /// [`ThroughputMode::CacheRead`](cubecl_runtime::throughput::ThroughputMode::CacheRead): every
 /// unit of a grid that fills the device reads its share of one window of `window_bytes`, over
 /// and over, as the cubes of a kernel read again what other cubes read. Counted in floats read.
+///
+/// The window is `window_bytes` clamped to [`MIN_WINDOW_BYTES`] and [`MAX_WINDOW_BYTES`], then
+/// rounded down to a power of two, so the kernel wraps its reads with a mask.
 pub fn build_kernel(
     client: &cubecl_runtime::client::Client,
     window_bytes: u64,
 ) -> crate::throughput::KernelSampler {
     let client = client.clone();
     let float = core::mem::size_of::<f32>();
-    let window_bytes = window_bytes.clamp(MIN_WINDOW_BYTES, MAX_WINDOW_BYTES) as usize;
+    let window_bytes = window_bytes.clamp(MIN_WINDOW_BYTES, MAX_WINDOW_BYTES);
+    let window_bytes = 1usize << window_bytes.ilog2();
     let window_vectors = window_bytes / (float * VECTOR);
-    let units = (UNITS * CUBES) as usize;
+    let cube_units = UNITS.min(client.properties().hardware.max_units_per_cube);
+    let units = (cube_units * CUBES) as usize;
     let input = client.empty(window_bytes);
     let output = client.empty(units * VECTOR * float);
     let sample = alloc::boxed::Box::new(move |iterations: usize| {
@@ -41,13 +48,16 @@ pub fn build_kernel(
                     cache_read::launch_unchecked(
                         &client,
                         cubecl_core::CubeCount::Static(CUBES, 1, 1),
-                        cubecl_core::server::CubeDim::new_1d(UNITS),
+                        cubecl_core::server::CubeDim::new_1d(cube_units),
                         VECTOR,
                         cubecl_core::frontend::BufferArg::from_raw_parts(
                             input.clone(),
-                            window_vectors,
+                            window_vectors * VECTOR,
                         ),
-                        cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), units),
+                        cubecl_core::frontend::BufferArg::from_raw_parts(
+                            output.clone(),
+                            units * VECTOR,
+                        ),
                         cubecl_core::ir::ElemType::Float(cubecl_core::ir::FloatKind::F32),
                     );
                 }
@@ -77,17 +87,22 @@ pub fn build_kernel(
 /// consecutive units read consecutive vectors on every step, and a unit's own reads lie a whole
 /// stretch of the window apart, so a vector is read again only after the rest of the window was,
 /// and the window's size, not a unit's reach, decides which cache serves it.
+///
+/// - `window`: the vectors read, a power of two of them, so a mask wraps a read around it
+///   rather than a division at every read.
+/// - `output`: one vector a unit, its sum.
 #[cube(launch_unchecked)]
 fn cache_read<F: Float, N: Size>(
     window: &[Vector<F, N>],
     output: &mut [Vector<F, N>],
     #[define(F)] _dtype: ElemType,
 ) {
+    let wrap = window.len() - 1;
     let stride = window.len() / READS_PER_UNIT as usize + 1;
     let mut sum = Vector::<F, N>::cast_from(0u32);
     #[unroll]
     for i in 0..READS_PER_UNIT as usize {
-        sum += window[(ABSOLUTE_POS + i * stride) % window.len()];
+        sum += window[(ABSOLUTE_POS + i * stride) & wrap];
     }
     output[ABSOLUTE_POS] = sum;
 }

@@ -9,7 +9,7 @@ use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
-use crate::tune::first_pass::FirstPassPlanner;
+use crate::tune::first_pass::{CompileWindows, FirstPassPlanner};
 use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::stage::{BoundStageEnterer, enter_stage};
 use crate::tune::{
@@ -136,8 +136,8 @@ impl Schedule<'_> {
     {
         let (min_sample_count, max_sample_count) = self.config.sample_count_range();
 
-        let window = self.compile_window(batch.entries.len(), !batch.patience.is_empty());
-        let mut planner = FirstPassPlanner::new(&batch, window);
+        let windows = self.compile_windows(batch.entries.len(), !batch.patience.is_empty());
+        let mut planner = FirstPassPlanner::new(&batch, windows);
         let mut candidates: Vec<Candidate> = batch
             .entries
             .into_iter()
@@ -181,11 +181,11 @@ impl Schedule<'_> {
             }
 
             if planner.may_short_circuit()
-                && let Some(name) = self
+                && let Some(confirmed) = self
                     .confirm_under_limit(autotunables, &inputs, client, &mut candidates[..=slot])
                     .await
             {
-                short_circuit = Some(name);
+                short_circuit = Some(confirmed);
                 break;
             }
         }
@@ -270,8 +270,8 @@ impl Schedule<'_> {
                 }
             }
 
-            if let Some(name) = self.short_circuit_hit(&candidates) {
-                short_circuit = Some(name);
+            if let Some(confirmed) = self.short_circuit_hit(&candidates) {
+                short_circuit = Some(confirmed);
                 break;
             }
 
@@ -295,15 +295,18 @@ impl Schedule<'_> {
     /// stopped at `min_sample_count` while a survivor kept sampling, and `BenchmarkComputations::score`
     /// inflates with observed spread, which grows with the sample count. Scoring them against each
     /// other would hand a candidate an advantage for having been dropped early. Elimination
-    /// decides who is eligible; the score only ranks the survivors.
-    fn outcome(&self, candidates: Vec<Candidate>, short_circuit: Option<String>) -> BatchOutcome {
+    /// decides who is eligible; the score only ranks the survivors. A batch that a short circuit
+    /// ended is decided by the candidate at slot `confirmed`, the one confirmed under the limit:
+    /// the others may hold fewer samples than its confirmations.
+    fn outcome(&self, candidates: Vec<Candidate>, confirmed: Option<usize>) -> BatchOutcome {
         let mut steps = Vec::new();
         let mut results = Vec::with_capacity(candidates.len());
         let mut any_success = false;
         let mut decided: Option<(usize, u64)> = None;
         let mut unmeasured = Vec::new();
+        let short_circuit = confirmed.map(|slot| candidates[slot].name.clone());
 
-        for candidate in candidates {
+        for (slot, candidate) in candidates.into_iter().enumerate() {
             if self.track_steps {
                 steps.push((candidate.name.clone(), candidate.elapsed));
             }
@@ -319,7 +322,8 @@ impl Schedule<'_> {
                 any_success = true;
 
                 let score = outcome.computation.score();
-                if survived && decided.is_none_or(|(_, best)| score < best) {
+                let ranked = survived && confirmed.is_none_or(|hit| hit == slot);
+                if ranked && decided.is_none_or(|(_, best)| score < best) {
                     decided = Some((index, score));
                 }
             }
@@ -339,17 +343,28 @@ impl Schedule<'_> {
 
     /// How many of a batch of `len` candidates the first pass compiles together when the next
     /// one to measure is not compiled yet. Where the round may stop early, `patient` or bounded
-    /// by a time limit, as many as compile at once, so a round that stops compiles at most one
-    /// window it never measures. Elsewhere every candidate is measured, so the whole batch
-    /// compiles at once rather than waiting on each window's slowest kernel. Either way the
-    /// window decides when kernels compile, never which are measured.
-    fn compile_window(&self, len: usize, patient: bool) -> usize {
-        let stoppable = patient || (self.limit.is_some() && self.short_circuit);
-        if stoppable {
-            self.compile_parallelism
-        } else {
-            len
+    /// by a time limit, its first window holds as many as compile at once, so a round that stops
+    /// there compiles at most one window it never measures. A `patient` batch, whose groups may
+    /// skip the rest of their members, keeps to that window, so a pass its patience ends compiles
+    /// at most one window it never measures too. Elsewhere the rest of the batch compiles at once: a bounded round its
+    /// first window did not end rarely ends on the next, and window after window would wait on
+    /// each window's slowest kernel, then on its measurements, with the compiler idle. Either way
+    /// the windows decide when kernels compile, never which are measured.
+    fn compile_windows(&self, len: usize, patient: bool) -> CompileWindows {
+        let bounded = self.limit.is_some() && self.short_circuit;
+        CompileWindows {
+            first_count: self.window_count(len, patient || bounded),
+            later_count: self.window_count(len, patient),
         }
+    }
+
+    /// The candidates of a batch of `len` one window compiles: as many as compile at once where
+    /// the round may stop before measuring the rest, `stoppable`, and the whole batch elsewhere.
+    fn window_count(&self, len: usize, stoppable: bool) -> usize {
+        if stoppable {
+            return self.compile_parallelism;
+        }
+        len
     }
 
     /// Warm up a candidate and take its first sample.
@@ -370,25 +385,26 @@ impl Schedule<'_> {
         }
     }
 
-    /// The first of `candidates`, in priority order, confirmed under the time limit, each one
-    /// that has a sample under it first taking the confirmation samples it lacks. `None` without
-    /// a limit or with the short circuit off.
+    /// The slot of the first of `candidates`, in priority order, confirmed under the time limit,
+    /// each one that has a sample under it first taking the confirmation samples it lacks. `None`
+    /// without a limit or with the short circuit off.
     async fn confirm_under_limit<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
         candidates: &mut [Candidate],
-    ) -> Option<String>
+    ) -> Option<usize>
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
         let limit = self.limit.filter(|_| self.short_circuit)?;
         let required = self.config.clamped_short_circuit_sample_count();
 
-        for candidate in candidates
+        for (slot, candidate) in candidates
             .iter_mut()
-            .filter(|c| c.live && c.samples.any_under(limit))
+            .enumerate()
+            .filter(|(_, c)| c.live && c.samples.any_under(limit))
         {
             let operation = autotunables[candidate.index];
             let launched = self.track_steps.then(Instant::now);
@@ -399,7 +415,7 @@ impl Schedule<'_> {
                 candidate.elapsed += launched.elapsed();
             }
             if candidate.confirmed_under(limit, required) {
-                return Some(candidate.name.clone());
+                return Some(slot);
             }
         }
 
@@ -448,18 +464,17 @@ impl Schedule<'_> {
     ///
     /// The decision is persisted and reused on later runs, so it needs more than one sample:
     /// a single lucky measurement would pin a suboptimal kernel permanently.
-    fn short_circuit_hit(&self, candidates: &[Candidate]) -> Option<String> {
+    /// Returns the slot of the candidate confirmed under the limit.
+    fn short_circuit_hit(&self, candidates: &[Candidate]) -> Option<usize> {
         let limit = self.limit?;
         if !self.short_circuit {
             return None;
         }
 
         let required = self.config.clamped_short_circuit_sample_count();
-        let hit = candidates
+        candidates
             .iter()
-            .find(|c| c.confirmed_under(limit, required))?;
-
-        Some(hit.name.clone())
+            .position(|c| c.confirmed_under(limit, required))
     }
 
     /// Drop candidates whose best time is past the speed factor.
@@ -765,9 +780,25 @@ mod tests {
             ..schedule(1.5)
         };
 
-        assert_eq!(bounded.compile_window(100, false), 8);
-        assert_eq!(patient.compile_window(100, true), 8);
-        assert_eq!(patient.compile_window(100, false), 100);
+        let windows = |first_count, later_count| CompileWindows {
+            first_count,
+            later_count,
+        };
+
+        assert_eq!(bounded.compile_windows(100, false), windows(8, 100));
+        assert_eq!(bounded.compile_windows(100, true), windows(8, 8));
+        assert_eq!(patient.compile_windows(100, true), windows(8, 8));
+        assert_eq!(patient.compile_windows(100, false), windows(100, 100));
+    }
+
+    #[test]
+    fn a_short_circuit_decides_the_confirmed_candidate() {
+        let candidates = vec![candidate(0, [40]), candidate(1, [50, 50, 50])];
+
+        let outcome = schedule(1.5).outcome(candidates, Some(1));
+
+        assert_eq!(outcome.decided, Some(1));
+        assert_eq!(outcome.short_circuit.as_deref(), Some("k1"));
     }
 
     #[test]
@@ -863,7 +894,7 @@ mod tests {
         assert_eq!(schedule.short_circuit_hit(&one), None);
 
         let two = vec![candidate(0, [100, 900, 150])];
-        assert_eq!(schedule.short_circuit_hit(&two), Some("k0".to_string()));
+        assert_eq!(schedule.short_circuit_hit(&two), Some(0));
     }
 
     #[test]

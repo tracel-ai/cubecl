@@ -325,8 +325,9 @@ pub fn measure_cube_rate(client: &Client, units: u32) -> f64 {
 /// fills it reading what others read: the rate of a kernel's re-reads, from whichever level of
 /// the cache holds that much. Probed an octave at a time, between
 /// [`MIN_WINDOW_BYTES`](cache_read::MIN_WINDOW_BYTES) and
-/// [`MAX_WINDOW_BYTES`](cache_read::MAX_WINDOW_BYTES). `NaN` where the device measured nothing,
-/// and on WASM.
+/// [`MAX_WINDOW_BYTES`](cache_read::MAX_WINDOW_BYTES): `bytes` is clamped to them, then rounded
+/// down to the octave at or below it, so a working set between two octaves reads at the rate of
+/// the smaller one. `NaN` where the device measured nothing, and on WASM.
 pub fn measure_cache_read(client: &Client, bytes: u64) -> f64 {
     let window = bytes.clamp(cache_read::MIN_WINDOW_BYTES, cache_read::MAX_WINDOW_BYTES);
     let key = ThroughputKey {
