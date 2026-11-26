@@ -491,21 +491,22 @@ fn hip_graph_reads_imported_host_memory() {
 #[test]
 fn hip_graph_reads_an_import_of_another_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let mut client = HipRuntime::client(&Default::default());
     if !client.features().host_memory_import {
         return;
     }
     let n = 4usize;
     let mut memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
-    let (other, shared) = (client.clone(), memory.clone());
-    let (input, importing) = std::thread::spawn(move || {
-        let input = other
-            .import_host_memory(&shared, 0..HOST_MEMORY_ALIGNMENT as u64)
-            .unwrap();
-        (input, StreamId::current())
-    })
-    .join()
-    .expect("the importing thread should not panic");
+    // Two streams named apart, so a single-stream policy cannot fold them into one.
+    let mut importer = client.clone();
+    // SAFETY: neither stream is used by anything else, and each is driven from this thread alone.
+    unsafe {
+        importer.set_stream(StreamId { value: 4_000_001 });
+        client.set_stream(StreamId { value: 4_000_002 });
+    }
+    let input = importer
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .unwrap();
     let output = client.empty(n * core::mem::size_of::<f32>());
     // A planning run over the import would leave its bindings to the GC thread, which no sync joins.
     let planned = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
@@ -523,9 +524,6 @@ fn hip_graph_reads_an_import_of_another_stream() {
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
-    let mut importer = client.clone();
-    // SAFETY: nothing else runs on the importing thread's stream, which has ended.
-    unsafe { importer.set_stream(importing) };
     // The release waits behind the stream that imported, so only its own cleanup retires it.
     let release = || {
         cubecl_environment::future::block_on(client.sync()).unwrap();
