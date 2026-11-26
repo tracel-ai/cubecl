@@ -17,7 +17,7 @@ impl Statement {
         let statement = match stmt {
             Stmt::Local(mut local) => {
                 if let Some((name, kind, init)) = parse_define_macro(&local) {
-                    let init = Expression::from_expr(init, context)?;
+                    let init = Expression::from_expr_value(init, context)?;
 
                     Statement::Define {
                         name,
@@ -37,7 +37,7 @@ impl Statement {
 
                     let init = local
                         .init
-                        .map(|init| Expression::from_expr(*init.expr, context))
+                        .map(|init| Expression::from_expr_value(*init.expr, context))
                         .transpose()?
                         .map(Box::new);
                     let Pattern {
@@ -59,9 +59,13 @@ impl Statement {
                 }
             }
             Stmt::Expr(expr, semi) => {
-                let expression = Box::new(Expression::from_expr(expr, context)?);
+                let mut expression = Box::new(Expression::from_expr(expr, context)?);
+                let terminated = semi.is_some() || !expression.needs_terminator();
+                if expression.is_place() && !expression.is_const() && !terminated {
+                    expression = Box::new(Expression::ReadPlace { inner: expression });
+                }
                 Statement::Expression {
-                    terminated: semi.is_some() || !expression.needs_terminator(),
+                    terminated,
                     expression,
                     span,
                 }
@@ -167,7 +171,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         let args = arg_exprs
             .elems
             .into_iter()
-            .map(|expr| Expression::from_expr(expr, context))
+            .map(|expr| Expression::from_expr_value(expr, context))
             .collect::<Result<_, _>>()?;
         Ok(Expression::ExpressionMacro {
             ident: mac.path.get_ident().cloned().unwrap(),

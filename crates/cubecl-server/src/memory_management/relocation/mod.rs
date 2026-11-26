@@ -15,7 +15,7 @@ pub(super) use analysis::*;
 pub(super) use base::{Move, RelocationLander};
 pub use base::{StorageCopy, TargetRoom};
 pub use device_relocator::*;
-#[cfg(all(test, feature = "storage-bytes"))]
+#[cfg(all(test, not(exclusive_memory_only), feature = "storage-bytes"))]
 pub(super) use host_relocation_copier::*;
 pub(super) use landed_relocation::*;
 pub use relocation_copier::*;

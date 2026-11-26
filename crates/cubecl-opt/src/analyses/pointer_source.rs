@@ -127,7 +127,7 @@ impl Analysis for PointerSource {
                 if let IRNode::Operation(op) = node {
                     let op_dyn = op.dyn_op(ctx);
                     if let Some(aliases) = op_cast::<dyn AliasingOp>(op_dyn.as_ref())
-                        && let Some(source_ptr) = aliases.source_ptr(ctx)
+                        && let &[source_ptr] = aliases.source_ptr(ctx).as_slice()
                         && let Some(resource) = this.pointer_sources.get(&source_ptr)
                     {
                         this.pointer_sources

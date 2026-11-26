@@ -15,8 +15,11 @@ macro_rules! comptime_only {
             }
         }
 
-        impl IntoMut for $ty {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl PlaceExpand for $ty {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _scope: &Scope) -> Self {
                 self
             }
         }

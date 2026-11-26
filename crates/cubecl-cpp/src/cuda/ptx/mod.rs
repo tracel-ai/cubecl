@@ -13,6 +13,7 @@ use cubecl_core::{
         },
     },
     prelude::*,
+    zspace::{SmallVec, smallvec},
 };
 
 mod asm;
@@ -43,8 +44,12 @@ pub struct GenericToSharedOp {
 
 #[op_interface_impl]
 impl AliasingOp for GenericToSharedOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        Some(self.ptr(ctx))
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.ptr(ctx)]
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 
@@ -76,8 +81,12 @@ pub struct BarrierNativeHandleOp {
 
 #[op_interface_impl]
 impl AliasingOp for BarrierNativeHandleOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        Some(self.bar_ptr(ctx))
+    fn source_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.bar_ptr(ctx)]
+    }
+
+    fn dest_ptr(&self, ctx: &Context) -> SmallVec<[Value; 4]> {
+        smallvec![self.get_result(ctx)]
     }
 }
 

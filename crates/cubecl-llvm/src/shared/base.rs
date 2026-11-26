@@ -54,7 +54,7 @@ use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass, stack_move::RemoveStackMoves,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
@@ -498,6 +498,8 @@ fn lower(
     func_passes.add_pass(BranchToSCFPass::default());
     func_passes.add_pass(DCEPass);
     func_passes.add_pass(Mem2RegPass);
+    func_passes.add_pass(RemoveStackMoves);
+    func_passes.add_pass(DCEPass);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(DCEPass);
 
@@ -507,6 +509,7 @@ fn lower(
     after_pre_func_passes.add_pass(DCEPass);
     after_pre_func_passes.add_pass(CanonicalizePass::default());
     after_pre_func_passes.add_pass(DCEPass);
+    after_pre_func_passes.add_pass(RemoveStackMoves);
 
     let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
 

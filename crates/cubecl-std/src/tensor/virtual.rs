@@ -366,8 +366,11 @@ mod __cube_type {
         }
     }
 
-    impl<E: Numeric, N: Size, IO> IntoMut for VirtualTensorExpand<E, N, IO> {
-        fn into_mut(self, _scope: &Scope) -> Self {
+    impl<E: Numeric, N: Size, IO> PlaceExpand for VirtualTensorExpand<E, N, IO> {
+        fn create_mut_place(self, _scope: &Scope) -> Self {
+            self
+        }
+        fn read_place(self, _scope: &Scope) -> Self {
             self
         }
     }

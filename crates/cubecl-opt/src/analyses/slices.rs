@@ -48,3 +48,19 @@ pub fn get_value_forward_slice(ctx: &Context, root: Value) -> ISet<Ptr<Operation
     forward_slice.reverse();
     forward_slice
 }
+
+/// Get transitive uses but not all ops potentially affected via control flow
+pub fn get_value_transitive_users(ctx: &Context, root: Value) -> ISet<Ptr<Operation>> {
+    let mut transitive_users = ISet::default();
+    let mut worklist = vec![root];
+    while let Some(value) = worklist.pop() {
+        for r#use in value.uses(ctx) {
+            let user = r#use.user_op();
+            if transitive_users.insert(user) {
+                worklist.extend(user.deref(ctx).results());
+            }
+        }
+    }
+
+    transitive_users
+}

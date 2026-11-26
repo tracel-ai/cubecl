@@ -218,6 +218,10 @@ pub mod index {
 
             impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for $expand {
                 type Output = NativeExpand<E>;
+                type PlaceOutput<'a>
+                    = NativeExpand<E>
+                where
+                    E: 'a;
 
                 fn __expand_index_method(
                     &self,
@@ -227,12 +231,25 @@ pub mod index {
                     self.__expand_as_slice_method(scope)
                         .__expand_index_method(scope, index)
                 }
+
+                fn __expand_index_owned_method(
+                    &self,
+                    scope: &Scope,
+                    index: NativeExpand<usize>,
+                ) -> Self::Output {
+                    self.__expand_as_slice_method(scope)
+                        .__expand_index_owned_method(scope, index)
+                }
             }
         };
     }
 
     impl<E: CubePrimitive, const N: usize> IndexExpand<NativeExpand<usize>> for NativeExpand<[E; N]> {
         type Output = NativeExpand<E>;
+        type PlaceOutput<'a>
+            = NativeExpand<E>
+        where
+            E: 'a;
 
         fn __expand_index_method(
             &self,
@@ -241,6 +258,15 @@ pub mod index {
         ) -> &Self::Output {
             self.__expand_as_slice_method(scope)
                 .__expand_index_method(scope, index)
+        }
+
+        fn __expand_index_owned_method(
+            &self,
+            scope: &Scope,
+            index: NativeExpand<usize>,
+        ) -> Self::Output {
+            self.__expand_as_slice_method(scope)
+                .__expand_index_owned_method(scope, index)
         }
     }
 

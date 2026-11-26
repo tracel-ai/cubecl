@@ -2,6 +2,10 @@ use core::ops::{Index, IndexMut};
 
 use cubecl_ir::Scope;
 
+use crate::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
+
 use super::CubeType;
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
@@ -30,7 +34,17 @@ where
 
 pub trait IndexExpand<I> {
     type Output;
+    type PlaceOutput<'a>: IntoExpand<Expand = Self::PlaceOutput<'a>>
+        + ExpandTypeClone
+        + PlaceExpand
+        + CubeDebug
+        + AsRefExpand
+        + AsMutExpand
+    where
+        Self: 'a;
+
     fn __expand_index_method(&self, scope: &Scope, index: I) -> &Self::Output;
+    fn __expand_index_owned_method(&self, scope: &Scope, index: I) -> Self::PlaceOutput<'_>;
 }
 
 pub trait CubeIndexMut<I: CubeType>:

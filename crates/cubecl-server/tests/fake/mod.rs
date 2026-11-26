@@ -147,10 +147,14 @@ impl DeviceStream for FakeStream {
 }
 
 fn memory<S: StorageAllocator + Default>(name: &'static str) -> MemoryManagement<S> {
+    #[cfg(not(exclusive_memory_only))]
+    let config = MemoryConfiguration::Adaptive;
+    #[cfg(exclusive_memory_only)]
+    let config = MemoryConfiguration::ExclusivePages;
     MemoryManagement::from_configuration(
         S::default(),
         &MemoryDeviceProperties::new(512 * MIB, 32),
-        MemoryConfiguration::Adaptive,
+        config,
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new(name),
     )

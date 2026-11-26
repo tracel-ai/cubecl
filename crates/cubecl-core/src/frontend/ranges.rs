@@ -297,8 +297,14 @@ macro_rules! impl_slice_ranges {
     ([$($generics:tt)*] $ty: ty, $range: ty) => {
         impl<$($generics)*> IndexExpand<$range> for $ty {
             type Output = SliceExpand<E>;
+            type PlaceOutput<'a> = &'a SliceExpand<E>;
 
             fn __expand_index_method(&self, scope: &Scope, index: $range) -> &Self::Output {
+                let (start, end) = index.into_slice_indices(scope, self);
+                self.__expand_slice_method(scope, start, end)
+            }
+
+            fn __expand_index_owned_method(&self, scope: &Scope, index: $range) -> Self::PlaceOutput<'_> {
                 let (start, end) = index.into_slice_indices(scope, self);
                 self.__expand_slice_method(scope, start, end)
             }
