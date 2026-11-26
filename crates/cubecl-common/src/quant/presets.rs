@@ -35,16 +35,14 @@ impl QuantScheme {
             value: QuantValue::E2M1,
             store: QuantStore::PackedU32(0),
             mode: QuantMode::Symmetric,
-            blocks: [
-                Some(BlockScale {
-                    size: BlockSize::new([32]),
-                    dtype: ScaleDtype::UE8M0,
-                }),
-                Some(BlockScale {
-                    size: BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE),
-                    dtype: ScaleDtype::F32,
-                }),
-            ],
+            finest: BlockScale {
+                size: BlockSize::new([32]),
+                dtype: ScaleDtype::UE8M0,
+            },
+            coarser: Some(BlockScale {
+                size: BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE),
+                dtype: ScaleDtype::F32,
+            }),
         }
     }
 }

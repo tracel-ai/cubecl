@@ -17,7 +17,8 @@ pub trait RunWithQuantType {
 ///
 /// The global level is further constrained by what this reader serves: it binds as f32 rather than
 /// being read as f32 bytes. It has one scale for the whole tensor, so a narrower type saves
-/// nothing and only reintroduces rounding error.
+/// nothing and only reintroduces rounding error. f32 is required only because every coarser level
+/// in use is f32; another dtype is its binding read as that dtype, as the finest level's is.
 pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
     let levels = scheme.levels().count();
     assert!(

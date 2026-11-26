@@ -6,13 +6,18 @@ use super::{
     BlockExtent, BlockScale, BlockSize, QuantMode, QuantScheme, QuantStore, QuantValue, ScaleDtype,
 };
 
-/// A scheme as it may be read back: written with its blocks, or with the per-tensor, per-row and
-/// per-block levels it held before it listed blocks.
+/// A scheme as it may be read back: written with its finest and coarser levels, with the list of
+/// blocks it held before them, or with the per-tensor, per-row and per-block levels it held before
+/// that list.
 #[derive(Deserialize)]
 pub(super) struct SavedScheme {
     pub value: QuantValue,
     pub store: QuantStore,
     pub mode: QuantMode,
+    #[serde(default)]
+    pub finest: Option<BlockScale>,
+    #[serde(default)]
+    pub coarser: Option<BlockScale>,
     #[serde(default)]
     pub blocks: [Option<BlockScale>; 2],
     #[serde(default)]
@@ -50,19 +55,27 @@ impl TryFrom<SavedScheme> for QuantScheme {
             size: BlockSize::TENSOR,
             dtype,
         });
-        let mut levels = [block, row, tensor]
+        let mut levels = [saved.finest, saved.coarser, block, row, tensor]
             .into_iter()
             .chain(saved.blocks)
             .flatten();
-        let blocks = [levels.next(), levels.next()];
+        let scheme = Self {
+            value: saved.value,
+            store: saved.store,
+            mode: saved.mode,
+            ..Self::default()
+        };
+        let scheme = match levels.next() {
+            Some(finest) => Self {
+                finest,
+                coarser: levels.next(),
+                ..scheme
+            },
+            None => scheme,
+        };
         match levels.next() {
             Some(_) => Err("a scheme holds at most two scale levels"),
-            None => Ok(Self {
-                value: saved.value,
-                store: saved.store,
-                mode: saved.mode,
-                blocks,
-            }),
+            None => Ok(scheme),
         }
     }
 }
@@ -155,6 +168,31 @@ mod tests {
         for (levels, scheme) in cases {
             assert_eq!(
                 serde_json::from_value::<QuantScheme>(written(levels)).unwrap(),
+                scheme
+            );
+        }
+    }
+
+    /// The form schemes were written in while they listed their blocks.
+    #[test]
+    fn a_scheme_written_as_a_list_of_blocks_reads_back_as_its_levels() {
+        let level = |size: BlockSize, dtype| json!({ "size": size, "dtype": dtype });
+        let cases = [
+            (json!([null, null]), base()),
+            (
+                json!([
+                    level(BlockSize::new([16]), "UE4M3"),
+                    level(BlockSize::TENSOR, "F32")
+                ]),
+                base()
+                    .per_block([16], ScaleDtype::UE4M3)
+                    .per_tensor(ScaleDtype::F32),
+            ),
+        ];
+        for (blocks, scheme) in cases {
+            assert_eq!(
+                serde_json::from_value::<QuantScheme>(written(json!({ "blocks": blocks })))
+                    .unwrap(),
                 scheme
             );
         }
