@@ -122,18 +122,29 @@ impl CmmaData {
         )
     }
 
-    /// Every cell multiplied by `factor`, bounced through the fragment's slot of the plane's
-    /// scratch as [`mul_along`](Self::mul_along) bounces it: a cmma fragment is not read cell by
-    /// cell.
-    pub(crate) fn scale<T: Numeric>(&self, factor: T) {
+    /// This fragment, whose first cell lies at `origin` of the sum's window, with each cell under
+    /// its `scales`, bounced through the fragment's slot of the plane's scratch as
+    /// [`mul_along`](Self::mul_along) bounces it: a cmma fragment is not read cell by cell.
+    pub(crate) fn scale<T: Numeric>(
+        &self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         self.spill_to_scratch::<T>();
         sync_plane();
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        let mut cell = UNIT_POS_PLANE as usize;
-        while cell < m * n {
-            scratch[cell] *= factor;
-            cell += PLANE_DIM as usize;
+        let mut nth = UNIT_POS_PLANE as usize;
+        while nth < m * n {
+            let mut cells = Sequence::<HeldCell>::new();
+            cells.push(HeldCell {
+                row: (nth / n) as u32 + comptime!(origin.0 as u32),
+                col: (nth % n) as u32 + comptime!(origin.1 as u32),
+                first_unit: comptime!(None),
+            });
+            let cell = Vector::<T, Const<1>>::cast_from(scratch[nth]);
+            scratch[nth] = scales.applied::<T, Const<1>>(cell, &cells).extract(0usize);
+            nth += PLANE_DIM as usize;
         }
         sync_plane();
         self.reload_from_scratch::<T>();
@@ -410,18 +421,11 @@ mod fragment_drain_tests {
 
 #[cfg(test)]
 mod held_fragment_tests {
-    use cubecl::ir::{AddressType, Scope, settings};
     use half::f16;
 
     use super::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(settings::KernelSettings::new(
-            settings::Dim3::new_single(),
-            settings::ExecutionMode::Checked,
-            AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     /// A `16 × 16` accumulator fragment allocated at `H`, kept at [`Held`], and stored into a
     /// scratch of `N`.

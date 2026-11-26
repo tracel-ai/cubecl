@@ -346,18 +346,11 @@ expand_value!(RawCallExpand<IO>, IO: 'static);
 
 #[cfg(test)]
 mod tests {
-    use cubecl::ir::{AddressType, settings};
     use half::f16;
 
     use super::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(settings::KernelSettings::new(
-            settings::Dim3::new_single(),
-            settings::ExecutionMode::Checked,
-            AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     /// A slice of shared memory held at `H`, then named at `N`.
     #[cube]

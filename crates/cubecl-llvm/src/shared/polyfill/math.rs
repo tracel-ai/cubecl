@@ -5,7 +5,7 @@ use crate::{
 pub use cubecl_core::frontend::polyfills::powi;
 use cubecl_core::{
     ir::dialect::{
-        bitwise::{BitwiseNotOp, FindFirstSetOp},
+        bitwise::{BitwiseNotOp, BytePermuteOp, FindFirstSetOp},
         cmp::{FClampOp, SClampOp, UClampOp},
         math::{
             ArcCoshOp, ArcSinhOp, ArcTanhOp, CbrtOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp,
@@ -16,8 +16,9 @@ use cubecl_core::{
     },
     prelude::{
         polyfills::{
-            cbrt, erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64,
-            expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip, to_degrees, to_radians,
+            cbrt, erf, expand_byte_permute_polyfill, expand_dp4a_polyfill, expand_himul_sim,
+            expand_s_himul_64, expand_u_himul_64, expm1, inverse_cbrt, log1p, powi_int, recip,
+            to_degrees, to_radians,
         },
         *,
     },
@@ -33,6 +34,17 @@ impl LowerOp for Dp4aOp {
             self.b(ctx),
             self.c(ctx),
         )]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for BytePermuteOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        ctx.target() == LlvmTarget::Cpu
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![expand_byte_permute_polyfill(scope, self)]
     }
 }
 

@@ -14,11 +14,10 @@ use crate::{
     shared::plane::bitcast,
 };
 use cubecl_core::ir::{
-    ElemType,
+    CoordinatePart, ElemType, ElementIndex,
     amd::{AmdMatrixCore, AmdMfma, AmdWmma},
     dialect::matrix::{
-        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
-        RowIndexOp, StMatrixOp, StoreOp,
+        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, StMatrixOp, StoreOp,
     },
     features::MmaConfig,
     types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
@@ -215,8 +214,6 @@ pub trait CtxMatrixCore: ContextExt {
 /// Accumulator elements each lane holds on WMMA: a 16x16 output over 32 lanes.
 const ACCUMULATOR_REGISTERS: usize = 8;
 
-const LANES_PER_ROW: u32 = 16;
-
 /// Fragment size and element spacing per lane.
 fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
     let core = ctx.matrix_core();
@@ -264,90 +261,66 @@ fn add(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: V
     insert(ctx, rw, &op)
 }
 
-/// Where a lane sits: its place along a row of 16 lanes, and which of those rows it is in, the
-/// half of a WMMA wavefront or the group of an MFMA one.
-#[derive(Clone, Copy)]
-struct LanePosition {
-    in_row: Value,
-    group: Value,
-}
-
-impl LanePosition {
-    fn of(ctx: &mut Context, rw: &mut DialectConversionRewriter, lane: Value) -> Self {
-        let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
-
-        let in_row = llvm::URemOp::new(ctx, lane, width);
-        let group = llvm::UDivOp::new(ctx, lane, width);
-
-        LanePosition {
-            in_row: insert(ctx, rw, &in_row),
-            group: insert(ctx, rw, &group),
-        }
-    }
-
-    fn current(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Self {
-        let lane = lane_id(ctx, rw);
-        Self::of(ctx, rw, lane)
-    }
-}
-
-/// Shared fragment coordinates for memory access and matrix indexing.
-fn along(
+/// The coordinate `parts` give element `nth` of the current lane, `lane`.
+fn coordinate(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
-    matrix: &MatrixType,
-    i: Value,
-    lane: LanePosition,
+    parts: &[CoordinatePart],
+    lane: Value,
+    nth: usize,
 ) -> Value {
-    let group = lane.group;
-    let core = ctx.matrix_core();
-    match (matrix.ident, core) {
-        (MatrixIdent::A | MatrixIdent::B, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => i,
-        // Every other core gives each lane group its own run of `k`.
-        (MatrixIdent::A | MatrixIdent::B, _) => {
-            in_group_run(ctx, rw, i, group, core.frag_ab_elems(matrix.shape.k))
-        }
-        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => {
-            let two = insert_i32_const(ctx, rw, 2);
-            let row = mul(ctx, rw, i, two);
-            add(ctx, rw, row, group)
-        }
-        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna4)) => {
-            in_group_run(ctx, rw, i, group, ACCUMULATOR_REGISTERS)
-        }
-        (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => {
-            in_group_run(ctx, rw, i, group, mfma::ACCUMULATOR_REGISTERS)
-        }
+    // Lane 0 leaves the parts its lane does not count: the element's.
+    let of_element: usize = parts.iter().map(|part| part.of_nth(0, nth)).sum();
+    let of_element = insert_i32_const(ctx, rw, of_element as i32);
+    let of_lane = parts.iter().filter(|part| part.index == ElementIndex::Lane);
+    let mut sum = of_element;
+    for part in of_lane {
+        let run = insert_i32_const(ctx, rw, part.run as i32);
+        let step = llvm::UDivOp::new(ctx, lane, run);
+        let step = insert(ctx, rw, &step);
+        let step = match part.count {
+            Some(count) => counted_over(ctx, rw, step, count),
+            None => step,
+        };
+        let stride = insert_i32_const(ctx, rw, part.stride as i32);
+        let place = mul(ctx, rw, step, stride);
+        sum = add(ctx, rw, sum, place);
     }
+    sum
 }
 
-/// Element `i` of the run of `run` elements lane group `group` holds.
-fn in_group_run(
+fn counted_over(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
-    i: Value,
-    group: Value,
-    run: usize,
+    step: Value,
+    count: usize,
 ) -> Value {
-    let run = insert_i32_const(ctx, rw, run as i32);
-    let offset = mul(ctx, rw, group, run);
-    add(ctx, rw, i, offset)
+    let count = insert_i32_const(ctx, rw, count as i32);
+    let op = llvm::URemOp::new(ctx, step, count);
+    insert(ctx, rw, &op)
 }
 
+/// Where element `nth` of the fragment of the current lane, `lane`, lies in memory laid out as
+/// `layout`.
 fn element_index(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
     matrix: &MatrixType,
     layout: MatrixLayout,
-    i: usize,
-    lane: LanePosition,
+    nth: usize,
+    lane: Value,
     stride: Value,
 ) -> Value {
-    let step = insert_i32_const(ctx, rw, i as i32);
-    let along = along(ctx, rw, matrix, step, lane);
-    let across = lane.in_row;
+    let core = ctx.matrix_core();
+    let positions = core.element_positions(matrix.ident, matrix.shape);
+    let row = coordinate(ctx, rw, &positions.row, lane, nth);
+    let col = coordinate(ctx, rw, &positions.col, lane, nth);
+    let (along, across) = match core.lane_names_row(matrix.ident) {
+        true => (col, row),
+        false => (row, col),
+    };
 
-    if is_strided(ctx.matrix_core(), matrix.ident, layout) {
+    if is_strided(core, matrix.ident, layout) {
         let scaled = mul(ctx, rw, along, stride);
         add(ctx, rw, scaled, across)
     } else {
@@ -356,20 +329,9 @@ fn element_index(
     }
 }
 
-/// Whether a lane's place in its row of 16 lanes names the row of the matrix it holds, its run
-/// of elements then lying along that row; otherwise it names a column. RDNA4's accumulator is
-/// held as A is, since `emit_wmma` runs the instruction on it transposed.
-fn lane_names_row(core: AmdMatrixCore, ident: MatrixIdent) -> bool {
-    match ident {
-        MatrixIdent::A => true,
-        MatrixIdent::B => false,
-        MatrixIdent::Accumulator => core == AmdMatrixCore::Wmma(AmdWmma::Rdna4),
-    }
-}
-
 /// Whether a lane's run of elements steps by the stride in memory laid out as `layout`.
 fn is_strided(core: AmdMatrixCore, ident: MatrixIdent, layout: MatrixLayout) -> bool {
-    let run_layout = match lane_names_row(core, ident) {
+    let run_layout = match core.lane_names_row(ident) {
         true => MatrixLayout::ColMajor,
         false => MatrixLayout::RowMajor,
     };
@@ -487,7 +449,7 @@ pub(crate) fn load(
     let frag_ty = fragment_ty(ctx, &ty);
     let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
     let align = scalar_alignment(ctx, ty.elem_ty);
-    let lane = LanePosition::current(ctx, rw);
+    let lane = lane_id(ctx, rw);
 
     if fragment_is_contiguous(ctx.matrix_core(), &ty, layout, step) {
         let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
@@ -534,7 +496,7 @@ pub(crate) fn store(
     let frag_ty = fragment_ty(ctx, &ty);
     let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
     let align = scalar_alignment(ctx, ty.elem_ty);
-    let lane = LanePosition::current(ctx, rw);
+    let lane = lane_id(ctx, rw);
 
     let frag = load_fragment(ctx, rw, matrix, frag_ty);
 
@@ -842,52 +804,6 @@ pub(crate) fn cast(
     rw.erase_operation(ctx, old_op);
     Ok(())
 }
-
-enum Axis {
-    Row,
-    Col,
-}
-
-fn axis_index(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    matrix: &MatrixType,
-    axis: Axis,
-    lane: Value,
-    i: Value,
-) -> Value {
-    let lane = LanePosition::of(ctx, rw, lane);
-    let along = along(ctx, rw, matrix, i, lane);
-
-    match (axis, lane_names_row(ctx.matrix_core(), matrix.ident)) {
-        (Axis::Row, true) | (Axis::Col, false) => lane.in_row,
-        (Axis::Row, false) | (Axis::Col, true) => along,
-    }
-}
-
-macro_rules! lower_axis_index {
-    ($fn_name:ident, $cube_op:ty, $axis:expr) => {
-        pub(crate) fn $fn_name(
-            op: &$cube_op,
-            ctx: &mut Context,
-            rw: &mut DialectConversionRewriter,
-            _operands_info: &OperandsInfo,
-        ) -> Result<()> {
-            let old_op = op.get_operation();
-            let lane = op.lane_id(ctx);
-            let i = op.i(ctx);
-            let handle = op.matrix_ty(ctx).clone();
-            let matrix = *handle.deref(ctx);
-
-            let index = axis_index(ctx, rw, &matrix, $axis, lane, i);
-            rw.replace_operation_with_values(ctx, old_op, vec![index]);
-            Ok(())
-        }
-    };
-}
-
-lower_axis_index!(row_index, RowIndexOp, Axis::Row);
-lower_axis_index!(col_index, ColIndexOp, Axis::Col);
 
 pub(crate) fn mma_manual(
     op: &MmaManualOp,

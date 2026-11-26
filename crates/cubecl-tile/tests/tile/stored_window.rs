@@ -257,7 +257,7 @@ fn check_copy(storage: StoragePartitioning, dimensions: &[Dimension]) {
     let shape: Vec<usize> = extents.iter().map(|&(_, extent)| extent).collect();
     let cells: usize = shape.iter().product();
     let geometry = storage.physical(&extents).unwrap();
-    let labels = geometry.labels(dimensions);
+    let labels = geometry.labels(dimensions).unwrap();
 
     // Each value its own row-major logical index, laid down where the storage puts it.
     let coords = |index: usize| -> Vec<usize> {

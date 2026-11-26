@@ -1,5 +1,6 @@
 //! The decoding copy through a table or scales ([`Tile::lookup`], [`Tile::mul`]).
 
+use cubecl::e2m1;
 use cubecl::ir::{ElemType, FloatKind};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;
@@ -99,66 +100,71 @@ impl Tile {
         let (sw, vw) = comptime!((load.values(), lands.values()));
         let stored_as = self.packing();
         let space = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let mem = self.mem("Tile::dequantize_from");
         let start = load.start(line, &space);
         let held = stored.read(load.index(&start, &space));
-        let powers_of_two = self.factor.powers_of_two();
-        // The destination lines this load holds, `offset` their place in it, and where they land.
+        let through_products = reads_products::<O>(
+            comptime!(LoadDecode {
+                stored_as,
+                loaded: sw,
+                line: vw,
+            }),
+            mem,
+        );
+        let scales = self.scales_per_load(lands.clone());
+        let lines_under = comptime!(sw / vw / scales);
         #[unroll]
-        for c in 0..(sw / vw) {
-            let offset = c * vw;
-            let mut at = Coords::<u32>::new();
-            let mut to = Coords::<u32>::new();
-            #[unroll]
-            for p in 0..rank {
-                let inner = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
-                let coord = start.at(p) + inner;
-                at.push(coord);
-                if dst.contains(space.dimension_at(p)) {
-                    to.push(coord);
-                }
-            }
-            let scale = self
-                .factor
-                .at_coords(&at, space.clone(), comptime!(Guard::Checked));
-            write_decoded_line::<S, O, I, WP, VW>(
+        for s in 0..scales {
+            let first = line_coords(&start, &load, s * lines_under * vw, &space);
+            let decode = ScaledDecode::under::<O>(
+                self.factor
+                    .at_coords(&first, space.clone(), comptime!(Guard::Checked)),
+                through_products,
+            );
+            decode.write_lines::<S, O, I, WP, VW>(
                 held,
-                comptime!(DecodedLine {
-                    offset,
-                    width: vw,
-                    stored_as,
-                    powers_of_two,
-                }),
-                mem,
-                scale,
                 out,
-                lands.index(&to, dst),
+                &start,
+                s * lines_under,
+                lines_under,
+                &load,
+                &space,
+                dst,
+                &lands,
+                mem,
+                stored_as,
             );
         }
     }
+
+    /// Scales a load of these values lands its lines, as `lands` holds them, under: one for the
+    /// load where it lies under one, one a destination line otherwise.
+    fn scales_per_load(&self, #[comptime] lands: VectorTile) -> comptime_type!(usize) {
+        let load = self.vector_tile();
+        let space = comptime!(self.place.space.clone());
+        let shared = self.factor.broadcasts_over(&load, space);
+        comptime!(match shared {
+            true => 1,
+            false => load.values() / lands.values(),
+        })
+    }
 }
 
-/// Where a line lies in its load and how its values are stored: what a decode of it reads at
-/// compile time.
+/// What a load's decode reads at compile time.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct DecodedLine {
-    /// Its first value's place in the load.
-    offset: usize,
-    /// Its values, a destination line's.
-    width: usize,
+struct LoadDecode {
     /// How the load's values are stored.
-    stored_as: Packing,
-    /// Whether every scale over the values is a power of two ([`Factor::powers_of_two`]).
-    powers_of_two: bool,
+    pub stored_as: Packing,
+    /// Its values.
+    pub loaded: usize,
+    /// The values of one destination line.
+    pub line: usize,
 }
 
-impl DecodedLine {
-    /// Whether the line is `e2m1` codes the fill turns into `e4m3` through their bits
-    /// ([`e2m1_word_into_e4m3`]): codes read from their own bits, not the device's conversion,
-    /// under powers of two alone, in whole words of the load and of the line, `into_e4m3` the
-    /// destination's element, and no table.
-    fn e2m1_into_e4m3(self, into_e4m3: bool, looks_up: bool) -> bool {
+impl LoadDecode {
+    /// Whether the load's values are `e2m1` codes read from their own bits, not the device's
+    /// conversion, in whole words of the load and of its lines.
+    fn holds_e2m1_words(self) -> bool {
         let read_from_bits = matches!(
             self.stored_as,
             Packing::Packed {
@@ -170,87 +176,114 @@ impl DecodedLine {
             }
         );
         read_from_bits
-            && self.powers_of_two
-            && into_e4m3
-            && !looks_up
-            && self.width.is_multiple_of(E2M1_CODES_PER_WORD)
-            && self.offset.is_multiple_of(E2M1_CODES_PER_WORD)
+            && self.loaded.is_multiple_of(E2M1_CODES_PER_WORD)
+            && self.line.is_multiple_of(E2M1_CODES_PER_WORD)
     }
 }
 
-/// The `VW` values of `held` that `line` names, under `scale`, written into `out` at `index` as
-/// `O`: `e2m1` codes into `e4m3` through their bits where `line` allows it
-/// ([`write_e2m1_line_into_e4m3`]), every other line through the general decode.
+/// Whether a load decodes into `O`, 8 bits a value, by looking each of its codes up in their
+/// products with its scale ([`ScaledDecode`]): the codes index no table of their own.
 #[cube]
-fn write_decoded_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
-    held: Vector<I, WP>,
-    #[comptime] line: DecodedLine,
-    mem: &Memory,
-    scale: f32,
-    out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
-    index: CoordsDyn,
-) {
-    let into_e4m3 = is_e4m3::<O>();
-    let through_bits = comptime!(line.e2m1_into_e4m3(into_e4m3, mem.codebook.present()));
-    if through_bits {
-        write_e2m1_line_into_e4m3::<S, O, I, WP, VW>(held, line, mem, scale, out, index);
-    } else {
-        out.write(
-            index,
-            decode_line::<S, O, I, WP, VW>(held, line, mem, scale),
-        );
-    }
+fn reads_products<O: Numeric>(#[comptime] load: LoadDecode, mem: &Memory) -> comptime_type!(bool) {
+    let into_fp8 = is_fp8::<O>();
+    comptime!(into_fp8 && load.holds_e2m1_words() && !mem.codebook.present())
 }
 
-/// `e2m1` codes into `e4m3` under `scale`, a power of two: their bytes made of the codes' bits
-/// ([`e2m1_word_into_e4m3`]) where every code is a normal `e4m3` value under it, exactly; the
-/// general decode under any other.
-#[cube]
-fn write_e2m1_line_into_e4m3<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
-    held: Vector<I, WP>,
-    #[comptime] line: DecodedLine,
-    mem: &Memory,
-    scale: f32,
-    out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
-    index: CoordsDyn,
-) {
-    let scale_exponent =
-        i32::cast_from(u32::reinterpret(scale) >> F32_STORED_MANTISSA_BITS) - F32_EXPONENT_BIAS;
-    // Counted from the lowest as unsigned, an exponent below it wraps past the span.
-    let normal = u32::cast_from(scale_exponent - E2M1_LOWEST_NORMAL_EXPONENT)
-        <= (E2M1_HIGHEST_NORMAL_EXPONENT - E2M1_LOWEST_NORMAL_EXPONENT) as u32;
-    if normal {
-        out.write(
-            index.clone(),
-            e2m1_line_as_e4m3::<I, O, WP, VW>(held, line, scale_exponent),
-        );
-    } else {
-        out.write(
-            index,
-            decode_line::<S, O, I, WP, VW>(held, line, mem, scale),
-        );
-    }
+/// The values under one scale as their codes decode: the scale, and, for `e2m1` codes decoded into
+/// an 8-bit float, the product of every magnitude a code holds with it, which a code's value is
+/// looked up in rather than multiplied. Every value is the same whichever way it is made: its
+/// product in `f32`, rounded once.
+#[derive(CubeType, Clone)]
+struct ScaledDecode {
+    pub scale: f32,
+    /// The products of the magnitudes of codes 0 to 3, a byte each; zero where the values are
+    /// multiplied.
+    pub products_low: u32,
+    /// Those of codes 4 to 7.
+    pub products_high: u32,
+    #[cube(comptime)]
+    pub through_products: bool,
 }
 
-/// The `e2m1` codes of `held` that `line` names, eight a word, as their `e4m3` bytes under
-/// `2^scale_exponent` ([`e2m1_word_into_e4m3`]).
 #[cube]
-fn e2m1_line_as_e4m3<I: Numeric, O: Numeric, WP: Size, VW: Size>(
-    held: Vector<I, WP>,
-    #[comptime] line: DecodedLine,
-    scale_exponent: i32,
-) -> Vector<O, VW> {
-    let (offset, width) = comptime!((line.offset, line.width));
-    let size!(VB) = comptime!(width / E4M3_PER_WORD);
-    let mut bytes = Vector::<u32, VB>::empty();
-    #[unroll]
-    for w in 0..comptime!(width / E2M1_CODES_PER_WORD) {
-        let word = u32::cast_from(held.extract(comptime!(offset / E2M1_CODES_PER_WORD + w)));
-        let (low, high) = e2m1_word_into_e4m3(word, scale_exponent);
-        bytes.insert(2 * w, low);
-        bytes.insert(2 * w + 1, high);
+impl ScaledDecode {
+    fn under<O: Numeric>(scale: f32, #[comptime] through_products: bool) -> ScaledDecode {
+        let (products_low, products_high) = if through_products {
+            e2m1_products::<O>(scale)
+        } else {
+            (0u32.runtime(), 0u32.runtime())
+        };
+        ScaledDecode {
+            scale,
+            products_low,
+            products_high,
+            through_products,
+        }
     }
-    Vector::<O, VW>::reinterpret(bytes)
+
+    /// Decode the `count` destination lines of `held` from its `first`-th on into `out`, `held`
+    /// being the load of `load` starting at `start` over `space`, and `out` a window spanning
+    /// `dst` written in `lands`.
+    #[allow(clippy::too_many_arguments)]
+    fn write_lines<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
+        &self,
+        held: Vector<I, WP>,
+        out: &mut MaskedMut<'_, Vector<O, VW>, CoordsDyn>,
+        start: &Coords<u32>,
+        #[comptime] first: usize,
+        #[comptime] count: usize,
+        #[comptime] load: &VectorTile,
+        #[comptime] space: &Space,
+        #[comptime] dst: &Space,
+        #[comptime] lands: &VectorTile,
+        mem: &Memory,
+        #[comptime] stored_as: Packing,
+    ) {
+        let vw = VW::value();
+        #[unroll]
+        for c in 0..count {
+            let offset = comptime!((first + c) * vw);
+            let to = landing(&line_coords(start, load, offset, space), space, dst);
+            out.write(
+                lands.index(&to, dst),
+                self.line::<S, O, I, WP, VW>(held, offset, mem, stored_as),
+            );
+        }
+    }
+
+    /// The `VW` values of `held` from `offset` on.
+    fn line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
+        &self,
+        held: Vector<I, WP>,
+        #[comptime] offset: usize,
+        mem: &Memory,
+        #[comptime] stored_as: Packing,
+    ) -> Vector<O, VW> {
+        if comptime!(self.through_products) {
+            self.looked_up::<O, I, WP, VW>(held, offset)
+        } else {
+            decode_line::<S, O, I, WP, VW>(held, offset, mem, stored_as, self.scale)
+        }
+    }
+
+    /// The `VW` values of `e2m1` codes of `held` from `offset` on, eight a word.
+    fn looked_up<O: Numeric, I: Numeric, WP: Size, VW: Size>(
+        &self,
+        held: Vector<I, WP>,
+        #[comptime] offset: usize,
+    ) -> Vector<O, VW> {
+        let width = VW::value();
+        let size!(VB) = comptime!(width / FP8_PER_WORD);
+        let mut bytes = Vector::<u32, VB>::empty();
+        #[unroll]
+        for w in 0..comptime!(width / E2M1_CODES_PER_WORD) {
+            let word = u32::cast_from(held.extract(comptime!(offset / E2M1_CODES_PER_WORD + w)));
+            let (low, high) = e2m1_word_looked_up(word, self.products_low, self.products_high);
+            bytes.insert(2 * w, low);
+            bytes.insert(2 * w + 1, high);
+        }
+        Vector::<O, VW>::reinterpret(bytes)
+    }
 }
 
 /// The decoding copy split around a contraction, as the straight transport's register prefetch
@@ -296,7 +329,8 @@ impl Tile {
     pub(crate) fn decoded_fetched_registers(&self, src: &Tile) -> comptime_type!(Option<usize>) {
         let turns = self.decoded_fetch_turns(src);
         let packing = src.packing();
-        let (load, lands) = (src.vector_tile(), self.vector_tile());
+        let load = src.vector_tile();
+        let per_load = self.decoded_scales_per_load(src);
         comptime!(turns.map(|turns| {
             let bits = match packing {
                 Packing::Packed { field } => field.size_bits(),
@@ -304,7 +338,7 @@ impl Tile {
                     unreachable!("Tile::decoded_fetched_registers: a decoding fetch is packed")
                 }
             };
-            Prefetch::decoded_registers(turns, load.values(), bits, lands.values())
+            Prefetch::decoded_registers(turns, load.values(), bits, load.values() / per_load)
         }))
     }
 
@@ -316,11 +350,11 @@ impl Tile {
         comptime!(packing.physical(load.values()))
     }
 
-    /// Scales a unit's fetched load lands its lines under: one a destination line.
+    /// Scales a unit's fetched load lands its lines under ([`scales_per_load`](Tile::scales_per_load)).
     #[allow(dead_code)] // Reached through its expand, from `Stages::fetch_buffers`.
     pub(crate) fn decoded_scales_per_load(&self, src: &Tile) -> comptime_type!(usize) {
-        let (load, lands) = (src.vector_tile(), self.vector_tile());
-        comptime!(load.values() / lands.values())
+        let lands = self.vector_tile();
+        src.scales_per_load(comptime!(lands.clone()))
     }
 
     /// Read this unit's loads of `src` into `raw`, as stored, and the scale of every line they land
@@ -335,7 +369,7 @@ impl Tile {
     ) {
         let (load, lands) = (src.vector_tile(), self.vector_tile());
         let (sw, vw) = comptime!((load.values(), lands.values()));
-        let per_load = sw / vw;
+        let per_load = self.decoded_scales_per_load(src);
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
         let along = dst.dimension_at(dst.rank() - 1);
@@ -348,11 +382,11 @@ impl Tile {
             vw,
             varies
         ));
-        let rank = space.rank();
         let inner = src.factor.innermost_scale();
         let turns = self.decoded_fetch_turns(src);
         let turns = comptime!(turns.expect(
-            "Tile::fetch_decoded_from: a decoding fill fetched into registers has a known share"
+            "Tile::fetch_decoded_from: a decoding fill fetched into registers should have a known \
+             share"
         ));
         let holder = comptime!(self.place.holder());
         let fill = self.copy_level();
@@ -374,14 +408,8 @@ impl Tile {
                 raw[t] = stored.read(load.index(&start, &space));
                 #[unroll]
                 for c in 0..per_load {
-                    let offset = c * vw;
-                    let mut at = Coords::<u32>::new();
-                    #[unroll]
-                    for p in 0..rank {
-                        let inner =
-                            comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
-                        at.push(start.at(p) + inner);
-                    }
+                    let offset = comptime!(c * sw / per_load);
+                    let at = line_coords(&start, &load, offset, &space);
                     // The scale's word as stored, nothing computed on it: a wait for the load
                     // here would be a wait for every load issued before it.
                     let own = inner.scale_coords(&at, &space);
@@ -418,20 +446,17 @@ impl Tile {
     ) {
         let (load, lands) = (src.vector_tile(), self.vector_tile());
         let (sw, vw) = comptime!((load.values(), lands.values()));
-        let per_load = sw / vw;
+        let per_load = self.decoded_scales_per_load(src);
         let space = comptime!(src.place.space.clone());
         let dst = comptime!(self.place.space.clone());
-        let rank = space.rank();
         let stored_as = src.packing();
-        let packing = comptime!(stored_as.placed());
-        let lift = comptime!(packing.lift() as f32);
         // Every scale outside the block scales, one value a region, as `Factor::at_coords`
         // multiplies them in after the innermost.
         let inner = src.factor.innermost_scale();
         let coarse = src.factor.coarse();
         let turns = self.decoded_fetch_turns(src);
         let turns = comptime!(turns.expect(
-            "Tile::store_decoded: a decoding fill fetched into registers has a known share"
+            "Tile::store_decoded: a decoding fill fetched into registers should have a known share"
         ));
         let holder = comptime!(self.place.holder());
         let fill = self.copy_level();
@@ -439,6 +464,14 @@ impl Tile {
         let loads = comptime!(load.counts(&space).iter().product::<usize>());
         let lines = Walk::copy(&fill, comptime!(loads).runtime());
         let mem = src.mem("Tile::store_decoded");
+        let through_products = reads_products::<O>(
+            comptime!(LoadDecode {
+                stored_as,
+                loaded: sw,
+                line: vw,
+            }),
+            mem,
+        );
         let mut out = self.nd_mut::<O, VW>();
         #[unroll]
         for t in 0..turns {
@@ -447,32 +480,61 @@ impl Tile {
                 let start = load.start(line, &space);
                 let held = raw[t];
                 #[unroll]
-                for c in 0..per_load {
-                    let offset = c * vw;
-                    let mut at = Coords::<u32>::new();
-                    let mut to = Coords::<u32>::new();
-                    #[unroll]
-                    for p in 0..rank {
-                        let step =
-                            comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
-                        let coord = start.at(p) + step;
-                        at.push(coord);
-                        if dst.contains(space.dimension_at(p)) {
-                            to.push(coord);
-                        }
-                    }
-                    let own = inner.scale_coords(&at, &space);
-                    let block = inner.scale_in_word::<f32>(scales[t * per_load + c], &own);
-                    let scale = block * coarse * lift;
-                    let values = values_at::<S, I, WP, VW>(held, offset, packing);
-                    // Multiplied in `f32`, rounded to `O` once, as the copy it splits does.
-                    let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
-                        * Vector::<f32, VW>::cast_from(scale);
-                    out.write(lands.index(&to, &dst), Vector::<O, VW>::cast_from(scaled));
+                for s in 0..per_load {
+                    let lines_under = comptime!(sw / vw / per_load);
+                    let own = inner.scale_coords(
+                        &line_coords(&start, &load, s * lines_under * vw, &space),
+                        &space,
+                    );
+                    let block = inner.scale_in_word::<f32>(scales[t * per_load + s], &own);
+                    let decode = ScaledDecode::under::<O>(block * coarse, through_products);
+                    decode.write_lines::<S, O, I, WP, VW>(
+                        held,
+                        &mut out,
+                        &start,
+                        s * lines_under,
+                        lines_under,
+                        &load,
+                        &space,
+                        &dst,
+                        &lands,
+                        mem,
+                        stored_as,
+                    );
                 }
             }
         }
     }
+}
+
+/// `at`, a value's coordinates over `space`, over the dimensions `dst` has.
+#[cube]
+fn landing(at: &Coords<u32>, #[comptime] space: &Space, #[comptime] dst: &Space) -> Coords<u32> {
+    let mut to = Coords::<u32>::new();
+    #[unroll]
+    for p in 0..space.rank() {
+        if dst.contains(space.dimension_at(p)) {
+            to.push(at.at(p));
+        }
+    }
+    to
+}
+
+/// The coordinates over `space` of the value `offset` into the load starting at `start`.
+#[cube]
+fn line_coords(
+    start: &Coords<u32>,
+    #[comptime] load: &VectorTile,
+    #[comptime] offset: usize,
+    #[comptime] space: &Space,
+) -> Coords<u32> {
+    let mut at = Coords::<u32>::new();
+    #[unroll]
+    for p in 0..space.rank() {
+        let inner = comptime!(load.offset_along(offset, space.dimension_at(p)) as u32);
+        at.push(start.at(p) + inner);
+    }
+    at
 }
 
 /// What a copy through scales rests on, `reader` the copy: the packed side spans `src`, read or
@@ -526,104 +588,133 @@ pub(super) fn check_scaled_copy(
 #[cube]
 fn decode_line<S: Numeric, O: Numeric, I: Numeric, WP: Size, VW: Size>(
     held: Vector<I, WP>,
-    #[comptime] line: DecodedLine,
+    #[comptime] offset: usize,
     mem: &Memory,
+    #[comptime] stored_as: Packing,
     scale: f32,
 ) -> Vector<O, VW> {
-    let packing = line.stored_as.placed();
+    let packing = stored_as.placed();
     let lift = comptime!(packing.lift() as f32);
-    let values = values_at::<S, I, WP, VW>(held, line.offset, packing);
+    let values = values_at::<S, I, WP, VW>(held, offset, packing);
     let scaled = Vector::<f32, VW>::cast_from(mem.codebook.entries(values))
         * Vector::<f32, VW>::cast_from(scale * lift);
     Vector::<O, VW>::cast_from(scaled)
 }
 
-// What the decode of `e2m1` codes into `e4m3` through their bits reads of the two formats and of
-// an `f32` scale.
 /// `e2m1` codes a packed word holds.
 const E2M1_CODES_PER_WORD: usize = 8;
-/// `e4m3` values, a byte each, a word holds.
-const E4M3_PER_WORD: usize = 4;
-/// The mantissa bits an `f32` stores, below its exponent field.
-const F32_STORED_MANTISSA_BITS: u32 = f32::MANTISSA_DIGITS - 1;
-/// The bias of an `f32`'s exponent field.
-const F32_EXPONENT_BIAS: i32 = f32::MAX_EXP - 1;
-/// The exponents of the powers of two under which every `e2m1` code is a normal `e4m3` value:
-/// its `0.5` at `e4m3`'s smallest normal exponent, `2^-6`, at the lowest, its `6` at `448`'s
-/// exponent, `2^8`, at the highest.
-const E2M1_LOWEST_NORMAL_EXPONENT: i32 = -5;
-const E2M1_HIGHEST_NORMAL_EXPONENT: i32 = 6;
-/// The `e4m3` exponent field of `e2m1`'s smallest nonzero, `0.5`, under a scale of one: `2^-1`
-/// at `e4m3`'s bias of seven.
-const E2M1_HALF_EXPONENT_FIELD: i32 = 6;
-/// Where an `e4m3` byte's exponent field starts.
-const E4M3_EXPONENT_SHIFT: u32 = 3;
+/// Values of an 8-bit float a word holds.
+const FP8_PER_WORD: usize = 4;
+/// The magnitude of each `e2m1` code of a word, its sign, and the codes a byte apart they lie in.
+const CODE_MAGNITUDES: u32 = 0x0707_0707;
+const CODE_SIGNS: u32 = 0x0808_0808;
+const CODE_BITS: u32 = 4;
+/// Which of two words' bytes make the first and the second half of them interleaved.
+const INTERLEAVED_LOW: u32 = 0x0501_0400;
+const INTERLEAVED_HIGH: u32 = 0x0703_0602;
 
-/// The eight `e2m1` codes of `word`, the low nibble first, as the `e4m3` bytes of their values
-/// times `2^scale_exponent`, codes 0 to 3 in the first word and 4 to 7 in the second, for
-/// `scale_exponent` from [`E2M1_LOWEST_NORMAL_EXPONENT`] to [`E2M1_HIGHEST_NORMAL_EXPONENT`]. A
-/// code's magnitude bits `e1 e0 m` placed two bits up are its `e4m3` byte at exponent `e`, which
-/// the exponent field of its `0.5` raises to the value's; `0.5`, `e2m1`'s one subnormal, is that
-/// field alone, and zero stays zero.
+/// The products of the eight magnitudes of an `e2m1` code with `scale`, as `O`, 8 bits each: those
+/// of codes 0 to 3 in the first word, 4 to 7 in the second.
 #[cube(harness)]
-fn e2m1_word_into_e4m3(word: u32, scale_exponent: i32) -> (u32, u32) {
-    let exponent_field =
-        u32::cast_from(scale_exponent + E2M1_HALF_EXPONENT_FIELD) << E4M3_EXPONENT_SHIFT;
+fn e2m1_products<O: Numeric>(scale: f32) -> (u32, u32) {
     (
-        e2m1_codes_into_e4m3(word & 0xFFFFu32, exponent_field),
-        e2m1_codes_into_e4m3(word >> 16u32, exponent_field),
+        e2m1_products_from::<O>(scale, 0usize),
+        e2m1_products_from::<O>(scale, FP8_PER_WORD),
     )
 }
 
-/// The four `e2m1` codes in the low half of `codes` as `e4m3` bytes, `exponent_field` the field a
-/// code's `0.5` takes, in place ([`e2m1_word_into_e4m3`]).
+/// [`e2m1_products`] of the four codes from `first` on.
 #[cube]
-fn e2m1_codes_into_e4m3(codes: u32, exponent_field: u32) -> u32 {
-    // The four codes a byte each, in the order of `k`.
-    let spread = (codes | (codes << 8u32)) & 0x00FF_00FFu32;
-    let spread = (spread | (spread << 4u32)) & 0x0F0F_0F0Fu32;
-    let placed = (spread & 0x0707_0707u32) << 2u32;
-    let sign = (spread << 4u32) & 0x8080_8080u32;
-    // A byte past zero, and a byte that is `0.5`'s, whose mantissa bit the exponent takes.
-    let nonzero = ((placed + 0x7C7C_7C7Cu32) & 0x8080_8080u32) >> 7u32;
-    let not_half = ((placed ^ 0x0404_0404u32) + 0x7F7F_7F7Fu32) & 0x8080_8080u32;
-    let half = ((not_half ^ 0x8080_8080u32) >> 7u32) << 2u32;
-    (placed + nonzero * exponent_field - half) | sign
+fn e2m1_products_from<O: Numeric>(scale: f32, #[comptime] first: usize) -> u32 {
+    let size!(W) = FP8_PER_WORD;
+    let mut magnitudes = Vector::<f32, W>::empty();
+    #[unroll]
+    for code in 0..FP8_PER_WORD {
+        let magnitude = comptime!(e2m1::from_bits((first + code) as u8).to_f32());
+        magnitudes.insert(code, magnitude.runtime());
+    }
+    let products = Vector::<O, W>::cast_from(magnitudes * Vector::cast_from(scale));
+    Vector::<u32, Const<1>>::reinterpret(products).extract(0usize)
 }
 
-/// Whether `O` is `e4m3`.
+/// The eight `e2m1` codes of `word`, the low nibble first, each as the byte that its magnitude's
+/// product is, `products_low`'s for 0 to 3 and `products_high`'s for 4 to 7, under the code's sign:
+/// codes 0 to 3 in the first word and 4 to 7 in the second.
+#[cube(harness)]
+fn e2m1_word_looked_up(word: u32, products_low: u32, products_high: u32) -> (u32, u32) {
+    let (low, high) = (products_low, products_high);
+    let odd = word >> CODE_BITS;
+    // The even codes' bytes and the odd ones', each with its sign at the byte's top.
+    let even_bytes =
+        byte_permute(low, high, word & CODE_MAGNITUDES) | (word & CODE_SIGNS) << CODE_BITS;
+    let odd_bytes =
+        byte_permute(low, high, odd & CODE_MAGNITUDES) | (odd & CODE_SIGNS) << CODE_BITS;
+    (
+        byte_permute(even_bytes, odd_bytes, INTERLEAVED_LOW.runtime()),
+        byte_permute(even_bytes, odd_bytes, INTERLEAVED_HIGH.runtime()),
+    )
+}
+
+/// Whether `O` is an 8-bit float.
 #[allow(clippy::extra_unused_type_parameters)] // Read by the expansion.
 #[cube]
-fn is_e4m3<O: Numeric>() -> comptime_type!(bool) {
-    intrinsic!(|scope| O::elem_type(scope) == ElemType::Float(FloatKind::E4M3))
+fn is_fp8<O: Numeric>() -> comptime_type!(bool) {
+    intrinsic!(|scope| matches!(
+        O::elem_type(scope),
+        ElemType::Float(FloatKind::E4M3 | FloatKind::E5M2)
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     extern crate cubecl as cubecl_runtime;
-    use cubecl_common::e4m3;
     use cubecl_runtime::TestRuntime;
 
-    /// Every `e2m1` code, the sixteen of two words, under every power of two from
-    /// [`E2M1_LOWEST_NORMAL_EXPONENT`] to [`E2M1_HIGHEST_NORMAL_EXPONENT`]: each byte is the
-    /// `e4m3` of the code's value times the scale, exactly, in the order of the codes.
+    fn e2m1_load(loaded: usize, line: usize) -> LoadDecode {
+        LoadDecode {
+            stored_as: Packing::Packed {
+                field: Field::Quant(QuantValue::E2M1),
+            },
+            loaded,
+            line,
+        }
+    }
+
     #[test]
-    fn every_e2m1_code_becomes_its_exact_e4m3_byte_under_every_normal_scale() {
-        const MAGNITUDES: [f32; 8] = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
-        let words = [0x76543210u32, 0xFEDCBA98u32];
-        for exponent in E2M1_LOWEST_NORMAL_EXPONENT..=E2M1_HIGHEST_NORMAL_EXPONENT {
-            for (w, &word) in words.iter().enumerate() {
-                let (low, high) = e2m1_word_into_e4m3::harness::<TestRuntime>(word, exponent);
-                let got: Vec<u8> = [low, high].iter().flat_map(|b| b.to_le_bytes()).collect();
-                let want: Vec<u8> = (0..8)
-                    .map(|code| {
-                        let sign = if w == 1 { -1.0 } else { 1.0 };
-                        e4m3::from_f32(sign * MAGNITUDES[code] * 2f32.powi(exponent)).to_bits()
-                    })
-                    .collect();
-                assert_eq!(got, want, "word {word:#010x} under 2^{exponent}");
-            }
+    fn a_load_of_whole_e2m1_words_holds_them() {
+        assert!(e2m1_load(16, 8).holds_e2m1_words());
+    }
+
+    #[test]
+    fn a_line_of_part_of_an_e2m1_word_holds_no_whole_words() {
+        assert!(!e2m1_load(16, 4).holds_e2m1_words());
+    }
+
+    #[test]
+    fn a_load_of_part_of_an_e2m1_word_holds_no_whole_words() {
+        assert!(!e2m1_load(4, 4).holds_e2m1_words());
+    }
+
+    #[test]
+    fn plain_values_hold_no_e2m1_words() {
+        let plain = LoadDecode {
+            stored_as: Packing::Plain,
+            ..e2m1_load(16, 8)
+        };
+        assert!(!plain.holds_e2m1_words());
+    }
+
+    /// The sixteen `e2m1` codes of two words, each looked up in bytes that name its magnitude.
+    #[test]
+    fn every_e2m1_code_is_its_magnitudes_byte_under_its_sign() {
+        for (w, word) in [0x76543210u32, 0xFEDCBA98u32].into_iter().enumerate() {
+            let (low, high) =
+                e2m1_word_looked_up::harness::<TestRuntime>(word, 0x13121110, 0x17161514);
+            let got: Vec<u8> = [low, high].iter().flat_map(|b| b.to_le_bytes()).collect();
+            let sign = (w as u8) << 7;
+            let want: Vec<u8> = (0..8).map(|code| (0x10 + code) | sign).collect();
+            assert_eq!(got, want, "word {word:#010x}");
         }
     }
 }

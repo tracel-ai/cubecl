@@ -22,6 +22,8 @@ pub trait StagesFill {
     fn fill_inside_run(&mut self, scope: &Scope, slot: usize, region: &RegionExpand);
     /// Publish slot `slot`'s last fill where no later fill will (see [`Slot::publish`]).
     fn publish(&mut self, scope: &Scope, slot: usize);
+    /// Place what slot `slot` reads where it lies at `region`, which it is about to be read for.
+    fn place(&mut self, scope: &Scope, slot: usize, region: &RegionExpand);
 }
 
 impl<T: CubeType> Stages<T> {
@@ -201,7 +203,7 @@ impl StagesExpand<OperandPair> {
                 // a scheduler would otherwise sink each to its first use, after the contraction.
                 schedule_barrier::expand(scope);
                 let region = walk.__expand_region_method(scope, region_idx);
-                let slot = self.__expand_slot_mut_method(scope, j);
+                let slot = self.placed_slot(scope, j, &region);
                 compute(scope, slot, &region);
                 // Nor does the store's decode rise into the contraction, where it would wait on
                 // the loads the contraction hides.
@@ -284,7 +286,7 @@ impl StagesExpand<OperandPair> {
                     });
                     schedule_barrier::expand(scope);
                     let region = walk.__expand_region_method(scope, region_idx);
-                    let slot = self.__expand_slot_mut_method(scope, j);
+                    let slot = self.placed_slot(scope, j, &region);
                     compute(scope, slot, &region);
                     schedule_barrier::expand(scope);
                     if_expand(scope, prefetching, |scope| {
@@ -380,6 +382,31 @@ impl<P: Payload<P> + CubeType<ExpandType: Clone>> StagesFill for StagesExpand<P>
         self.__expand_slot_mut_method(scope, slot)
             .__expand_publish_method(scope);
     }
+
+    fn place(&mut self, scope: &Scope, slot: usize, region: &RegionExpand) {
+        let sources = self.sources.clone();
+        let slot = self.__expand_slot_mut_method(scope, slot);
+        let refills = slot.refills.clone();
+        slot.data = slot
+            .data
+            .__expand_placed_at_method(scope, &sources, region, refills);
+    }
+}
+
+impl<T: CubeType> StagesExpand<T>
+where
+    StagesExpand<T>: StagesFill,
+{
+    /// Slot `slot` as it is read for `region`.
+    pub(crate) fn placed_slot(
+        &mut self,
+        scope: &Scope,
+        slot: usize,
+        region: &RegionExpand,
+    ) -> &mut SlotExpand<T> {
+        self.place(scope, slot, region);
+        self.__expand_slot_mut_method(scope, slot)
+    }
 }
 
 /// The shared schedule: prologue, laps prefetching one region ahead, drain publishing.
@@ -445,7 +472,7 @@ mod shared {
                     let region = walk.__expand_region_method(scope, region_idx);
                     fill(scope, stages, FIRST_SLOT, &region);
                     stages.publish(scope, FIRST_SLOT);
-                    let slot = stages.__expand_slot_mut_method(scope, FIRST_SLOT);
+                    let slot = stages.placed_slot(scope, FIRST_SLOT, &region);
                     compute(scope, slot, &region);
                 } else {
                     let ahead =
@@ -465,7 +492,7 @@ mod shared {
                     });
                     if_expand(scope, in_walk, |scope| {
                         let region = walk.__expand_region_method(scope, region_idx);
-                        let slot = stages.__expand_slot_mut_method(scope, j);
+                        let slot = stages.placed_slot(scope, j, &region);
                         compute(scope, slot, &region);
                     });
                 }
@@ -512,7 +539,7 @@ mod shared {
                     stages.publish(scope, FIRST_SLOT);
                 }
                 let region = walk.__expand_region_method(scope, region_idx);
-                let slot = stages.__expand_slot_mut_method(scope, j);
+                let slot = stages.placed_slot(scope, j, &region);
                 compute(scope, slot, &region);
             }
         };

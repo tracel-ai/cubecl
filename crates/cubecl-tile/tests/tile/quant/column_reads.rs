@@ -2,7 +2,7 @@
 //! block: each load brings one word of every column it holds, and the leaf splits it into their
 //! runs along `K`. The answer is the untiled one, whatever the number of columns a load holds.
 
-use crate::support::{HostData, HostDataType, TestInput};
+use crate::support::{HostData, HostDataType, TestInput, stored_tiles_spec};
 use cubecl::zspace::shape;
 use cubecl::{bytes::Bytes, prelude::*, quant::scheme::QuantValue, std::tensor::TensorHandle};
 use cubecl_common::e2m1;
@@ -127,7 +127,7 @@ fn scales(
         .tile(&[(N, columns)])
         .grid(&[N, KB]);
     let geometry = storage.physical(&[(N, cols), (KB, blocks)]).unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
     let mut stored = vec![0f32; cols * blocks];
     for n in 0..cols {
         for kb in 0..blocks {
@@ -140,8 +140,7 @@ fn scales(
         geometry.strides().to_vec(),
         dtype,
     );
-    let mut spec = TileSpec::new(Projection::tiled(&dimensions, &labels));
-    spec.stored_tiles = storage.tiles().to_vec();
+    let spec = stored_tiles_spec(&dimensions, &storage, &geometry);
     (handle, spec, 2 * columns)
 }
 
@@ -164,7 +163,7 @@ fn one_row_product_against_the_reference(
     let geometry = storage
         .physical(&[(N, cols), (KB, blocks), (KI, BLOCK)])
         .unwrap();
-    let labels = geometry.labels(&dimensions);
+    let labels = geometry.labels(&dimensions).unwrap();
 
     let code = |n: usize, kb: usize, ki: usize| ((n * 7 + kb * 3 + ki) % 16) as u32;
     let mut words = vec![0u32; cols * blocks * BLOCK / PER_WORD];
@@ -212,9 +211,7 @@ fn one_row_product_against_the_reference(
         Form::Static,
     );
 
-    let mut w_spec =
-        TileSpec::new(Projection::tiled(&dimensions, &labels)).packed(QuantValue::E2M1);
-    w_spec.stored_tiles = storage.tiles().to_vec();
+    let w_spec = stored_tiles_spec(&dimensions, &storage, &geometry).packed(QuantValue::E2M1);
     // One statement of the arguments, for either kernel.
     macro_rules! launch {
         ($kernel:ident $(, $dtype:expr)?) => {

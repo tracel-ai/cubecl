@@ -28,6 +28,12 @@ impl Stages<OperandPair> {
     pub fn consume_async<S: AsyncStage>(&mut self, walk: &Walk, stage: &S) {
         let lhs = self.sources.lhs.delivery();
         let rhs = self.sources.rhs.delivery();
+        let staged = comptime!(self.sources.staged);
+        comptime!(assert!(
+            staged == StagedOperands::Both,
+            "Stages::consume_async: a plane group MMA reads both operands out of their stages, and \
+             these stage {staged:?}"
+        ));
         comptime!(assert!(
             self.fillers > 0 && lhs == Delivery::Tma && rhs == Delivery::Tma,
             "Stages::consume_async: reads that outlast their consume see a stage only the TMA \

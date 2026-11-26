@@ -1,17 +1,13 @@
 //! Target-specific matrix lowering.
 
 use crate::{prelude::*, shared::to_llvm::lower_by_target};
-use cubecl_core::{
-    ir::{
-        dialect::matrix::{
-            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp,
-            MmaQuantizedOp, MultiplyAccumulateOp, RowIndexOp, StMatrixOp, StoreOp,
-            WgmmaCommitGroupOp, WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp,
-            WgmmaWaitGroupOp,
-        },
-        types::matrix::MatrixType,
+use cubecl_core::ir::{
+    dialect::matrix::{
+        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MmaManualScaledOp, MmaQuantizedOp,
+        MultiplyAccumulateOp, StMatrixOp, StoreOp, WgmmaCommitGroupOp, WgmmaDescriptorOp,
+        WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, WgmmaWaitGroupOp,
     },
-    prelude::{polyfills, *},
+    types::matrix::MatrixType,
 };
 
 #[derive(Debug, Error)]
@@ -63,8 +59,6 @@ dispatch_matrix_op!(LoadOp, load);
 dispatch_matrix_op!(StoreOp, store);
 dispatch_matrix_op!(MultiplyAccumulateOp, multiply_accumulate);
 dispatch_matrix_op!(CastOp, cast);
-dispatch_matrix_op!(RowIndexOp, row_index);
-dispatch_matrix_op!(ColIndexOp, col_index);
 dispatch_matrix_op!(MmaManualOp, mma_manual);
 // The block-scaled `mma` is Blackwell's alone, so only NVPTX lowers it.
 dispatch_matrix_op!(MmaManualScaledOp, ["nvptx" Nvptx => crate::nvptx::matrix::mma_manual_scaled]);
@@ -86,35 +80,6 @@ dispatch_wgmma_op!(WgmmaFenceOp, fence);
 dispatch_wgmma_op!(WgmmaCommitGroupOp, commit_group);
 dispatch_wgmma_op!(WgmmaWaitGroupOp, wait_group);
 dispatch_wgmma_op!(WgmmaFenceOperandOp, fence_operand);
-
-/// NVPTX matrix coordinates use the shared MMA polyfills.
-macro_rules! lower_axis_index_polyfill {
-    ($cube_op:ty, $formula:path) => {
-        #[op_interface_impl]
-        impl LowerOp for $cube_op {
-            fn should_lower(&self, ctx: &Context) -> bool {
-                match ctx.target() {
-                    #[cfg(feature = "nvptx")]
-                    LlvmTarget::Nvptx => true,
-                    _ => false,
-                }
-            }
-
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
-                let matrix = *self.matrix_ty(scope.ctx()).deref(scope.ctx());
-                let elems_per_reg = 32 / matrix.unpacked_elem_size_bits(scope.ctx());
-                let lane_id = self.lane_id(scope.ctx());
-                let i = self.i(scope.ctx());
-
-                let index = $formula(scope, lane_id.into(), i.into(), elems_per_reg, matrix.ident);
-                vec![index.value(scope)]
-            }
-        }
-    };
-}
-
-lower_axis_index_polyfill!(RowIndexOp, polyfills::mma::row_index::expand);
-lower_axis_index_polyfill!(ColIndexOp, polyfills::mma::col_index::expand);
 
 /// The cube array of registers `value` was converted from, or points at.
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]

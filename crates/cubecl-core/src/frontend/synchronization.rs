@@ -48,7 +48,8 @@ pub mod schedule_barrier {
     }
 }
 
-/// Synchronizes units within their plane (e.g., warp or SIMD group).
+/// Synchronizes units within their plane (e.g., warp or SIMD group), and orders what they wrote
+/// to shared memory alone.
 ///
 /// Warning: not all targets support plane-level synchronization.
 pub fn sync_plane() {

@@ -6,8 +6,9 @@ use crate::{self as cubecl};
 use cubecl_ir::features::{AtomicUsage, Plane};
 
 #[cube(launch)]
-/// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
+/// Each unit writes its position in shared memory and, past the barrier, adds the one before it.
+fn kernel_test_sync_cube(out: &mut [u32], #[comptime] units: usize) {
+    let mut buffer = Shared::<[u32]>::new_slice(units);
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     sync_cube();
@@ -23,14 +24,13 @@ pub fn test_sync_cube<R: Runtime>(client: Client) {
     let units = (dim_x * 2) as usize;
 
     let handle = client.empty(32 * core::mem::size_of::<u32>());
-    let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(dim_x, 2),
-        unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
+        units,
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -44,8 +44,9 @@ pub fn test_sync_cube<R: Runtime>(client: Client) {
 }
 
 #[cube(launch)]
-/// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
+/// [`kernel_test_sync_cube`] with units that end ahead of the barriers.
+fn kernel_test_finished_sync_cube(out: &mut [u32], #[comptime] units: usize) {
+    let mut buffer = Shared::<[u32]>::new_slice(units);
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     if UNIT_POS > 16 {
@@ -63,17 +64,17 @@ pub fn test_finished_sync_cube<R: Runtime>(client: Client) {
     // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
     let max_units = client.properties().hardware.max_units_per_cube;
     let dim_x = core::cmp::min(8, (max_units / 2).max(1));
-    let checked = core::cmp::min(8, (dim_x * 2) as usize);
+    let units = (dim_x * 2) as usize;
+    let checked = core::cmp::min(8, units);
 
     let handle = client.empty(32 * core::mem::size_of::<u32>());
-    let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(dim_x, 2),
-        unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
+        units,
     );
 
     let actual = client.read_one_unchecked(handle);

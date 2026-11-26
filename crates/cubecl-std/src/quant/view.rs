@@ -179,7 +179,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         match self.known_scale {
             KnownScaleExpand::None => {
                 assert!(
-                    self.scheme.num_levels() == 1,
+                    self.scheme.levels().count() == 1,
                     "every scale is read from the scales view, but {:?} has a per-tensor scale nothing multiplies in",
                     self.scheme,
                 );
@@ -194,7 +194,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             }
             KnownScaleExpand::Global(global_scale) => {
                 assert!(
-                    self.scheme.num_levels() > 1,
+                    self.scheme.levels().count() > 1,
                     "an global scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
                     self.scheme,
                 );
@@ -490,7 +490,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static> RunWithQuantType
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
-        match scheme.scale_dtype() {
+        match scheme.finest().dtype {
             ScaleDtype::F32 => func.execute::<Q, f32>(),
             ScaleDtype::F16 => func.execute::<Q, f16>(),
             ScaleDtype::BF16 => func.execute::<Q, bf16>(),

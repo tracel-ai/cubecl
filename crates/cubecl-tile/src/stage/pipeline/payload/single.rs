@@ -8,10 +8,10 @@ use super::base::{Payload, PayloadExpand, StageOperand, StageSpec, stage_one};
 
 #[cube]
 impl Payload<Tile> for Tile {
-    fn operands(&self) -> comptime_type!(Vec<StageOperand>) {
+    fn operands(&self) -> comptime_type!(Vec<Option<StageOperand>>) {
         let operand = self.stage_operand();
         let scales = self.scale_operands();
-        comptime!([operand].into_iter().chain(scales).collect())
+        comptime!([operand].into_iter().chain(scales).map(Some).collect())
     }
 
     fn staged(
@@ -29,6 +29,10 @@ impl Payload<Tile> for Tile {
 
     fn free(&self) {
         self.free_stage();
+    }
+
+    fn placed_at(&self, _src: &Tile, _region: &Region, #[comptime] _refills: Vec<Refill>) -> Tile {
+        self.clone()
     }
 
     fn inside_runs(&self) -> Tile {

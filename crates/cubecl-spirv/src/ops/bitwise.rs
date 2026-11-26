@@ -1,5 +1,7 @@
 use cubecl_core::{
-    self as cubecl, WgpuCompilationOptions, frontend::polyfills::bitwise::*, num_traits::Zero,
+    self as cubecl, WgpuCompilationOptions,
+    frontend::polyfills::{bitwise::*, expand_byte_permute_polyfill},
+    num_traits::Zero,
     prelude::*,
 };
 use cubecl_ir::{
@@ -25,7 +27,7 @@ use pliron_spirv::{
 
 use crate::{
     decorate_uniform,
-    lower::lower_unop,
+    lower::{LowerOp, lower_unop},
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
@@ -43,6 +45,13 @@ binop_to_spirv_dialect!(bitwise::ShiftLeftOp => ops::ShiftLeftLogicalOp);
 unop_to_spirv_dialect!(bitwise::BitwiseNotOp => ops::NotOp);
 unop_to_spirv_dialect!(bitwise::CountOnesOp => ops::BitCountOp);
 unop_to_spirv_dialect!(bitwise::ReverseBitsOp => ops::BitReverseOp);
+
+#[op_interface_impl]
+impl LowerOp for bitwise::BytePermuteOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![expand_byte_permute_polyfill(scope, self)]
+    }
+}
 
 pub fn const_int_maybe_vec(scope: &Scope, value: u32, ref_ty: TypeHandle) -> Value {
     let ty = ref_ty.deref(scope.ctx());

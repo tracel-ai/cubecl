@@ -1,10 +1,12 @@
 use super::layout::{Major, WgmmaTileLayout};
 
 use crate::frontend::container::inner_array_ty;
+use crate::frontend::element_positions::expand_position;
 use crate::frontend::pending::{GroupToken, PendingExpand};
 use crate::{self as cubecl, prelude::*, unexpanded};
 use core::marker::PhantomData;
 use cubecl_ir::{
+    CoordinatePart, ElementIndex, ElementPositions,
     dialect::matrix::{
         WgmmaDescriptorOp, WgmmaFenceOp, WgmmaFenceOperandOp, WgmmaOp, plane_group_elems_per_unit,
     },
@@ -14,14 +16,16 @@ use cubecl_ir::{
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use pliron::builtin::attributes::TypeAttr;
 
-use alloc::format;
+use alloc::{format, vec};
 
 pub use cubecl_ir::dialect::matrix::{PLANE_GROUP_M, PLANE_GROUP_UNITS};
 
 /// The accumulator's elements come in runs of two adjacent columns of a row.
-const ACCUMULATOR_RUN: u32 = 2;
+const ACCUMULATOR_RUN: usize = 2;
 /// The fragment's elements come in runs of one 32-bit register.
 const FRAGMENT_RUN_BYTES: usize = 4;
+/// The units of each plane of a plane group.
+const PLANE_UNIT_COUNT: usize = 32;
 
 /// The 64-bit descriptor of a tile in shared memory, which a plane group MMA reads `A` or `B`
 /// through.
@@ -135,7 +139,16 @@ impl<CD: Numeric> Accumulator<CD> {
     /// Each plane holds 16 rows. A unit holds two adjacent elements of its row `lane / 4` of
     /// them, then the same in row `lane / 4 + 8`, then moves on 8 columns.
     pub fn position_of_nth(&self, unit: u32, nth: u32) -> (u32, u32) {
-        position_of_nth(unit, nth, ACCUMULATOR_RUN)
+        intrinsic!(|scope| {
+            let positions = self.__expand_element_positions_method(scope);
+            expand_position(scope, &positions, unit, nth)
+        })
+    }
+
+    /// What [`position_of_nth`](Self::position_of_nth) answers, for any unit and element, while the
+    /// kernel is built.
+    pub fn element_positions(&self) -> comptime_type!(ElementPositions) {
+        intrinsic!(|_| positions_in_runs_of(ACCUMULATOR_RUN))
     }
 
     /// Hands the accumulator to the MMAs that [`Pending::execute`] issues.
@@ -410,9 +423,15 @@ impl<A: Scalar> Fragment<A> {
     /// runs of 32 bits rather than of two elements.
     pub fn position_of_nth(&self, unit: u32, nth: u32) -> (u32, u32) {
         intrinsic!(|scope| {
-            let run = (FRAGMENT_RUN_BYTES / A::elem_type(scope).size()) as u32;
-            position_of_nth::expand(scope, unit, nth, run)
+            let positions = self.__expand_element_positions_method(scope);
+            expand_position(scope, &positions, unit, nth)
         })
+    }
+
+    /// What [`position_of_nth`](Self::position_of_nth) answers, for any unit and element, while the
+    /// kernel is built.
+    pub fn element_positions(&self) -> comptime_type!(ElementPositions) {
+        intrinsic!(|scope| positions_in_runs_of(FRAGMENT_RUN_BYTES / A::elem_type(scope).size()))
     }
 }
 
@@ -421,13 +440,41 @@ fn fragment_elems(elem_size: usize) -> usize {
     plane_group_elems_per_unit(WgmmaTileLayout::k_step(elem_size))
 }
 
-/// The `(row, col)` of the `nth` element `unit` holds, in runs of `run` adjacent elements.
-#[cube]
-fn position_of_nth(unit: u32, nth: u32, #[comptime] run: u32) -> (u32, u32) {
-    let plane = unit / 32;
-    let lane = unit % 32;
-    let chunk = nth / run;
-    let row = plane * 16 + lane / 4 + (chunk % 2) * 8;
-    let col = (chunk / 2) * (run * 4) + (lane % 4) * run + nth % run;
-    (row, col)
+/// Where the elements a unit holds lie, in runs of `run` adjacent elements.
+fn positions_in_runs_of(run: usize) -> ElementPositions {
+    let unit = CoordinatePart::of(ElementIndex::Lane);
+    let nth = CoordinatePart::of(ElementIndex::Nth);
+    ElementPositions {
+        row: vec![
+            unit.in_runs_of(PLANE_UNIT_COUNT).spaced_by(16),
+            unit.in_runs_of(4).counted_over(8),
+            nth.in_runs_of(run).counted_over(2).spaced_by(8),
+        ],
+        col: vec![
+            nth.in_runs_of(2 * run).spaced_by(4 * run),
+            unit.counted_over(4).spaced_by(run),
+            nth.counted_over(run),
+        ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Whatever the run, the cells of a `64 x 16` operand are each held once.
+    #[test]
+    fn the_units_of_a_plane_group_hold_every_cell_once() {
+        for run in [1, 2, 4] {
+            let positions = positions_in_runs_of(run);
+            let mut held = [[0; 16]; PLANE_GROUP_M];
+            for unit in 0..PLANE_GROUP_UNITS {
+                for nth in 0..plane_group_elems_per_unit(16) {
+                    let (row, col) = positions.of_nth(unit, nth);
+                    held[row][col] += 1;
+                }
+            }
+            assert_eq!(held, [[1; 16]; PLANE_GROUP_M], "runs of {run}");
+        }
+    }
 }
