@@ -372,7 +372,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::HostMemoryRefused`] when a stream of the device records a graph, the device
     /// imports no host memory, or its driver refuses the range. The caller records it on
     /// `memory`, as for [`initialize_memory`](Self::initialize_memory).
-    pub fn import_host(
+    pub fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         host: &Arc<HostMemory>,
@@ -389,8 +389,8 @@ impl<'a, D: Driver> Command<'a, D> {
         let device_memory = stream.device_memory();
         // A reservation is what releases freed imports otherwise, and a loop of imports makes none.
         device_memory.cleanup(Cleanup::Periodic, failures);
-        let storage = device_memory.storage().import_host(host, range)?;
-        let reserved = device_memory.import(storage);
+        let storage = device_memory.storage().import_host_memory(host, range)?;
+        let reserved = device_memory.adopt_import(storage);
         self.bind(reserved, memory);
         Ok(())
     }
@@ -589,7 +589,7 @@ impl<'a, D: Driver> Command<'a, D> {
             elem_size,
         } = descriptor;
         let size = data.len();
-        binding.ensure_writable()?;
+        binding.ensure_device_writable()?;
 
         // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
         // before validating its potentially zero strides or staging: the zero-size

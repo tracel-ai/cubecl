@@ -18,8 +18,9 @@ use cubecl_environment::sync::Mutex;
 pub const HOST_MEMORY_ALIGNMENT: usize = 64 * 1024;
 
 /// Zeroed host memory that the kernels of one or more devices read in place once each device
-/// imports a range of it ([`Client::import_host`](crate::client::Client::import_host)), with no
-/// copy to the device.
+/// imports a range of it
+/// ([`Client::import_host_memory`](crate::client::Client::import_host_memory)), with no copy to
+/// the device.
 ///
 /// Written through [`bytes_mut`](Self::bytes_mut) while one owner holds it, then shared behind an
 /// [`Arc`](alloc::sync::Arc) and read-only: a kernel reads it while the host could otherwise
@@ -29,7 +30,7 @@ pub const HOST_MEMORY_ALIGNMENT: usize = 64 * 1024;
 ///
 /// The memory is freed only once every runtime that registered it has released its registration,
 /// which can wait for that runtime's devices. A registration that cannot be released leaks the
-/// memory instead: the runtime may still map it.
+/// memory instead: the runtime's devices may still read it.
 ///
 /// # Examples
 ///
@@ -106,8 +107,8 @@ impl HostMemory {
     /// Run `register` unless a registration of type `R` already exists, and keep what it returns
     /// until the memory is dropped.
     ///
-    /// For a runtime whose registration covers every device at once, such as a pinning that maps
-    /// the memory into each of them: the first device to import registers, the others find it.
+    /// For a runtime whose registration covers every device at once, such as one pinning for all
+    /// of them: the first device to import registers, the others find it.
     ///
     /// # Assumptions
     ///
@@ -116,7 +117,7 @@ impl HostMemory {
     /// # Errors
     ///
     /// Whatever `register` returns; nothing is kept then, and the next call runs it again.
-    pub fn register<R: HostReleaser>(
+    pub fn register_once<R: HostReleaser>(
         &self,
         register: impl FnOnce(&Self) -> Result<R, IoError>,
     ) -> Result<(), IoError> {
@@ -139,10 +140,10 @@ impl HostMemory {
 ///
 /// # Guarantees
 ///
-/// Once [`release`](Self::release) returns true, the runtime no longer maps the memory.
+/// Once [`release`](Self::release) returns true, no device of the runtime reads the memory.
 pub trait HostReleaser: Send + Sync + 'static {
-    /// Release the registration. False when it could not be released: the runtime may still map
-    /// the memory, so it is never freed.
+    /// Release the registration. False when it could not be released: the runtime's devices may
+    /// still read the memory, so it is never freed.
     fn release(&mut self) -> bool;
 }
 
@@ -280,7 +281,7 @@ mod tests {
         let memory = HostMemory::new(1).unwrap();
         for _ in 0..3 {
             memory
-                .register(|_| {
+                .register_once(|_| {
                     runs.fetch_add(1, Ordering::SeqCst);
                     Ok(Unit)
                 })
@@ -293,7 +294,9 @@ mod tests {
     fn a_registration_is_released_on_drop() {
         let released = Arc::new(AtomicUsize::new(0));
         let memory = HostMemory::new(1).unwrap();
-        memory.register(|_| Ok(Counted(released.clone()))).unwrap();
+        memory
+            .register_once(|_| Ok(Counted(released.clone())))
+            .unwrap();
         drop(memory);
         assert_eq!(released.load(Ordering::SeqCst), 1);
     }
@@ -310,8 +313,10 @@ mod tests {
     fn a_held_registration_still_releases_the_others() {
         let released = Arc::new(AtomicUsize::new(0));
         let memory = HostMemory::new(1).unwrap();
-        memory.register(|_| Ok(Held)).unwrap();
-        memory.register(|_| Ok(Counted(released.clone()))).unwrap();
+        memory.register_once(|_| Ok(Held)).unwrap();
+        memory
+            .register_once(|_| Ok(Counted(released.clone())))
+            .unwrap();
         drop(memory);
         assert_eq!(released.load(Ordering::SeqCst), 1);
     }
@@ -319,13 +324,13 @@ mod tests {
     #[test]
     fn a_failed_registration_is_tried_again() {
         let memory = HostMemory::new(1).unwrap();
-        let refused = memory.register::<Unit>(|_| {
+        let refused = memory.register_once::<Unit>(|_| {
             Err(IoError::HostMemoryRefused {
                 reason: "refused".into(),
                 backtrace: BackTrace::capture(),
             })
         });
         assert!(refused.is_err());
-        memory.register(|_| Ok(Unit)).unwrap();
+        memory.register_once(|_| Ok(Unit)).unwrap();
     }
 }

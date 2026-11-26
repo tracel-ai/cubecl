@@ -37,18 +37,22 @@ pub trait StorageAllocator: Send {
 
     /// Make `range` of `memory` readable by this device's kernels in place, and a handle to it.
     ///
+    /// # Assumptions
+    ///
+    /// `range` is a non-empty range of `memory`, aligned to
+    /// [`HOST_MEMORY_ALIGNMENT`](super::HOST_MEMORY_ALIGNMENT).
+    ///
     /// # Guarantees
     ///
     /// Every implementation keeps `memory` until the device's last work on the handle completes,
     /// which can be after its id is [deallocated](Self::deallocate), and registers it through
-    /// [`HostMemory::register`] when the registration covers every device.
+    /// [`HostMemory::register_once`] when the registration covers every device.
     ///
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when this storage imports no host memory, which is the
-    /// default, `range` is not an aligned range of `memory`, or the driver refuses the
-    /// registration.
-    fn import_host(
+    /// default, or the driver refuses the registration.
+    fn import_host_memory(
         &mut self,
         memory: &Arc<HostMemory>,
         range: Range<u64>,

@@ -964,7 +964,7 @@ impl Client {
     /// [`Features::host_memory_import`], when a stream of the device records a graph, when
     /// `range` is empty, past the end of `host` or not aligned to [`HOST_MEMORY_ALIGNMENT`], or
     /// when the driver refuses it, such as past a limit on the memory it pins.
-    pub fn import_host(
+    pub fn import_host_memory(
         &self,
         host: &Arc<HostMemory>,
         range: Range<u64>,
@@ -999,7 +999,9 @@ impl Client {
         let memory = handle.memory.clone();
         let host = host.clone();
         self.device
-            .submit_blocking(move |server| server.import_host(memory, host, range, stream_id))
+            .submit_blocking(move |server| {
+                server.import_host_memory(memory, host, range, stream_id)
+            })
             .closed_as_error()?;
         Ok(handle)
     }
@@ -1096,20 +1098,13 @@ impl Client {
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
     /// [`ServerError::ForeignHandle`] for a handle of another client,
-    /// [`IoError::HostMemoryRefused`] for [imported](Self::import_host) host memory, and the
+    /// [`IoError::HostMemoryRefused`] for [imported](Self::import_host_memory) host memory, and the
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
         let binding = handle.to_binding();
         self.local(&binding)?;
-        // A peer would hold the address without the host memory behind it, and could write it.
-        if handle.memory.is_imported() {
-            return Err(IoError::HostMemoryRefused {
-                reason: "imported host memory is shared by importing it on each device".into(),
-                backtrace: BackTrace::capture(),
-            }
-            .into());
-        }
+        binding.ensure_shareable()?;
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
             offset_start: None,
@@ -1131,7 +1126,7 @@ impl Client {
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
     /// otherwise, and always across runtimes or from
-    /// [imported](Self::import_host) host memory, they go through the host.
+    /// [imported](Self::import_host_memory) host memory, they go through the host.
     ///
     /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
     /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
@@ -1139,11 +1134,11 @@ impl Client {
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
-        let imported = src.memory.is_imported();
+        let shareable = src.memory.is_shareable();
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.has_device_transport() && same_runtime && !imported {
+        if self.has_device_transport() && same_runtime && shareable {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -1315,8 +1310,8 @@ impl Client {
     ///
     /// # Guarantees
     ///
-    /// A reduction queued with [imported](Self::import_host) host memory fails: `dst` carries
-    /// [`IoError::HostMemoryRefused`].
+    /// A reduction queued with [imported](Self::import_host_memory) host memory fails: `dst`
+    /// carries [`IoError::HostMemoryRefused`].
     ///
     /// # Panics
     ///
@@ -1556,7 +1551,7 @@ impl Client {
     ///
     /// # Assumptions
     ///
-    /// The source is not [imported](Self::import_host) host memory, which the destination's
+    /// The source is not [imported](Self::import_host_memory) host memory, which the destination's
     /// device imports on its own.
     ///
     /// # Panics
@@ -1570,7 +1565,7 @@ impl Client {
         self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
         assert!(
-            !src_descriptor.handle.memory.descriptor().is_imported(),
+            src_descriptor.handle.memory.descriptor().is_shareable(),
             "a device to device transfer refuses imported host memory"
         );
         let stream_id_src = self.stream_id();

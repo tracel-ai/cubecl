@@ -157,7 +157,7 @@ impl ClientGroup {
     /// # Assumptions
     ///
     /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host) host memory.
+    /// takes, and not [imported](Client::import_host_memory) host memory.
     ///
     /// # Panics
     ///
@@ -171,7 +171,7 @@ impl ClientGroup {
     /// # Assumptions
     ///
     /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host) host memory.
+    /// takes, and not [imported](Client::import_host_memory) host memory.
     ///
     /// # Panics
     ///
@@ -185,7 +185,7 @@ impl ClientGroup {
     /// # Assumptions
     ///
     /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host) host memory.
+    /// takes, and not [imported](Client::import_host_memory) host memory.
     ///
     /// # Panics
     ///
@@ -205,7 +205,7 @@ impl ClientGroup {
     /// # Assumptions
     ///
     /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host) host memory.
+    /// takes, and not [imported](Client::import_host_memory) host memory.
     ///
     /// # Panics
     ///
@@ -224,10 +224,10 @@ impl ClientGroup {
                 )
             });
         self.expect_member_buffers(collective, root, &src, &dst[root], InPlace::Allowed);
-        Self::expect_not_imported(collective, root, &src);
+        Self::expect_shareable(collective, root, &src);
         for (member, dst) in dst.iter().enumerate() {
             self.expect_on_member(member, dst);
-            Self::expect_not_imported(collective, member, dst);
+            Self::expect_shareable(collective, member, dst);
         }
         Self::expect_sizes(
             collective,
@@ -250,7 +250,7 @@ impl ClientGroup {
     /// # Assumptions
     ///
     /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host) host memory.
+    /// takes, and not [imported](Client::import_host_memory) host memory.
     ///
     /// # Panics
     ///
@@ -297,8 +297,8 @@ impl ClientGroup {
         );
         for (rank, buffers) in buffers.iter().enumerate() {
             exchange.expect_part(self, rank, buffers);
-            Self::expect_not_imported(collective, rank, &buffers.src);
-            Self::expect_not_imported(collective, rank, &buffers.dst);
+            Self::expect_shareable(collective, rank, &buffers.src);
+            Self::expect_shareable(collective, rank, &buffers.dst);
         }
         self.queue(
             collective,
@@ -358,11 +358,11 @@ impl ClientGroup {
         );
     }
 
-    /// The server refuses imported memory too, but only on its own member: the others would wait
-    /// in the collective for it forever.
-    fn expect_not_imported(collective: Collective, member: usize, handle: &Handle) {
+    /// The server refuses memory that is not shareable too, but only on its own member: the
+    /// others would wait in the collective for it forever.
+    fn expect_shareable(collective: Collective, member: usize, handle: &Handle) {
         assert!(
-            !handle.memory.is_imported(),
+            handle.memory.is_shareable(),
             "member {member}'s {collective} buffer is imported host memory, which collectives refuse"
         );
     }
@@ -470,7 +470,7 @@ impl MemberPart {
     ///
     /// # Guarantees
     ///
-    /// A part queued with an [imported](Client::import_host) buffer fails: its destination
+    /// A part queued with an [imported](Client::import_host_memory) buffer fails: its destination
     /// carries [`IoError::HostMemoryRefused`](crate::server::IoError::HostMemoryRefused).
     ///
     /// # Panics

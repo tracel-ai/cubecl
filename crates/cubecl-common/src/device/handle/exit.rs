@@ -24,7 +24,7 @@ pub(crate) fn is_exiting() -> bool {
 }
 
 #[cfg(multi_threading)]
-pub use handler::OutsideCall;
+pub use handler::ExitGuard;
 #[cfg(multi_threading)]
 pub(crate) use handler::{close_at_exit, forget_device};
 
@@ -57,23 +57,23 @@ mod handler {
 
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
 
-    /// How many [`OutsideCall`]s are in flight, and the exit's wait for none to be.
-    static OUTSIDE_CALLS: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    /// How many [`ExitGuard`]s are held, and the exit's wait for none to be.
+    static EXIT_GUARDS: (std::sync::Mutex<usize>, std::sync::Condvar) =
         (std::sync::Mutex::new(0), std::sync::Condvar::new());
 
-    /// A runtime call made on a thread outside every service, such as releasing memory where its
-    /// last owner drops it. The exit waits for those in flight before the runtime's teardown, as
-    /// it does for the services.
+    /// Held across a runtime call made on a thread outside every service, such as releasing memory
+    /// where its last owner drops it. The exit waits for every guard held before the runtime's
+    /// teardown, as it does for the services.
     #[derive(Debug)]
-    pub struct OutsideCall {
+    pub struct ExitGuard {
         _private: (),
     }
 
-    impl OutsideCall {
-        /// Starts one, or returns `None` once the process is exiting, when the runtime may
-        /// already be tearing down and the call must be skipped.
-        pub fn start() -> Option<Self> {
-            let mut calls = lock_outside_calls();
+    impl ExitGuard {
+        /// Holds the exit back until dropped, or returns `None` once the process is exiting, when
+        /// the runtime may already be tearing down and the call must be skipped.
+        pub fn acquire() -> Option<Self> {
+            let mut calls = lock_exit_guards();
             // Read under the lock the exit takes after setting it: either this call is counted
             // before the exit waits, or it sees the exit.
             if EXITING.load(Ordering::Acquire) {
@@ -84,28 +84,28 @@ mod handler {
         }
     }
 
-    impl Drop for OutsideCall {
+    impl Drop for ExitGuard {
         fn drop(&mut self) {
-            let mut calls = lock_outside_calls();
+            let mut calls = lock_exit_guards();
             *calls -= 1;
             if *calls == 0 {
-                OUTSIDE_CALLS.1.notify_all();
+                EXIT_GUARDS.1.notify_all();
             }
         }
     }
 
-    fn lock_outside_calls() -> std::sync::MutexGuard<'static, usize> {
-        OUTSIDE_CALLS
+    fn lock_exit_guards() -> std::sync::MutexGuard<'static, usize> {
+        EXIT_GUARDS
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Waits until no [`OutsideCall`] is in flight, or until `deadline`.
-    fn wait_outside_calls(deadline: Instant) {
-        let calls = lock_outside_calls();
+    /// Waits until no [`ExitGuard`] is held, or until `deadline`.
+    fn wait_exit_guards(deadline: Instant) {
+        let calls = lock_exit_guards();
         let timeout = deadline.saturating_duration_since(Instant::now());
-        let (calls, _) = OUTSIDE_CALLS
+        let (calls, _) = EXIT_GUARDS
             .1
             .wait_timeout_while(calls, timeout, |calls| *calls > 0)
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -200,7 +200,7 @@ mod handler {
             let remaining = deadline.saturating_duration_since(Instant::now());
             close_service(service.device_id, service.close, remaining);
         }
-        wait_outside_calls(deadline);
+        wait_exit_guards(deadline);
     }
 
     /// Closes one service with `close`, logging a close that failed or ran out of time.

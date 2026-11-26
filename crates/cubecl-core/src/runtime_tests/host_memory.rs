@@ -83,8 +83,10 @@ pub fn test_kernel_reads_imported_ranges(client: Client) {
     }
     let memory = host_words(3);
     let chunk = HOST_MEMORY_ALIGNMENT as u64;
-    let first = client.import_host(&memory, 0..chunk).unwrap();
-    let third = client.import_host(&memory, 2 * chunk..3 * chunk).unwrap();
+    let first = client.import_host_memory(&memory, 0..chunk).unwrap();
+    let third = client
+        .import_host_memory(&memory, 2 * chunk..3 * chunk)
+        .unwrap();
 
     let expected = words(memory.bytes());
     assert_eq!(copy_out(&client, first), expected[..WORDS]);
@@ -98,8 +100,10 @@ pub fn test_imports_show_in_memory_report(client: Client) {
     }
     let memory = host_words(2);
     let chunk = HOST_MEMORY_ALIGNMENT as u64;
-    let _first = client.import_host(&memory, 0..chunk).unwrap();
-    let _second = client.import_host(&memory, chunk..2 * chunk).unwrap();
+    let _first = client.import_host_memory(&memory, 0..chunk).unwrap();
+    let _second = client
+        .import_host_memory(&memory, chunk..2 * chunk)
+        .unwrap();
 
     // Other tests may hold imports on the same stream while this one runs.
     let report = client.memory_report(MemoryScope::CurrentStream);
@@ -115,7 +119,7 @@ pub fn test_cleanup_releases_imported_memory(client: Client) {
     }
     let mut memory = host_words(1);
     let handle = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     copy_out(&client, handle);
 
@@ -134,7 +138,7 @@ pub fn test_imported_handle_is_not_mutable(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     assert!(!handle.can_mut());
 }
@@ -146,7 +150,7 @@ pub fn test_imported_memory_is_not_shared(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     assert!(client.share_with_peers(&handle).is_err());
 }
@@ -158,7 +162,7 @@ pub fn test_write_to_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     client.write(
         &handle,
@@ -175,7 +179,7 @@ pub fn test_copy_of_failed_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     client.write(
         &handle,
@@ -192,7 +196,7 @@ pub fn test_kernel_output_to_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let output = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     copy(&client, client.empty(WORDS * 4), output.clone());
     assert!(client.read_one(output).is_err());
@@ -204,7 +208,7 @@ pub fn test_import_refuses_bad_ranges(client: Client) {
     let memory = host_words(1);
     let chunk = HOST_MEMORY_ALIGNMENT as u64;
     for range in [0..2 * chunk, 64..chunk, 0..64, chunk..chunk] {
-        let result = client.import_host(&memory, range.clone());
+        let result = client.import_host_memory(&memory, range.clone());
         assert!(refused(&result), "{range:?} was not refused: {result:?}");
     }
 }
@@ -217,7 +221,7 @@ pub fn test_import_without_feature_is_refused(client: Client) {
     }
     let memory = host_words(1);
     assert!(refused(
-        &client.import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        &client.import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
     ));
 }
 

@@ -864,15 +864,15 @@ pub trait Server:
     ///
     /// # Assumptions
     ///
-    /// `range` lies in `host` and is aligned to
+    /// `range` is a non-empty range of `host`, aligned to
     /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT).
     ///
     /// # Guarantees
     ///
     /// Every implementation keeps `host` until the last work queued on it completes, on any
     /// stream, refuses every launch that may write it
-    /// ([`ensure_imports_read`](KernelArguments::ensure_imports_read)), and refuses the import
-    /// while a stream records a graph.
+    /// ([`ensure_writes_permitted`](KernelArguments::ensure_writes_permitted)), and refuses the
+    /// import while a stream records a graph.
     ///
     /// # Errors
     ///
@@ -880,7 +880,7 @@ pub trait Server:
     /// default, a stream records a graph, or the driver refuses the range. A runtime that
     /// imports records the error on the memory, as in
     /// [`initialize_memory`](Self::initialize_memory).
-    fn import_host(
+    fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         host: Arc<HostMemory>,
@@ -1515,7 +1515,7 @@ pub trait ServerCommunication {
     /// A failure taints them as a failed launch here would, so a read fails
     /// on the cause, and an enqueued write releases a failure they carried.
     /// The default does nothing: a runtime without peer access never shares
-    /// a buffer. A runtime that [imports](crate::client::Client::import_host)
+    /// a buffer. A runtime that [imports](crate::client::Client::import_host_memory)
     /// host memory taints them, which a host copy of a failed import relies on.
     #[allow(unused_variables)]
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
@@ -1912,7 +1912,8 @@ pub enum IoError {
 
     /// Host memory could not be allocated, or a device could not import it: a pinning or
     /// registration limit of the driver, a range the device cannot import, or a device that
-    /// imports none ([`Features::host_memory_import`](cubecl_ir::Features::host_memory_import)).
+    /// imports none
+    /// ([`Features::host_memory_import`](cubecl_ir::features::Features::host_memory_import)).
     #[error("host memory refused: {reason}\n{backtrace}")]
     HostMemoryRefused {
         /// What was asked, and what refused it.
@@ -2157,27 +2158,31 @@ impl KernelArguments {
             })
     }
 
-    /// Whether the kernel only reads every [imported](crate::client::Client::import_host)
-    /// buffer it was given, per `compiled`, the compiler's own answer.
+    /// Whether the kernel writes no buffer the device may not write, such as
+    /// [imported](crate::client::Client::import_host_memory) host memory, per `compiled`, the
+    /// compiler's own answer.
     ///
     /// # Errors
     ///
-    /// [`IoError::HostMemoryRefused`] for an imported buffer the kernel writes or the compiler
+    /// [`IoError::HostMemoryRefused`] for a read-only buffer the kernel writes or the compiler
     /// kept no answer for: the caller's declaration cannot vouch for a kernel it did not compile.
-    pub fn ensure_imports_read(&self, compiled: Option<&[BufferIOAttr]>) -> Result<(), IoError> {
-        match self.imports_written(compiled).next() {
+    pub fn ensure_writes_permitted(
+        &self,
+        compiled: Option<&[BufferIOAttr]>,
+    ) -> Result<(), IoError> {
+        match self.forbidden_writes(compiled).next() {
             Some(_) => Err(IoError::HostMemoryRefused {
-                reason: "a buffer is imported host memory the kernel may write".into(),
+                reason: "the kernel may write imported host memory, which is read-only".into(),
                 backtrace: BackTrace::capture(),
             }),
             None => Ok(()),
         }
     }
 
-    /// The [imported](crate::client::Client::import_host) buffers the kernel may write, per
-    /// `compiled`, which [`ensure_imports_read`](Self::ensure_imports_read) refuses: the ones a
-    /// refused launch fails.
-    pub fn imports_written<'a>(
+    /// The read-only buffers the kernel may write, per `compiled`, which
+    /// [`ensure_writes_permitted`](Self::ensure_writes_permitted) refuses: the ones a refused
+    /// launch fails.
+    pub fn forbidden_writes<'a>(
         &'a self,
         compiled: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
@@ -2189,7 +2194,7 @@ impl KernelArguments {
                 let written = compiled
                     .and_then(|io| io.get(index))
                     .is_none_or(|io| io.is_writable());
-                (binding.memory.descriptor().is_imported() && written).then_some(binding)
+                (!binding.memory.descriptor().is_device_writable() && written).then_some(binding)
             })
     }
 

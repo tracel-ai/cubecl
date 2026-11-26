@@ -91,7 +91,7 @@ impl Server for HipServer {
             .collect())
     }
 
-    fn import_host(
+    fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
         host: Arc<HostMemory>,
@@ -101,7 +101,7 @@ impl Server for HipServer {
         let binding = memory.to_binding();
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
-                .import_host(memory, &host, range)
+                .import_host_memory(memory, &host, range)
                 .map_err(ServerError::from),
             Err(error) => Err(error),
         };
@@ -258,8 +258,8 @@ impl Server for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
-        if let Err(error) = bindings.ensure_imports_read(io) {
-            written.extend(bindings.imports_written(io).cloned());
+        if let Err(error) = bindings.ensure_writes_permitted(io) {
+            written.extend(bindings.forbidden_writes(io).cloned());
             let error = ServerError::from(error);
             peers.failed(&error);
             failed_writing(self, stream_id, written, error);

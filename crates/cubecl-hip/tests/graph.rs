@@ -469,7 +469,7 @@ fn hip_graph_reads_imported_host_memory() {
     let n = 4usize;
     let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
     let input = client
-        .import_host(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     let output = client.empty(n * core::mem::size_of::<f32>());
 
@@ -494,7 +494,7 @@ fn hip_graph_reads_an_import_of_another_stream() {
     let (other, shared) = (client.clone(), memory.clone());
     let (input, importing) = std::thread::spawn(move || {
         let input = other
-            .import_host(&shared, 0..HOST_MEMORY_ALIGNMENT as u64)
+            .import_host_memory(&shared, 0..HOST_MEMORY_ALIGNMENT as u64)
             .unwrap();
         (input, StreamId::current())
     })
@@ -540,7 +540,7 @@ fn hip_graph_records_over_a_pending_import_release() {
     let output = client.empty(n * core::mem::size_of::<f32>());
     let released = host_floats(&[0.0; 4]);
     let imported = client
-        .import_host(&released, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&released, 0..HOST_MEMORY_ALIGNMENT as u64)
         .unwrap();
     add_one_on(&client, &imported, &output, n);
     drop((imported, released));
@@ -564,15 +564,15 @@ fn hip_graph_refuses_imports_while_recording() {
     let n = 4usize;
     let chunk = HOST_MEMORY_ALIGNMENT as u64;
     let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
-    let input = client.import_host(&memory, 0..chunk).unwrap();
+    let input = client.import_host_memory(&memory, 0..chunk).unwrap();
     let output = client.empty(n * core::mem::size_of::<f32>());
 
     record_add_one(&client, &input, &output, n);
-    let refused = client.import_host(&memory, 0..chunk).map(|_| ());
+    let refused = client.import_host_memory(&memory, 0..chunk).map(|_| ());
     let other = client.clone();
     let fresh = host_floats(&[0.0; 4]);
     let refused_elsewhere =
-        std::thread::spawn(move || other.import_host(&fresh, 0..chunk).map(|_| ()))
+        std::thread::spawn(move || other.import_host_memory(&fresh, 0..chunk).map(|_| ()))
             .join()
             .unwrap();
     client.stop_capture().expect("the recording should seal");

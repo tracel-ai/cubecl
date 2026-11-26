@@ -430,32 +430,34 @@ impl BufferBinding {
     ///
     /// # Errors
     ///
-    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host) host
-    /// memory, which the device only reads.
-    pub fn ensure_writable(&self) -> Result<(), IoError> {
-        match self.memory.descriptor().is_imported() {
-            true => Err(IoError::HostMemoryRefused {
+    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host_memory)
+    /// host memory, which the device only reads.
+    pub fn ensure_device_writable(&self) -> Result<(), IoError> {
+        match self.memory.descriptor().is_device_writable() {
+            true => Ok(()),
+            false => Err(IoError::HostMemoryRefused {
                 reason: "imported host memory is read-only on the device".into(),
                 backtrace: BackTrace::capture(),
             }),
-            false => Ok(()),
         }
     }
 
-    /// Whether a collective may read or write this memory.
+    /// Whether a peer, a collective or a transfer between devices may hold this memory.
     ///
     /// # Errors
     ///
-    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host) host
-    /// memory: a collective's stream may still read it after the bindings keeping it imported
-    /// are released.
-    pub fn ensure_collective_buffer(&self) -> Result<(), IoError> {
-        match self.memory.descriptor().is_imported() {
-            true => Err(IoError::HostMemoryRefused {
-                reason: "collectives refuse imported host memory".into(),
+    /// [`IoError::HostMemoryRefused`] for [imported](crate::client::Client::import_host_memory)
+    /// host memory: the work of another stream may still read it after the bindings keeping it
+    /// imported are released.
+    pub fn ensure_shareable(&self) -> Result<(), IoError> {
+        match self.memory.descriptor().is_shareable() {
+            true => Ok(()),
+            false => Err(IoError::HostMemoryRefused {
+                reason:
+                    "imported host memory stays on its device: import it on each device instead"
+                        .into(),
                 backtrace: BackTrace::capture(),
             }),
-            false => Ok(()),
         }
     }
 

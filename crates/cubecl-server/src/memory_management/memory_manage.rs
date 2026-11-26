@@ -357,9 +357,9 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         self.reserver.memory_report()
     }
 
-    /// Hold `storage`, host memory the storage [imported](StorageAllocator::import_host), as an
-    /// allocation of its own, and the handle a [bind](Self::bind) assigns it from.
-    pub fn import(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
+    /// Hold `storage`, host memory the storage [imported](StorageAllocator::import_host_memory), as
+    /// an allocation of its own, and the handle a [bind](Self::bind) assigns it from.
+    pub fn adopt_import(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
         self.reserver.imported.adopt(storage)
     }
 
