@@ -10,11 +10,13 @@
 //! and reclaim policy, when the drop queue may be flushed, what a copy stages.
 //! The calls that are not are [`Driver`](super::Driver)'s.
 
-use super::stream_copies::StreamCopies;
+use super::stream_relocation_copier::StreamRelocationCopier;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::drop_queue::Fence;
-use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::drop_queue::StreamSyncer;
+use crate::memory_management::relocation::{
+    DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope,
+};
 use crate::memory_management::{
     AllocationKind, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, PageGuard,
     PageUpdate, StreamMemoryReport,
@@ -92,8 +94,10 @@ impl<'a, D: Driver> Command<'a, D> {
     }
 
     /// The device allocation `binding` names, for a caller outside the server
-    /// that keeps its raw address: it holds the allocation and a guard on its
-    /// page for as long as it lives.
+    /// that keeps its raw address: it holds the allocation's binding for as
+    /// long as it lives, with the Guarantees of
+    /// [`ManagedResource`](crate::storage::ManagedResource), a graph capture
+    /// moving what it keeps apart included.
     ///
     /// # Errors
     ///
@@ -152,7 +156,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // not pinned by a live graph goes too.
         stream.info_cache().clear_unpinned();
 
-        RelocatingStreams::reclaim(self)?;
+        DeviceRelocator::reclaim(self)?;
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(Cleanup::Explicit, failures);
         Ok(())
@@ -246,7 +250,7 @@ impl<'a, D: Driver> Command<'a, D> {
             (
                 IoError::PageSizesExhausted { .. },
                 AllocationKind::Eager | AllocationKind::GraphIntermediate,
-            ) => RelocatingStreams::relocate(self, RelocationReason::ArenaFull),
+            ) => DeviceRelocator::relocate(self, RelocationReason::ArenaFull),
             // Nothing frees a slot of the separate arena: it is never
             // relocated, since its graphs pin what it holds, and every
             // reservation already drained its outdated pools that emptied. The
@@ -314,7 +318,8 @@ impl<'a, D: Driver> Command<'a, D> {
             true => self.reserve_as(size, AllocationKind::GraphOutput)?,
             false => self.reserve(size)?,
         };
-        self.bind(reserved, memory)
+        self.bind(reserved, memory);
+        Ok(())
     }
 
     fn allocate_at(
@@ -330,7 +335,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // Taken before the handle moves into the pool. A recorded output's binding outlives this
         // command: the graph it seals into writes the buffer on every replay, in stream order.
         let binding = memory.to_binding();
-        self.bind(reserved, memory)?;
+        self.bind(reserved, memory);
         let current = self.streams.current;
         self.streams
             .current()
@@ -358,18 +363,10 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Give `reserved`'s storage to `new`, so handles issued against `new`
     /// resolve to it.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError`] when the reservation has no initialized storage to give.
-    fn bind(
-        &mut self,
-        reserved: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
-    ) -> Result<(), IoError> {
+    fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
         let cursor = self.cursor();
         let (stream, failures) = self.streams.current_and_failures();
-        stream.device_memory().bind(reserved, new, cursor, failures)
+        stream.device_memory().bind(reserved, new, cursor, failures);
     }
 
     /// `size` bytes of host memory, pinned when the pool can serve it.
@@ -461,9 +458,10 @@ impl<'a, D: Driver> Command<'a, D> {
                     // this does not exist yet on the error path, so record
                     // one here and wait it out before the partial set drops.
                     if !result.is_empty()
-                        && !D::Stream::fence(self.streams.current().signal()).sync()
+                        && let Err(waited) =
+                            D::Stream::fence(self.streams.current().signal()).sync_host()
                     {
-                        core::mem::forget(result);
+                        crate::memory_management::release_or_leak(result, &waited);
                     }
                     return Err(err);
                 }
@@ -573,7 +571,9 @@ impl<'a, D: Driver> Command<'a, D> {
 
         // SAFETY: `resource` is a live device allocation, `data` is a valid
         // host buffer, and either the drop queue or the capture window below
-        // keeps it alive for as long as the device reads it.
+        // keeps it alive until the fence after the copy signals. A stream torn
+        // down with the copy in flight drops the queue, which leaks the bytes
+        // rather than freeing them under the copy.
         unsafe { D::copy_to_device(&resource, &layout, &data, current)? };
 
         if current.capturing().is_recording() {
@@ -661,7 +661,7 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let fence = D::Stream::fence(self.streams.current().signal());
 
-        Box::pin(async move { fence.wait() })
+        Box::pin(async move { fence.sync_host() })
     }
 
     /// Keep `peers`, memory of other devices the kernel just enqueued binds,
@@ -710,51 +710,36 @@ impl<'a, D: Driver> Command<'a, D> {
     }
 }
 
-impl<D: Driver> RelocatingStreams for Command<'_, D> {
-    fn recording(&mut self) -> bool {
-        self.streams.current().capturing().device().any_recording()
+impl<D: Driver> DeviceRelocator for Command<'_, D> {
+    fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
+        if self.streams.current().capturing().device().any_recording() {
+            return RelocationNeed::Recording;
+        }
+        match scope {
+            RelocationScope::Stream => self.stream_need(),
+            RelocationScope::Device => RelocationNeed::of_device(
+                self.streams
+                    .all()
+                    .map(|stream| stream.device_memory().relocation_need()),
+            ),
+        }
     }
-
-    fn has_outdated(&mut self) -> bool {
-        self.streams.current().device_memory().has_outdated()
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.streams.current().device_memory().relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.streams
-            .all()
-            .map(|stream| stream.device_memory().bytes_allocated())
-            .sum()
-    }
-
-    /// Nothing here: `StreamCopies` waits on every stream before its first
-    /// copy, so a relocation with nothing to move waits on none.
-    fn finish(&mut self) {}
 
     fn cleanup_memory(&mut self) {
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(Cleanup::Explicit, failures);
     }
 
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let current = self.streams.current;
-        self.relocate_stream(current, reason);
-    }
-
-    fn device_has_outdated(&mut self) -> bool {
-        self.streams
-            .all()
-            .any(|stream| stream.device_memory().has_outdated())
-    }
-
-    fn relocate_device_memory(&mut self, reason: RelocationReason) {
-        for stream_id in self.streams.stream_ids() {
-            if self.streams.get(&stream_id).device_memory().has_outdated() {
-                self.relocate_stream(stream_id, reason);
-            }
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.streams.current().capturing().device().any_recording() {
+            return;
+        }
+        let stream_ids: Vec<_> = match scope {
+            RelocationScope::Stream => alloc::vec![self.streams.current],
+            RelocationScope::Device => self.streams.stream_ids(),
+        };
+        for stream_id in stream_ids {
+            self.relocate_stream(stream_id, reason);
         }
     }
 }
@@ -773,23 +758,30 @@ impl<D: Driver> Command<'_, D> {
             return Ok(());
         }
         self.refuse_while_recording()?;
-        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.current().signal();
-        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        let current = self.streams.current;
+        let mut copier = StreamRelocationCopier::<D>::new(&mut self.streams, current, self.ctx);
         let (stream, failures) = self.streams.current_and_failures();
         stream
             .device_memory()
             .move_apart(kept, &mut copier, failures)
     }
 
+    /// The current stream's need, resolved against the bytes every stream's
+    /// memory holds.
+    fn stream_need(&mut self) -> RelocationNeed {
+        let need = self.streams.current().device_memory().relocation_need();
+        need.resolve(|| {
+            self.streams
+                .all()
+                .map(|stream| stream.device_memory().bytes_allocated())
+                .sum()
+        })
+    }
+
     /// Move what `stream_id`'s memory holds on outdated pages, with the copies
     /// queued on that stream.
     fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {
-        // Rare enough to gather the signals as it goes: it waits on the whole
-        // device anyway.
-        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.get(&stream_id).signal();
-        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        let mut copier = StreamRelocationCopier::<D>::new(&mut self.streams, stream_id, self.ctx);
         let (stream, failures) = self.streams.get_and_failures(&stream_id);
         stream
             .device_memory()
@@ -815,12 +807,12 @@ fn num_bytes(descriptor: &CopyDescriptor) -> usize {
 /// device sources and host destinations. Dropped before [`wait`](Self::wait),
 /// it waits for the fence itself, so a read abandoned unawaited never hands a
 /// buffer back to its pool mid-copy.
-struct InFlight<F: Fence, M> {
+struct InFlight<F: StreamSyncer, M> {
     fence_and_memory: Option<(F, M)>,
     waits_on_drop: bool,
 }
 
-impl<F: Fence, M> InFlight<F, M> {
+impl<F: StreamSyncer, M> InFlight<F, M> {
     fn new(fence: F, memory: M) -> Self {
         Self {
             fence_and_memory: Some((fence, memory)),
@@ -844,7 +836,7 @@ impl<F: Fence, M> InFlight<F, M> {
     /// The fault the fence reports; the memory is then released or leaked.
     fn wait(mut self) -> Result<M, ServerError> {
         let (fence, memory) = self.fence_and_memory.take().expect("waited once");
-        match fence.wait() {
+        match fence.sync_host() {
             Ok(()) => Ok(memory),
             Err(err) => {
                 release_or_leak(memory, &err);
@@ -854,11 +846,11 @@ impl<F: Fence, M> InFlight<F, M> {
     }
 }
 
-impl<F: Fence, M> Drop for InFlight<F, M> {
+impl<F: StreamSyncer, M> Drop for InFlight<F, M> {
     fn drop(&mut self) {
         if let Some((fence, memory)) = self.fence_and_memory.take()
             && self.waits_on_drop
-            && let Err(err) = fence.wait()
+            && let Err(err) = fence.sync_host()
         {
             release_or_leak(memory, &err);
         }
@@ -873,8 +865,8 @@ mod tests {
 
     struct CountingFence(Arc<AtomicUsize>);
 
-    impl Fence for CountingFence {
-        fn wait(self) -> Result<(), ServerError> {
+    impl StreamSyncer for CountingFence {
+        fn sync_host(self) -> Result<(), ServerError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }

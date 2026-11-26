@@ -734,7 +734,7 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
         if let Some(reached) = &self.reached {
             match reached
                 .record(compute)
-                .and_then(|()| reached.wait_async(part_stream))
+                .and_then(|()| reached.sync_device(part_stream))
             {
                 Ok(()) => {
                     self.started(part_stream);
@@ -877,7 +877,7 @@ impl<S: CollectiveServer> CommunicationMarks<S> {
     ) -> Result<(), ServerError> {
         if let Some(end) = &self.end {
             let ordered = end.record(part_stream).and_then(|()| match wait {
-                ComputeWait::Now => end.wait_async(compute),
+                ComputeWait::Now => end.sync_device(compute),
                 ComputeWait::AtSync => Ok(()),
             });
             match ordered {

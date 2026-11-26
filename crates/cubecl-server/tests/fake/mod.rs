@@ -13,7 +13,7 @@ use cubecl_server::{
     memory_management::{
         ErrorGraph, FailureId, ManagedMemoryBinding, MemoryConfiguration, MemoryManagement,
         MemoryManagementOptions,
-        drop_queue::{Fence, PendingDropQueue},
+        drop_queue::{PendingDropQueue, StreamSyncer},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     server::{BufferBinding, DeviceCaptures, Handle, IoError, LaunchError, ServerError},
@@ -77,8 +77,8 @@ pub struct FakeBackend;
 
 pub struct FakeFence;
 
-impl Fence for FakeFence {
-    fn wait(self) -> Result<(), ServerError> {
+impl StreamSyncer for FakeFence {
+    fn sync_host(self) -> Result<(), ServerError> {
         Ok(())
     }
 }

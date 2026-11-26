@@ -1,15 +1,27 @@
 pub(crate) use cubecl_runtime::memory_management::*;
 
-mod base;
-mod direct_pool;
-mod exclusive_pool;
-mod memory_page;
-mod persistent_pool;
-mod sliced_pool;
+#[cfg(test)]
+mod counting_storage_allocator;
+mod direct_slice_reserver;
+mod exclusive_slice_reserver;
+mod page_mapping;
+mod page_suballocator;
+mod paged_slice_reserver;
+mod persistent_slice_reserver;
+mod slice;
+mod slice_allocator;
+mod slice_binder;
+mod slice_reserver;
 
-pub(crate) use base::*;
-pub(crate) use direct_pool::*;
-pub(crate) use exclusive_pool::*;
-pub(crate) use memory_page::*;
-pub(crate) use persistent_pool::*;
-pub(crate) use sliced_pool::*;
+#[cfg(test)]
+pub(crate) use counting_storage_allocator::*;
+pub(crate) use direct_slice_reserver::*;
+pub(crate) use exclusive_slice_reserver::*;
+pub(crate) use page_mapping::*;
+pub(crate) use page_suballocator::*;
+pub(crate) use paged_slice_reserver::*;
+pub(crate) use persistent_slice_reserver::*;
+pub(crate) use slice::*;
+pub(crate) use slice_allocator::*;
+pub(crate) use slice_binder::*;
+pub(crate) use slice_reserver::*;

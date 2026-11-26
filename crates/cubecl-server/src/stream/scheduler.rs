@@ -1,5 +1,6 @@
 use crate::memory_management::relocation::{
-    RelocatableStream, RelocatingStreams, RelocationNeed, RelocationReason,
+    DeviceRelocator, RelocationNeed, RelocationReason, RelocationScope, StreamRelocator,
+    StreamsSubmitted,
 };
 use crate::{
     config::streaming::StreamingLogLevel,
@@ -163,58 +164,67 @@ pub struct SchedulerRelocation<'a, B: SchedulerStreamBackend> {
     stream_id: StreamId,
 }
 
-impl<B> RelocatingStreams for SchedulerRelocation<'_, B>
+impl<B> DeviceRelocator for SchedulerRelocation<'_, B>
 where
     B: SchedulerStreamBackend,
-    B::Stream: RelocatableStream,
+    B::Stream: StreamRelocator,
 {
-    fn recording(&mut self) -> bool {
-        self.scheduler.stream(&self.stream_id).recording()
+    fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
+        match scope {
+            RelocationScope::Stream => self.stream_need(),
+            RelocationScope::Device => RelocationNeed::of_device(
+                self.scheduler
+                    .streams()
+                    .map(|stream| stream.relocation_state().need),
+            ),
+        }
     }
 
-    fn has_outdated(&mut self) -> bool {
-        self.scheduler.stream(&self.stream_id).has_outdated()
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.scheduler.stream(&self.stream_id).relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.scheduler
-            .streams()
-            .map(RelocatableStream::bytes_allocated)
-            .sum()
-    }
-
-    fn finish(&mut self) {
+    fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
+        if self.relocation_need(RelocationScope::Device) == RelocationNeed::Recording {
+            return;
+        }
+        let stream_ids: Vec<_> = match scope {
+            RelocationScope::Stream => alloc::vec![self.stream_id],
+            RelocationScope::Device => self.scheduler.stream_ids().collect(),
+        };
         self.scheduler.flush_all();
-    }
-
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
-        stream.relocate(reason, failures);
+        // SAFETY: `flush_all` just ran every stream's queued tasks and flushed
+        // each stream with the backend, which submits what it queued (and on
+        // the CPU, runs it); nothing is issued until the loop below returns,
+        // since the scheduler stays borrowed for the whole call.
+        let submitted = unsafe { StreamsSubmitted::new() };
+        for stream_id in stream_ids {
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            stream.relocate(reason, &submitted, failures);
+        }
     }
 
     fn cleanup_memory(&mut self) {
         let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
         stream.cleanup_memory(failures);
     }
+}
 
-    fn device_has_outdated(&mut self) -> bool {
-        self.scheduler
-            .streams()
-            .any(RelocatableStream::has_outdated)
-    }
-
-    fn relocate_device_memory(&mut self, reason: RelocationReason) {
-        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
-        for stream_id in stream_ids {
-            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-            if stream.has_outdated() {
-                stream.relocate(reason, failures);
-            }
-        }
+impl<B> SchedulerRelocation<'_, B>
+where
+    B: SchedulerStreamBackend,
+    B::Stream: StreamRelocator,
+{
+    /// The relocating stream's need, resolved against the bytes every
+    /// stream's memory holds.
+    fn stream_need(&mut self) -> RelocationNeed {
+        let need = self
+            .scheduler
+            .stream(&self.stream_id)
+            .relocation_state()
+            .need;
+        need.resolve(|| {
+            self.scheduler
+                .streams()
+                .map(|stream| stream.relocation_state().allocated_bytes)
+                .sum()
+        })
     }
 }
 

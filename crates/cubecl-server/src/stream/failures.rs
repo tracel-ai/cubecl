@@ -10,7 +10,7 @@
 
 use crate::id::KernelId;
 use crate::logging::ServerLogger;
-use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryBinding, Skipped};
+use crate::memory_management::{Claim, ErrorGraph, FailureId, ManagedMemoryBinding, SkippedLaunch};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
@@ -131,7 +131,7 @@ pub trait FailureStore {
             Some(ReadFailure {
                 failure,
                 needed: handle.memory.id(),
-                error: failures.graph.error(failure)?.clone(),
+                error: failures.graph.error(failure).clone(),
             })
         })
     }
@@ -189,7 +189,7 @@ pub trait FailureStore {
         let (pool, failures) = self.split();
         failures.graph.skipped(
             found.failure,
-            Skipped {
+            SkippedLaunch {
                 kernel,
                 needed: found.needed,
                 produced: written.iter().map(|handle| handle.memory.id()).collect(),

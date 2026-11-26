@@ -175,11 +175,11 @@ impl EventStreamBackend for CudaStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
-        event.wait_async(stream.sys)
+        event.sync_device(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
-        event.wait_sync()
+        event.sync_host()
     }
 
     fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
@@ -188,7 +188,7 @@ impl EventStreamBackend for CudaStreamBackend {
 
     fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
-        // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
+        // to decide whether to wait. A binding never placed falls back to `u64::MAX`,
         // which conservatively forces a wait.
         stream
             .memory_management_gpu

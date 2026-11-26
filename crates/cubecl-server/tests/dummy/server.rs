@@ -345,8 +345,7 @@ impl<M: Marker> Server for DummyServer<M> {
             .reserve(size, PageUpdate::Allow, &mut self.failures)
             .map_err(ServerError::from)?;
         self.memory_management
-            .bind(reserved, memory, 0, &mut self.failures)
-            .map_err(ServerError::from)?;
+            .bind(reserved, memory, 0, &mut self.failures);
         Ok(())
     }
 
