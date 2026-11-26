@@ -180,8 +180,11 @@ macro_rules! impl_float {
 
         impl NativeAssign for $primitive {}
 
-        impl IntoMut for $primitive {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl PlaceExpand for $primitive {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _scope: &Scope) -> Self {
                 self
             }
         }

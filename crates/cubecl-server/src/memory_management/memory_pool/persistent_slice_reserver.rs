@@ -1,0 +1,462 @@
+use super::{
+    ManagedMemoryBinding, ManagedMemoryHandle, PageMapping, Slice, SliceAllocator, SliceBinder,
+    SliceReserver, missing, padded_size, padded_size_within, pool_origin, slices_usage,
+    unmapped_count,
+};
+use crate::memory_management::{
+    BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
+};
+use crate::server::IoError;
+use crate::storage::StorageAllocator;
+use alloc::vec::Vec;
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
+
+mod persistent_view;
+pub(crate) use persistent_view::PersistentView;
+
+/// A pool of one device allocation per buffer, reused only by a buffer of
+/// the same padded size: what weights and other allocations kept for a
+/// model's life are served from, so they never hold a page of the dynamic
+/// pools.
+pub struct PersistentSliceReserver {
+    /// Every slice, read by the position a location carries (Position) and
+    /// added at the end (Arrival).
+    slices: Vec<Slice>,
+    /// The positions of the slices of each padded size (Keyed), each list in
+    /// the order its slices were allocated (Arrival).
+    sizes: HashMap<u64, Vec<usize>>,
+    alignment: u64,
+    max_alloc_size: u64,
+    location_base: MemoryLocation,
+    /// The most slices (one device allocation each) ever held at once.
+    peak_pages: u64,
+    /// The largest allocation ever served, in requested (pre-padding) bytes.
+    largest_alloc_bytes: u64,
+}
+
+impl PersistentSliceReserver {
+    /// The pool's shape, usage and high-water marks.
+    pub fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Persistent,
+            usage: slices_usage(self.slices.iter()),
+            page_count: self.slices.len() as u64,
+            peak_page_count: self.peak_pages,
+            unmapped_page_count: unmapped_count(self.slices.iter()),
+            largest_alloc_bytes: self.largest_alloc_bytes,
+        }
+    }
+
+    /// A pool that serves any size up to `max_alloc_size`, the largest single
+    /// allocation the device makes.
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_index: u8) -> Self {
+        Self {
+            slices: Vec::new(),
+            sizes: HashMap::new(),
+            max_alloc_size,
+            alignment,
+            location_base: pool_origin(pool_index),
+            peak_pages: 0,
+            largest_alloc_bytes: 0,
+        }
+    }
+
+    /// A [`PersistentView`] of the pool.
+    pub fn view(&self) -> PersistentView<'_> {
+        PersistentView::new(self)
+    }
+}
+
+impl PersistentSliceReserver {
+    /// Whether `slice` stays, releasing it when it is free.
+    fn keep_live<Storage: StorageAllocator>(
+        slice: &mut Slice,
+        storage: &mut Storage,
+        failures: &mut ErrorGraph,
+    ) -> bool {
+        if !slice.is_free() {
+            return true;
+        }
+        SliceAllocator::new(storage).release_whole(slice, failures);
+        false
+    }
+}
+
+impl SliceReserver for PersistentSliceReserver {
+    fn accepts_bytes(&self, size: u64) -> bool {
+        padded_size_within(size, self.alignment, self.max_alloc_size).is_some()
+    }
+
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let index = binding.descriptor().slice();
+        self.slices
+            .get(index)
+            .ok_or_else(|| missing("slice", index))
+    }
+
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let index = binding.descriptor().slice();
+        self.slices
+            .get_mut(index)
+            .ok_or_else(|| missing("slice", index))
+    }
+
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        _failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        let effective_size = padded_size(size, self.alignment)?;
+        let position = *self
+            .sizes
+            .get(&effective_size)?
+            .iter()
+            .find(|position| self.slices[**position].is_free())?;
+        let slice = &mut self.slices[position];
+        SliceBinder.fit_whole(slice, size, effective_size);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
+        Some(slice.handle.clone())
+    }
+
+    /// Allocates past what the trait assumes: a size
+    /// [`accepts_bytes`](SliceReserver::accepts_bytes) refuses is answered,
+    /// which the memory's dedicated and persistent windows rely on.
+    ///
+    /// # Guarantees
+    ///
+    /// A size `accepts_bytes` refuses is refused with
+    /// [`IoError::BufferTooBig`] before the storage is asked.
+    fn alloc<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        mapping: PageMapping,
+        _failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        // Refused before the storage sees it: some backends (wgpu) treat a
+        // buffer past the device's limit as a validation error that poisons
+        // the device rather than as a failed allocation.
+        let Some(effective_size) = padded_size_within(size, self.alignment, self.max_alloc_size)
+        else {
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
+        };
+
+        // Every persistent slice owns its whole buffer, so laziness is
+        // per-slice: a minted id under a process mode that discards launches
+        // (a scratch session's KV cache, for instance) costs nothing until a
+        // measurement actually touches it.
+        let position = self.slices.len();
+        let location = MemoryLocation {
+            slice: position as u32,
+            ..self.location_base
+        };
+        let slice =
+            SliceAllocator::new(storage).allocate_whole(size, effective_size, mapping, location)?;
+        let handle = slice.handle.clone();
+        self.sizes.entry(effective_size).or_default().push(position);
+        self.slices.push(slice);
+        self.peak_pages = self.peak_pages.max(self.slices.len() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
+
+        Ok(handle)
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let slice = self.slices.get(location.slice as usize)?;
+        Some(PageGuard::allocation(slice.handle.to_binding()))
+    }
+
+    /// On an explicit cleanup, return every free slice and renumber the rest;
+    /// a periodic one keeps everything, since weights are reused across the
+    /// whole life of a model. The deallocations stay queued in the storage,
+    /// for the caller's flush.
+    fn cleanup<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        _reservation_count: u64,
+        cleanup: Cleanup,
+        failures: &mut ErrorGraph,
+    ) {
+        if cleanup == Cleanup::Periodic {
+            return;
+        }
+        self.slices
+            .retain_mut(|slice| Self::keep_live(slice, storage, failures));
+        self.sizes.clear();
+        for (position, slice) in self.slices.iter().enumerate() {
+            slice.descriptor().update_slice(position as u32);
+            self.sizes
+                .entry(slice.effective_size())
+                .or_default()
+                .push(position);
+        }
+    }
+
+    fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+        failures: &mut ErrorGraph,
+    ) {
+        let slice = self
+            .slices
+            .get_mut(reserved.descriptor().slice())
+            .expect("a reserved slice should be held by the pool that reserved it");
+        SliceBinder.bind(slice, assigned, cursor, failures);
+    }
+
+    /// A stale location whose index a later cleanup reassigned names a live
+    /// slice this binding has no claim on, so it is left alone too.
+    fn materialize<Storage: StorageAllocator>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        let slice = self.slices.get_mut(binding.descriptor().slice());
+        SliceAllocator::new(storage).materialize_whole(slice, binding)
+    }
+}
+
+impl core::fmt::Display for PersistentSliceReserver {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (size, positions) in self.sizes.iter() {
+            let free_count = positions
+                .iter()
+                .filter(|position| self.slices[**position].is_free())
+                .count();
+            let total_count = positions.len();
+            f.write_fmt(format_args!(
+                "  - Slices {} =>  {free_count} free - {} full - {total_count} total\n",
+                BytesFormat::from_byte_count(*size),
+                total_count - free_count,
+            ))?;
+        }
+
+        if !self.sizes.is_empty() {
+            f.write_fmt(format_args!("\n{}\n", slices_usage(self.slices.iter())))?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{BytesStorage, StorageAllocator};
+
+    fn alloc(
+        pool: &mut PersistentSliceReserver,
+        storage: &mut BytesStorage,
+        size: u64,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        pool.alloc(
+            storage,
+            size,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        )
+    }
+
+    /// A size whose padded allocation passes the largest allocation is
+    /// refused as `BufferTooBig`.
+    #[test_log::test]
+    fn an_allocation_past_the_limit_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
+
+        let refused = alloc(&mut pool, &mut storage, 1025);
+
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { size: 1025, .. })),
+            "got {refused:?}"
+        );
+    }
+
+    /// A refused allocation never reaches the storage.
+    #[test_log::test]
+    fn a_refused_allocation_never_reaches_the_storage() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
+
+        alloc(&mut pool, &mut storage, 1025).expect_err("past the limit should be refused");
+
+        assert_eq!(storage.bytes_allocated(), 0);
+    }
+
+    /// An allocation exactly at the limit is served.
+    #[test_log::test]
+    fn an_allocation_at_the_limit_is_served() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 16, 0);
+
+        let _served = alloc(&mut pool, &mut storage, 1024).expect("exactly the limit should fit");
+
+        assert_eq!(storage.bytes_allocated(), 1024);
+    }
+
+    /// A live slice is not reused.
+    #[test_log::test]
+    fn a_live_slice_is_not_reused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        let _live = alloc(&mut pool, &mut storage, 1025).expect("the size should fit");
+
+        assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_none());
+    }
+
+    /// `alloc` and `try_reserve` must use the same `sizes` key (`size + padding`). See #1224.
+    #[test_log::test]
+    fn a_freed_slice_with_padding_is_reused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 1025).expect("the size should fit"));
+
+        assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_some());
+    }
+
+    /// A reused slice takes the padding of the size it now serves, so its
+    /// padded size stays the bucket it is filed under.
+    #[test_log::test]
+    fn a_reused_slice_takes_the_padding_of_its_new_size() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 32, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 100).expect("100 bytes should fit"));
+
+        let _reused = pool
+            .try_reserve(97, &mut ErrorGraph::default())
+            .expect("97 bytes should pad to the same 128");
+
+        let usage = pool.report().usage;
+        assert_eq!((usage.reserved_bytes, usage.padding_bytes), (128, 31));
+    }
+
+    /// A size whose padding passes the largest `u64` is not accepted.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_not_accepted() {
+        assert!(!PersistentSliceReserver::new(1024, 32, 0).accepts_bytes(u64::MAX));
+    }
+
+    /// A size whose padding passes the largest `u64` has no bucket.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_has_no_bucket() {
+        assert!(
+            !PersistentSliceReserver::new(1024, 32, 0)
+                .view()
+                .has_size_bytes(u64::MAX)
+        );
+    }
+
+    /// A size whose padding passes the largest `u64` is refused rather than
+    /// wrapped to a small allocation.
+    #[test_log::test]
+    fn a_size_whose_padding_overflows_is_refused() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024, 32, 0);
+
+        assert!(matches!(
+            alloc(&mut pool, &mut storage, u64::MAX),
+            Err(IoError::BufferTooBig { .. })
+        ));
+    }
+
+    /// A freed slice serves no other padded size.
+    #[test_log::test]
+    fn a_freed_slice_serves_only_its_own_padded_size() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit"));
+
+        assert!(pool.try_reserve(1025, &mut ErrorGraph::default()).is_none());
+    }
+
+    /// A freed slice keeps its bucket.
+    #[test_log::test]
+    fn a_freed_slice_keeps_its_bucket() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit"));
+
+        assert!(pool.view().has_size_bytes(1024));
+    }
+
+    /// A pool's usage counts what is live and what it holds.
+    #[test_log::test]
+    fn the_usage_counts_live_and_held_bytes() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        let first = alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit");
+        let _second = alloc(&mut pool, &mut storage, 1024).expect("1024 bytes should fit");
+        core::mem::drop(first);
+
+        let usage = pool.report().usage;
+        assert_eq!((usage.in_use_bytes, usage.reserved_bytes), (1024, 2048));
+    }
+
+    /// A periodic cleanup keeps every slice.
+    #[test_log::test]
+    fn a_periodic_cleanup_keeps_every_slice() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Periodic,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// An explicit cleanup returns every free slice.
+    #[test_log::test]
+    fn an_explicit_cleanup_returns_free_slices() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+        let _kept = alloc(&mut pool, &mut storage, 128).expect("128 bytes should fit");
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(pool.report().page_count, 1);
+    }
+
+    /// An explicit cleanup renumbers the live slices, which still resolve.
+    #[test_log::test]
+    fn an_explicit_cleanup_renumbers_live_slices() {
+        let mut storage = BytesStorage::default();
+        let mut pool = PersistentSliceReserver::new(1024 * 1024, 4, 0);
+        core::mem::drop(alloc(&mut pool, &mut storage, 64).expect("64 bytes should fit"));
+        let kept = alloc(&mut pool, &mut storage, 128).expect("128 bytes should fit");
+
+        pool.cleanup(
+            &mut storage,
+            0,
+            Cleanup::Explicit,
+            &mut ErrorGraph::default(),
+        );
+
+        assert_eq!(kept.descriptor().location().slice, 0);
+        assert!(pool.find(&kept.binding()).is_ok());
+    }
+
+    /// A guard of a location naming no slice is refused.
+    #[test_log::test]
+    fn a_guard_of_no_slice_is_none() {
+        let mut pool = PersistentSliceReserver::new(1024, 4, 0);
+
+        assert!(pool.guard(MemoryLocation::new(0, 0, 3)).is_none());
+    }
+}

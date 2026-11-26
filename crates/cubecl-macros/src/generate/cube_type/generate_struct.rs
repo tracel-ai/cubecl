@@ -364,7 +364,7 @@ impl CubeTypeStruct {
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let into_expand = prelude_type("IntoExpand");
-        let into_mut = prelude_type("IntoMut");
+        let place_expand = prelude_type("PlaceExpand");
         let debug = prelude_type("CubeDebug");
         let as_ref = prelude_type("AsRefExpand");
         let as_mut = prelude_type("AsMutExpand");
@@ -372,17 +372,28 @@ impl CubeTypeStruct {
 
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
-        let body = self
-            .fields
-            .iter()
-            .map(TypeField::split)
-            .map(|(_, ident, _, is_comptime)| {
-                if is_comptime {
-                    quote![#ident: self.#ident]
-                } else {
-                    quote![#ident: #into_mut::into_mut(self.#ident, scope)]
-                }
-            });
+        let create_place_body =
+            self.fields
+                .iter()
+                .map(TypeField::split)
+                .map(|(_, ident, _, is_comptime)| {
+                    if is_comptime {
+                        quote![#ident: self.#ident]
+                    } else {
+                        quote![#ident: #place_expand::create_mut_place(self.#ident, scope)]
+                    }
+                });
+        let read_place_body =
+            self.fields
+                .iter()
+                .map(TypeField::split)
+                .map(|(_, ident, _, is_comptime)| {
+                    if is_comptime {
+                        quote![#ident: self.#ident]
+                    } else {
+                        quote![#ident: #place_expand::read_place(self.#ident, scope)]
+                    }
+                });
 
         quote! {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
@@ -393,10 +404,16 @@ impl CubeTypeStruct {
                 }
             }
 
-            impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(self, scope: &#scope) -> Self {
+            impl #generics #place_expand for #name_expand #generic_names #where_clause {
+                fn create_mut_place(self, scope: &#scope) -> Self {
                     Self {
-                        #(#body),*
+                        #(#create_place_body),*
+                    }
+                }
+
+                fn read_place(self, scope: &#scope) -> Self {
+                    Self {
+                        #(#read_place_body),*
                     }
                 }
             }

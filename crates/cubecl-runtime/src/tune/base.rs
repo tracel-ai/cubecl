@@ -14,7 +14,7 @@ use cubecl_environment::collections::HashMap;
 /// `Id` is what the tunables of a set are [identified](Self::identified) by, `()` for a set
 /// whose tunables are [named](Self::new) and nothing more.
 pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
-    pub(crate) function: TuneFn<F, Output>,
+    function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
     identity: Id,
 }
@@ -86,6 +86,11 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
         &self.identity
     }
 
+    /// The function this tunable runs.
+    pub(crate) fn function(&self) -> &TuneFn<F, Output> {
+        &self.function
+    }
+
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
     /// Groups run in order of their own priority. Within a cutoff group the member
@@ -109,17 +114,17 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
 pub struct TuneGroup<K> {
     id: GroupId,
     name: Arc<String>,
-    pub(crate) priority: PriorityFunc<K>,
+    priority: PriorityFunc<K>,
     order: GroupOrder,
 }
 
 /// Identifies a [`TuneGroup`]: two groups may share a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GroupId(u32);
+pub struct GroupId(u32);
 
 impl GroupId {
     #[cfg(test)]
-    pub(crate) fn new(id: u32) -> Self {
+    pub fn new(id: u32) -> Self {
         Self(id)
     }
 }
@@ -276,25 +281,25 @@ impl<K> TuneGroup<K> {
 /// One batch of the [`TunePlan`]: the [tunables](Tunable) to benchmark, in order, and the
 /// [`Patience`] of each group that brought one in.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Batch {
-    pub(crate) entries: Vec<BatchEntry>,
-    pub(crate) patience: HashMap<GroupId, Patience>,
+pub struct Batch {
+    pub entries: Vec<BatchEntry>,
+    pub patience: HashMap<GroupId, Patience>,
 }
 
 /// One [tunable](Tunable) of a [`Batch`], with every group that brought it into the batch.
 /// An ungrouped tunable has none.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BatchEntry {
-    pub(crate) index: usize,
-    pub(crate) groups: Vec<GroupId>,
+pub struct BatchEntry {
+    pub index: usize,
+    pub groups: Vec<GroupId>,
     /// The priority it was placed at, by the first group that brought it in. `None` for an
     /// ungrouped tunable, which states none.
-    pub(crate) priority: Option<i8>,
+    pub priority: Option<i8>,
 }
 
 impl Batch {
     /// A batch that measures every one of `indices`, no group's patience applying.
-    pub(crate) fn unconditional(indices: impl IntoIterator<Item = usize>) -> Self {
+    pub fn unconditional(indices: impl IntoIterator<Item = usize>) -> Self {
         let mut batch = Self::default();
         for index in indices {
             batch.push_unconditional(index);
@@ -302,18 +307,18 @@ impl Batch {
         batch
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// The tunable indices, in the order they are benchmarked.
-    pub(crate) fn indices(&self) -> Vec<usize> {
+    pub fn indices(&self) -> Vec<usize> {
         self.entries.iter().map(|entry| entry.index).collect()
     }
 
     /// How many entries lead the batch at its first entry's priority: the candidates the plan
     /// ranks first, among which it states no preference.
-    pub(crate) fn leading_len(&self) -> usize {
+    pub fn leading_len(&self) -> usize {
         let first = self
             .entries
             .first()
@@ -349,7 +354,7 @@ impl Batch {
 
 #[derive(Debug, Clone)]
 /// A group plan dictates which [tunables](Tunable) should be executed, and in what order.
-pub(crate) struct TunePlan {
+pub struct TunePlan {
     priorities: Vec<i8>,
     no_groups: Vec<usize>,
     groups: HashMap<i8, GroupPlan>,
@@ -503,7 +508,7 @@ impl TunePlan {
     /// Every one of `len` tunables in the order the plan releases them, with the
     /// batch each comes in. A tunable no batch holds, its every priority
     /// negative, comes last in declaration order, in no batch.
-    pub(crate) fn order(&self, len: usize) -> Vec<(usize, Option<usize>)> {
+    pub fn order(&self, len: usize) -> Vec<(usize, Option<usize>)> {
         let mut plan = self.clone();
         let batches = core::iter::from_fn(|| {
             Some(plan.next())
@@ -523,7 +528,7 @@ impl TunePlan {
     /// `names`, in the [order](Self::order) the plan releases them, with the
     /// batch each comes in and its place in each of its groups.
     #[cfg(persistence)]
-    pub(crate) fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
+    pub fn account(&self, names: &[&str]) -> Vec<super::record::PlannedCandidate> {
         self.order(names.len())
             .into_iter()
             .map(|(index, batch)| super::record::PlannedCandidate {
@@ -544,7 +549,7 @@ impl TunePlan {
     /// A batch in which no candidate served hands its every candidate over, then the next
     /// batch's, as the tune falls back to it. Once one has served, no later batch is reached,
     /// since the tune stops at that batch.
-    pub(crate) fn queue_top(&mut self, parallelism: usize, mut queue: impl FnMut(usize) -> bool) {
+    pub fn queue_top(&mut self, parallelism: usize, mut queue: impl FnMut(usize) -> bool) {
         assert!(
             parallelism > 0,
             "the parallelism should be at least one: the top is extended until that many served"
@@ -569,7 +574,7 @@ impl TunePlan {
     }
 
     /// The next batch to benchmark. An empty one means the plan is exhausted.
-    pub(crate) fn next(&mut self) -> Batch {
+    pub fn next(&mut self) -> Batch {
         // A tunable in no group states no priority, so it trails the batch: the grouped
         // candidates decide what is compiled and benchmarked first.
         let ungrouped = core::mem::take(&mut self.no_groups);

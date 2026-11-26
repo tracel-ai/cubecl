@@ -31,8 +31,11 @@ impl<T: CubeType> IntoExpand for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType> IntoMut for Sequence<T> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<T: CubeType> PlaceExpand for Sequence<T> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -160,9 +163,21 @@ impl<T: CubeType> Deref for Sequence<T> {
 
 impl<T: CubeType> IndexExpand<NativeExpand<usize>> for SequenceExpand<T> {
     type Output = T::ExpandType;
+    type PlaceOutput<'a>
+        = T::ExpandType
+    where
+        T: 'a;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
         self.__expand_index_method(scope, index)
+    }
+
+    fn __expand_index_owned_method(
+        &self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> Self::Output {
+        self.__expand_index_owned_method(scope, index)
     }
 }
 
@@ -209,13 +224,23 @@ impl<T: CubeType> Iterable for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType> IntoMut for SequenceExpand<T> {
-    fn into_mut(self, scope: &Scope) -> Self {
+impl<T: CubeType> PlaceExpand for SequenceExpand<T> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
         Self {
             values: self
                 .values
                 .into_iter()
-                .map(|v| IntoMut::into_mut(v, scope))
+                .map(|v| PlaceExpand::create_mut_place(v, scope))
+                .collect(),
+        }
+    }
+
+    fn read_place(self, scope: &Scope) -> Self {
+        Self {
+            values: self
+                .values
+                .into_iter()
+                .map(|v| PlaceExpand::read_place(v, scope))
                 .collect(),
         }
     }
@@ -295,6 +320,16 @@ impl<T: CubeType> SequenceExpand<T> {
     ) -> &T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
         &self.values[index]
+    }
+
+    /// Expand method of [index](Sequence::index).
+    pub fn __expand_index_owned_method(
+        &self,
+        _scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> T::ExpandType {
+        let index = index.constant().expect("Index must be constant").as_usize();
+        self.values[index].clone_unchecked()
     }
 
     /// Expand method of [`index_mut`](Sequence::index_mut).

@@ -2,23 +2,23 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use crate::tune::Batch;
+use crate::tune::base::Batch;
 use crate::tune::patience::PatienceTable;
 
 /// The next candidate a batch's first pass measures, and the candidates to compile before it.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct FirstPassStep {
-    pub(crate) slot: usize,
+pub struct FirstPassStep {
+    pub slot: usize,
     /// Ascending, and empty when `slot` was compiled with an earlier window.
-    pub(crate) compile: Vec<usize>,
+    pub compile: Vec<usize>,
 }
 
 /// How many candidates a first pass compiles together: in its first window, and in each window
 /// after it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CompileWindows {
-    pub(crate) first_count: usize,
-    pub(crate) later_count: usize,
+pub struct CompileWindows {
+    pub first_count: usize,
+    pub later_count: usize,
 }
 
 /// Plans a batch's first pass: its candidates are measured one at a time in priority order, past
@@ -28,7 +28,7 @@ pub(crate) struct CompileWindows {
 /// measurements: the windows decide how many compile together, never what is measured. A pass
 /// that stops compiles at most one window it never measures.
 #[derive(Debug)]
-pub(crate) struct FirstPassPlanner {
+pub struct FirstPassPlanner {
     patience: PatienceTable,
     /// Whether each slot's kernels were compiled, by slot (Position Usage).
     compiled: Vec<bool>,
@@ -43,7 +43,7 @@ pub(crate) struct FirstPassPlanner {
 
 impl FirstPassPlanner {
     /// A planner that compiles `windows` candidates together, at least one a window.
-    pub(crate) fn new(batch: &Batch, windows: CompileWindows) -> Self {
+    pub fn new(batch: &Batch, windows: CompileWindows) -> Self {
         let patience = PatienceTable::new(batch);
         Self {
             min_measured: patience.min_measured(),
@@ -60,7 +60,7 @@ impl FirstPassPlanner {
     /// yet: the next slots from it that are neither compiled nor skipped, as many as the window
     /// holds. `None` once
     /// every remaining slot is skipped.
-    pub(crate) fn plan_next(&mut self) -> Option<FirstPassStep> {
+    pub fn plan_next(&mut self) -> Option<FirstPassStep> {
         let slot = (self.next..self.compiled.len()).find(|slot| !self.patience.skips(*slot))?;
         self.next = slot + 1;
         let compile = if self.compiled[slot] {
@@ -72,13 +72,13 @@ impl FirstPassPlanner {
     }
 
     /// Count the candidate at `slot` as measured, by its best first-pass time.
-    pub(crate) fn record(&mut self, slot: usize, time: Duration) {
+    pub fn record(&mut self, slot: usize, time: Duration) {
         self.measured += 1;
         self.patience.record(slot, time);
     }
 
     /// Whether the batch measured enough candidates for the bounds' time limit to end it.
-    pub(crate) fn may_short_circuit(&self) -> bool {
+    pub fn may_short_circuit(&self) -> bool {
         self.measured >= self.min_measured
     }
 }
@@ -101,7 +101,8 @@ impl FirstPassPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tune::{BatchEntry, GroupId, Patience};
+    use crate::tune::Patience;
+    use crate::tune::base::{BatchEntry, GroupId};
 
     /// A batch of `len` candidates of one ordered group with `patience`.
     fn batch(len: usize, patience: Option<Patience>) -> Batch {

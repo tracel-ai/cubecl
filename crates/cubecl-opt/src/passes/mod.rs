@@ -9,4 +9,5 @@ pub mod sccp;
 pub mod simple_cse;
 pub mod sink_broadcast;
 pub mod sroa;
+pub mod stack_move;
 pub mod uniformity;

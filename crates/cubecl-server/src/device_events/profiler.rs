@@ -91,8 +91,8 @@ impl<A: EventApi> Mark<A> {
     /// # Errors
     ///
     /// [`DriverError`] when the driver refuses the dependency.
-    pub fn wait_async(&self, stream: A::Stream) -> Result<(), DriverError> {
-        self.event.wait_async(stream)
+    pub fn sync_device(&self, stream: A::Stream) -> Result<(), DriverError> {
+        self.event.sync_device(stream)
     }
 }
 
@@ -330,8 +330,8 @@ fn read<A: EventApi>(
 ) -> Result<ProfileTicks, DriverError> {
     // Both: a span may run between two streams, where reaching the end implies nothing about the
     // start.
-    start.wait()?;
-    end.wait()?;
+    start.sync_host()?;
+    end.sync_host()?;
 
     // The span is measured between the window's own two events rather than as
     // the difference of two anchor offsets. A second out from the anchor, two
@@ -366,7 +366,7 @@ impl<A: EventApi> Anchor<A> {
     fn take(stream: A::Stream, pool: &EventPool<A>) -> Result<Self, DriverError> {
         let event = pool.acquire()?;
         event.record(stream)?;
-        event.wait()?;
+        event.sync_host()?;
 
         Ok(Self {
             event: Arc::new(event),

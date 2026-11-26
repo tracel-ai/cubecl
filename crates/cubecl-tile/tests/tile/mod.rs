@@ -58,6 +58,7 @@ mod top_k;
 mod top_values;
 mod vector_tile;
 mod wgmma;
+mod wide_window;
 mod written_operands;
 
 use cubecl::prelude::*;

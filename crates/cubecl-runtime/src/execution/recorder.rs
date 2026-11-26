@@ -35,33 +35,33 @@ impl StatisticsRecorder {
 
 impl StatisticsRecorder {
     /// A recorder that counts into `counter`.
-    pub(crate) fn new(counter: Arc<StatisticsCounter>) -> Self {
+    pub fn new(counter: Arc<StatisticsCounter>) -> Self {
         Self { counter }
     }
 
     /// Where the work the override open now triggers counts, or `None` when
     /// none is open.
-    pub(crate) fn active() -> Option<Self> {
+    pub fn active() -> Option<Self> {
         PROCESS_MODES.recorder()
     }
 
     /// Whether it counts into `collector`.
-    pub(crate) fn counts_into(&self, collector: &StatisticsCollector) -> bool {
+    pub fn counts_into(&self, collector: &StatisticsCollector) -> bool {
         Arc::ptr_eq(&self.counter, &collector.to_recorder().counter)
     }
 
     /// Count one item of `O` registered.
-    pub(crate) fn count_registered<O: Countable>(&self) {
+    pub fn count_registered<O: Countable>(&self) {
         self.counter.count_registered::<O>();
     }
 
     /// Count one item of `O` settled in `outcome`.
-    pub(crate) fn count_outcome<O: Countable>(&self, outcome: O) {
+    pub fn count_outcome<O: Countable>(&self, outcome: O) {
         self.counter.count_outcome(outcome);
     }
 
     /// Count `later` happening to one settled item of `O`.
-    pub(crate) fn count_later<O: Countable>(&self, later: O::Later) {
+    pub fn count_later<O: Countable>(&self, later: O::Later) {
         self.counter.count_later::<O>(later);
     }
 }

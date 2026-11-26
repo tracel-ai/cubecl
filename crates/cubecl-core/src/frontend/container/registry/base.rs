@@ -180,11 +180,20 @@ impl<K: PartialOrd + Ord, V: CubeType<ExpandType: Clone>> CubeType for Registry<
     type ExpandType = Registry<K, V::ExpandType>;
 }
 
-impl<K: PartialOrd + Ord, V: IntoMut + Clone> IntoMut for Registry<K, V> {
-    fn into_mut(self, scope: &Scope) -> Self {
+impl<K: PartialOrd + Ord, V: PlaceExpand + Clone> PlaceExpand for Registry<K, V> {
+    fn create_mut_place(self, scope: &Scope) -> Self {
         let mut map = self.map.borrow_mut();
         map.iter_mut().for_each(|(_k, v)| {
-            *v = IntoMut::into_mut(v.clone(), scope);
+            *v = PlaceExpand::create_mut_place(v.clone(), scope);
+        });
+        core::mem::drop(map);
+
+        self
+    }
+    fn read_place(self, scope: &Scope) -> Self {
+        let mut map = self.map.borrow_mut();
+        map.iter_mut().for_each(|(_k, v)| {
+            *v = PlaceExpand::read_place(v.clone(), scope);
         });
         core::mem::drop(map);
 

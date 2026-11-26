@@ -188,6 +188,33 @@ impl VectorTile {
         }
     }
 
+    /// The width of this load for a `reader` stepping slices along `innermost`, each `length`
+    /// values long, a whole load at a time.
+    ///
+    /// # Panics
+    ///
+    /// When the load spans several dimensions or runs across the slices, or a slice is no whole
+    /// number of loads long, naming `reader`.
+    pub(crate) fn width_along_slices(
+        &self,
+        innermost: Dimension,
+        length: usize,
+        reader: &str,
+    ) -> usize {
+        let (along, width) = self.along_one_dimension(reader);
+        assert!(
+            along == innermost,
+            "{reader} steps slices along {innermost:?}, and this operand loads along {along:?}: \
+             read it with a narrower vector"
+        );
+        assert!(
+            length.is_multiple_of(width),
+            "{reader} steps slices of {length} values, no whole number of {width}-wide loads: \
+             read it with a narrower vector"
+        );
+        width
+    }
+
     /// How far one load reaches along `dimension`: its extent there, `1` off the dimensions it
     /// spans.
     pub fn extent_along(&self, dimension: Dimension) -> usize {
@@ -524,6 +551,34 @@ mod tests {
         let load = VectorTile::new(&[(K, 8), (K, 2), (N, 2)], N, 32).unwrap();
         assert_eq!(load.extent_along(K), 16);
         assert_eq!(load.extent_along(N), 2);
+    }
+
+    /// A run along the slices' dimension steps them a whole load at a time.
+    #[test]
+    fn a_run_along_the_slices_steps_them_at_its_width() {
+        assert_eq!(VectorTile::run(N, 4).width_along_slices(N, 16, "a test"), 4);
+    }
+
+    /// A load spanning two dimensions would read across slices.
+    #[test]
+    #[should_panic(expected = "places a load along one dimension")]
+    fn a_load_over_two_dimensions_steps_no_slices() {
+        let load = VectorTile::new(&[(N, 2), (K, 2)], N, 4).unwrap();
+        load.width_along_slices(N, 16, "a test");
+    }
+
+    /// A run along another dimension than the slices' would read across them.
+    #[test]
+    #[should_panic(expected = "loads along")]
+    fn a_run_across_the_slices_steps_none_of_them() {
+        VectorTile::run(K, 4).width_along_slices(N, 16, "a test");
+    }
+
+    /// A slice that ends inside a load would share it with the next slice.
+    #[test]
+    #[should_panic(expected = "no whole number")]
+    fn a_slice_ending_inside_a_load_is_not_stepped() {
+        VectorTile::run(N, 4).width_along_slices(N, 6, "a test");
     }
 
     /// A buffer stored in no tiles counts its loads with the last dimension fastest, as it always has:

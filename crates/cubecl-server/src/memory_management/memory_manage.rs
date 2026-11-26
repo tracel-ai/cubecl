@@ -1,8 +1,11 @@
 use super::{
-    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
-    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, MemoryPoolsReport,
-    PERSISTENT_POOL_POS, PageGuard,
-    memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
+    AdaptiveReserver, BucketReserver, DEDICATED_POOL_POS, ManagedMemoryBinding,
+    ManagedMemoryDescriptor, ManagedMemoryHandle, MemoryAllocationMode, MemoryAllocationOption,
+    MemoryConfiguration, MemoryLocation, MemoryManagementOptions, MemoryPoolReport,
+    MemoryPoolsReport, PERSISTENT_POOL_POS, PageGuard,
+    memory_pool::{
+        DirectSliceReserver, PageMapping, PersistentSliceReserver, Slice, SliceReserver,
+    },
 };
 use crate::{
     config::{
@@ -10,12 +13,13 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
+    memory_management::{BytesFormat, ErrorGraph, FailureId},
     server::{IoError, ServerError},
     storage::{ManagedResource, StorageAllocator, StorageHandle},
 };
 
-use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
+use crate::memory_management::relocation::{RelocationCopier, RelocationNeed, RelocationReason};
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -23,33 +27,6 @@ use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-
-/// Which pool a slice's location routes to: the two fixed sentinels, or a
-/// dynamic pool by index.
-#[derive(Clone, Copy)]
-enum PoolPosition {
-    Persistent,
-    Dedicated,
-    Dynamic(u8),
-}
-
-impl PoolPosition {
-    fn new(pool: u8) -> Self {
-        match pool {
-            PERSISTENT_POOL_POS => PoolPosition::Persistent,
-            DEDICATED_POOL_POS => PoolPosition::Dedicated,
-            index => PoolPosition::Dynamic(index),
-        }
-    }
-
-    /// The error for a location naming a dynamic pool the layout does not have.
-    fn missing(index: u8) -> IoError {
-        IoError::NotFound {
-            backtrace: BackTrace::capture(),
-            reason: format!("Memory pool {index} doesn't exist").into(),
-        }
-    }
-}
 
 /// What a reservation may do to the pages the memory holds to find room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,63 +69,29 @@ pub enum Cleanup {
     Explicit,
 }
 
-/// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
+/// The device memory of one stream: reservations carved from pools of pages,
+/// the allocations bound to them, and the failures they carry.
+///
+/// # Assumptions
+///
+/// - `failures`, in every function that takes it, is the [`ErrorGraph`] that
+///   holds the failures this memory's allocations carry.
+/// - Every handle and binding handed to a function was placed by this
+///   memory's reservations and names its allocation's current location, or
+///   was never placed at all.
+///
+/// # Guarantees
+///
+/// A reservation releases or renumbers a page only under
+/// [`PageUpdate::Allow`], and allocates one only under `Allow` or
+/// [`PageUpdate::AddOnly`].
 pub struct MemoryManagement<Storage> {
-    name: String,
-    persistent: PersistentPool,
-    /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
-    /// device allocation, returned to the driver on the tick after it is freed.
-    dedicated: DirectPool,
-    pools: DynamicMemory,
-    storage: Storage,
-    alloc_reserve_count: u64,
-    mode: MemoryAllocationMode,
-    /// The mode no window overrides: the configured or provided one.
-    base_mode: MemoryAllocationMode,
-    /// Open allocation windows (see [`mode`](Self::mode)), innermost last,
-    /// each holding the mode it put in force.
-    windows: Vec<MemoryAllocationMode>,
-    config: PersistentMemory,
-    logger: Arc<ServerLogger>,
-}
-
-/// The options for creating a new [`MemoryManagement`] instance.
-#[derive(Debug)]
-pub struct MemoryManagementOptions {
-    /// The name of the memory management.
-    name: String,
-    /// The [`MemoryAllocationOption`] used by this instance.
-    memory: MemoryAllocationOption,
-}
-
-impl MemoryManagementOptions {
-    /// Creates a new [`MemoryManagementOptions`].
-    pub fn new<S: Into<String>>(name: S) -> Self {
-        Self {
-            name: name.into(),
-            memory: MemoryAllocationOption::FromConfig,
-        }
-    }
-
-    /// Forces the [`MemoryAllocationMode`] during execution to always be the provided one.
-    pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
-        self.memory = MemoryAllocationOption::Provided(mode);
-        self
-    }
-}
-
-#[derive(Default, Debug)]
-/// Determines which [`MemoryAllocationMode`] is used during allocations.
-enum MemoryAllocationOption {
-    #[default]
-    /// Uses the [`GlobalConfig`] to determine the mode of allocation.
-    FromConfig,
-    /// Use the provided [`MemoryAllocationMode`].
-    Provided(MemoryAllocationMode),
+    reserver: MemoryReserver<Storage>,
 }
 
 impl<Storage: StorageAllocator> MemoryManagement<Storage> {
-    /// Creates the options from device limits.
+    /// The memory of a device with `properties`, laid out as `config` says,
+    /// over `storage`.
     pub fn from_configuration(
         storage: Storage,
         properties: &MemoryDeviceProperties,
@@ -156,49 +99,12 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         logger: Arc<ServerLogger>,
         options: MemoryManagementOptions,
     ) -> Self {
-        let pools = DynamicMemory::new(properties, config, logger.clone(), options.name.clone());
-
-        let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
-
-        let mode = match options.memory {
-            MemoryAllocationOption::Provided(mode) => mode,
-            MemoryAllocationOption::FromConfig => match config {
-                PersistentMemory::Enabled | PersistentMemory::SizeMatch => {
-                    MemoryAllocationMode::Auto
-                }
-                PersistentMemory::Disabled => MemoryAllocationMode::Auto,
-                PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
-            },
-        };
-
         Self {
-            name: options.name,
-            // Both pools hold one device allocation per buffer, so neither is
-            // bounded by a page: each takes the largest single allocation.
-            persistent: PersistentPool::new(
-                properties.max_allocation_size(),
-                properties.alignment,
-                PERSISTENT_POOL_POS,
-            ),
-            // A watermark of zero: every free slice goes back on the next tick.
-            dedicated: DirectPool::new(
-                properties.max_allocation_size(),
-                properties.alignment,
-                DEDICATED_POOL_POS,
-                Some(0),
-            ),
-            pools,
-            storage,
-            alloc_reserve_count: 0,
-            mode,
-            base_mode: mode,
-            windows: Vec::new(),
-            config,
-            logger,
+            reserver: MemoryReserver::new(storage, properties, config, logger, options),
         }
     }
 
-    /// Change the mode of allocation.
+    /// Open or close an allocation window.
     ///
     /// Windows **nest**: a `Persistent` or `Dedicated` call opens one, an
     /// `Auto` call closes the innermost, and the innermost open window decides
@@ -214,14 +120,458 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// `Dedicated` window is honored whatever the config, since it exists to
     /// keep a buffer out of every pool.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
+        self.reserver.mode(mode);
+    }
+
+    /// Give back what the pools hold and nothing uses, as far as `cleanup`
+    /// asks; an explicit one hands every deallocation to the driver before it
+    /// returns.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in.
+    pub fn cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
+        self.reserver.cleanup(cleanup, failures);
+    }
+
+    /// The stream cursor the allocation behind `binding` was bound at.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::NotFound`] when `binding` was never placed.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
+    pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
+        self.reserver.get_cursor(&binding)
+    }
+
+    /// The storage behind `binding`, which always refers to mapped memory: the
+    /// funnel every buffer dereference passes through, so it is where a
+    /// lazily-carved allocation gets its real device backing.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::NotFound`] when `binding` was never placed, and
+    /// [`IoError::StorageMappingFailed`] when the storage refuses the backing.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        self.reserver.get_storage(&binding)
+    }
+
+    /// The bytes this memory holds from the device right now, whatever pool
+    /// holds them.
+    pub fn bytes_allocated(&self) -> u64 {
+        self.reserver.bytes_allocated()
+    }
+
+    /// Whether emptying the outdated pools is wanted, before the bytes the
+    /// device holds are known: only while something is outdated, when the
+    /// arena is full or the device may be short of room, and not again while
+    /// the pools look as they did when the last relocation moved nothing.
+    /// [`RelocationNeed::resolve`] settles it against those bytes.
+    pub fn relocation_need(&self) -> RelocationNeed {
+        self.reserver.relocation_need()
+    }
+
+    /// Empty what the outdated pools hold into the current pages, so the
+    /// pages they held go back to the driver, with the copies on `copier`.
+    /// `reason` decides whether a target may take a new page.
+    ///
+    /// # Guarantees
+    ///
+    /// With nothing outdated, moves nothing and waits on nothing.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in.
+    pub fn relocate(
+        &mut self,
+        copier: &mut dyn RelocationCopier<Storage>,
+        reason: RelocationReason,
+        failures: &mut ErrorGraph,
+    ) {
+        self.reserver.relocate(copier, reason, failures);
+    }
+
+    /// Move every allocation of `kept` that sits on a page a graph guards onto room no graph's
+    /// replay writes, with its bytes: what a graph capture's planning runs left alive, whose
+    /// addresses nothing recorded. The copies are queued on `copier`.
+    ///
+    /// # Assumptions
+    ///
+    /// Every binding of `kept` names a page this memory holds.
+    ///
+    /// # Guarantees
+    ///
+    /// - An allocation `kept` names more than once moves once.
+    /// - A resource [`managed_resource`](Self::managed_resource) handed out
+    ///   for a moved allocation names its old place from then on, as
+    ///   [`ManagedResource`](crate::storage::ManagedResource) states for an
+    ///   allocation a graph capture keeps apart.
+    ///
+    /// # Errors
+    ///
+    /// When no room apart takes one, or a copy fails: nothing moved then.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in, or a
+    /// binding of `kept` names a page this memory does not hold.
+    pub fn move_apart(
+        &mut self,
+        kept: &[ManagedMemoryBinding],
+        copier: &mut dyn RelocationCopier<Storage>,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
+        self.reserver.move_apart(kept, copier, failures)
+    }
+
+    /// Keep the page `location` names as it is for as long as the guard lives
+    /// (see [`PageGuard`]). `None` when no pool holds such a page.
+    pub fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        self.reserver.guard(location)
+    }
+
+    /// The resource behind `binding`, trimmed by its offsets, holding the
+    /// allocation's binding for as long as it lives: what a caller that keeps
+    /// the raw address past this call is handed. The binding keeps the
+    /// allocation alive, and in place unless [`move_apart`](Self::move_apart)
+    /// moves it for a graph capture, and leaves the rest of its page to other
+    /// allocations.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
+    ///
+    /// # Errors
+    ///
+    /// As [`get_resource`](Self::get_resource).
+    ///
+    /// # Panics
+    ///
+    /// As [`get_resource`](Self::get_resource).
+    pub fn managed_resource(
+        &mut self,
+        binding: ManagedMemoryBinding,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
+    ) -> Result<ManagedResource<Storage::Resource>, IoError> {
+        self.reserver
+            .managed_resource(binding, offset_start, offset_end)
+    }
+
+    /// The resource behind `binding`, trimmed by its offsets.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding that never had an allocation is refused with
+    /// [`IoError::NotFound`], never resolved to another allocation.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::BindingOutOfBounds`] when the offsets reach past the end of
+    /// the binding's memory, and whatever [`get_storage`](Self::get_storage)
+    /// refuses.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` names a location this memory does not hold for it.
+    pub fn get_resource(
+        &mut self,
+        binding: ManagedMemoryBinding,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
+    ) -> Result<Storage::Resource, IoError> {
+        self.reserver
+            .get_resource(&binding, offset_start, offset_end)
+    }
+
+    /// Reserve `size` bytes for work outside a graph capture, changing the
+    /// pages held only as far as `update` allows.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::PageUpdateForbidden`] when `update` forbids a new page and
+    /// the room held cannot serve it, and whatever the pools or the device
+    /// refused otherwise.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in.
+    pub fn reserve(
+        &mut self,
+        size: u64,
+        update: PageUpdate,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.reserver
+            .reserve(size, update, AllocationKind::Eager, failures)
+    }
+
+    /// [`reserve`](Self::reserve), for an allocation of `kind`.
+    ///
+    /// # Errors
+    ///
+    /// As [`reserve`](Self::reserve).
+    ///
+    /// # Panics
+    ///
+    /// As [`reserve`](Self::reserve).
+    pub fn reserve_as(
+        &mut self,
+        size: u64,
+        update: PageUpdate,
+        kind: AllocationKind,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.reserver.reserve(size, update, kind, failures)
+    }
+
+    /// The storage the memory allocates from, to time deallocations against
+    /// asynchronous work or change how it allocates. An allocation made on it
+    /// directly is no reservation of this memory: no binding resolves to it.
+    pub fn storage(&mut self) -> &mut Storage {
+        self.reserver.storage()
+    }
+
+    /// Everything this memory holds, pool by pool: each pool's shape, usage
+    /// and high-water marks, the dynamic ones in allocation-routing order.
+    /// [`MemoryPoolsReport::usage`] sums them.
+    pub fn memory_report(&self) -> MemoryPoolsReport {
+        self.reserver.memory_report()
+    }
+
+    /// Log the current memory usage.
+    pub fn print_memory_usage(&self) {
+        self.reserver.print_memory_usage();
+    }
+
+    /// Bind `assigned`, a handle no reservation placed yet, to the slice
+    /// `reserved` holds, at `cursor`: the point of the stream from which the
+    /// binding is valid. The failures the slice's last allocation carried
+    /// are released.
+    ///
+    /// # Assumptions
+    ///
+    /// `reserved` came from a reservation of this memory and was not bound
+    /// since: a second bind would take the slice from the allocation the
+    /// first bound to it.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in, or
+    /// `reserved` was never placed or names a slice this memory does not
+    /// hold: binding it would overwrite another allocation's handle.
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+        failures: &mut ErrorGraph,
+    ) {
+        self.reserver.bind(reserved, assigned, cursor, failures)
+    }
+
+    /// The failure claiming any byte of `range` in the allocation behind
+    /// `binding`, if one does.
+    ///
+    /// # Assumptions
+    ///
+    /// `binding` was placed: a caller asks the error graph about a buffer
+    /// never allocated.
+    ///
+    /// # Panics
+    ///
+    /// When `binding` was never placed, or names a location this memory does
+    /// not hold for it.
+    pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
+        self.reserver.failure(binding, range)
+    }
+
+    /// Point `range` of the allocation behind `binding` at `failure`.
+    ///
+    /// # Assumptions
+    ///
+    /// `failure` is one `failures` holds.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding never placed is left alone: it has no slice to carry a
+    /// failure, and the callers pass every binding unfiltered.
+    ///
+    /// # Panics
+    ///
+    /// When `failure` is not one `failures` holds, `failures` is not the
+    /// graph this memory's failures are in, or a placed `binding` names a
+    /// location this memory does not hold for it.
+    pub fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        range: Range<u64>,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.reserver.taint(binding, range, failure, failures);
+    }
+
+    /// `range` of the allocation behind `binding` has a writer again: release
+    /// every claim on those bytes — and only those bytes, since a partial
+    /// write says nothing about the rest of the buffer.
+    ///
+    /// # Guarantees
+    ///
+    /// A binding never placed is left alone.
+    ///
+    /// # Panics
+    ///
+    /// When `failures` is not the graph this memory's failures are in, or a
+    /// placed `binding` names a location this memory does not hold for it.
+    pub fn written(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        range: Range<u64>,
+        failures: &mut ErrorGraph,
+    ) {
+        self.reserver.written(binding, range, failures);
+    }
+}
+
+impl<Storage: StorageAllocator> core::fmt::Display for MemoryManagement<Storage> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.reserver)
+    }
+}
+
+impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "MemoryManagement {:?}",
+            core::any::type_name::<Storage>()
+        )
+    }
+}
+
+/// Reserves and keeps track of slices of the storage's device allocations,
+/// routing each to the pool its mode and size call for.
+struct MemoryReserver<Storage> {
+    name: String,
+    persistent: PersistentSliceReserver,
+    /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
+    /// device allocation, returned to the driver on the tick after it is freed.
+    dedicated: DirectSliceReserver,
+    dynamic: MemoryReserverDispatch,
+    storage: Storage,
+    /// The reservations made so far, which the pools' deallocation periods
+    /// count in.
+    reservation_count: u64,
+    mode: MemoryAllocationMode,
+    /// The mode no window overrides: the configured or provided one.
+    base_mode: MemoryAllocationMode,
+    /// The open allocation windows, innermost last (Arrival), each holding
+    /// the mode it put in force.
+    windows: Vec<MemoryAllocationMode>,
+    config: PersistentMemory,
+    logger: Arc<ServerLogger>,
+}
+
+/// The dynamic pools a stream allocates from: everything a workload
+/// allocates and frees as it runs, as against the persistent memory its
+/// weights sit in and the dedicated buffers that own their allocation.
+enum MemoryReserverDispatch {
+    /// One page per allocation, in size buckets. Nothing is ever outdated.
+    Buckets(BucketReserver),
+    /// Pages sized to the largest allocation served, with a pool per size:
+    /// the pool a growth leaves behind drains and is dropped. Boxed: it holds
+    /// its pools inline, and a memory is built once.
+    Adaptive(Box<AdaptiveReserver>),
+}
+
+/// Which pool a slice's location routes to: the two fixed sentinels, or a
+/// dynamic pool by index.
+#[derive(Clone, Copy)]
+enum PoolPosition {
+    Persistent,
+    Dedicated,
+    Dynamic(u8),
+}
+
+impl PoolPosition {
+    /// The pool position `pool_index` carries.
+    fn from_pool_index(pool_index: u8) -> Self {
+        match pool_index {
+            PERSISTENT_POOL_POS => PoolPosition::Persistent,
+            DEDICATED_POOL_POS => PoolPosition::Dedicated,
+            index => PoolPosition::Dynamic(index),
+        }
+    }
+}
+
+impl<Storage: StorageAllocator> MemoryReserver<Storage> {
+    fn new(
+        storage: Storage,
+        properties: &MemoryDeviceProperties,
+        config: MemoryConfiguration,
+        logger: Arc<ServerLogger>,
+        options: MemoryManagementOptions,
+    ) -> Self {
+        let (name, memory) = options.into_parts();
+        let dynamic = MemoryReserverDispatch::new(properties, config, logger.clone(), name.clone());
+        let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
+        let mode = match memory {
+            MemoryAllocationOption::Provided(mode) => mode,
+            MemoryAllocationOption::FromConfig => configured_mode(&config),
+        };
+
+        Self {
+            name,
+            // Both pools hold one device allocation per buffer, so neither is
+            // bounded by a page: each takes the largest single allocation.
+            persistent: PersistentSliceReserver::new(
+                properties.max_allocation_size(),
+                properties.alignment,
+                PERSISTENT_POOL_POS,
+            ),
+            // A watermark of zero: every free slice goes back on the next tick.
+            dedicated: DirectSliceReserver::new(
+                properties.max_allocation_size(),
+                properties.alignment,
+                DEDICATED_POOL_POS,
+                Some(0),
+            ),
+            dynamic,
+            storage,
+            reservation_count: 0,
+            mode,
+            base_mode: mode,
+            windows: Vec::new(),
+            config,
+            logger,
+        }
+    }
+
+    fn mode(&mut self, mode: MemoryAllocationMode) {
         match mode {
             MemoryAllocationMode::Auto => {
-                self.windows.pop();
+                self.windows.truncate(self.windows.len().saturating_sub(1))
             }
-            MemoryAllocationMode::Persistent => self.windows.push(match self.config {
-                PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
-                PersistentMemory::Disabled | PersistentMemory::Enforced => self.base_mode,
-            }),
+            MemoryAllocationMode::Persistent => self.windows.push(self.persistent_window()),
             MemoryAllocationMode::Dedicated => self.windows.push(mode),
         }
         let mode = self.windows.last().copied().unwrap_or(self.base_mode);
@@ -239,50 +589,48 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         self.mode = mode;
     }
 
-    /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
+    /// The mode a `Persistent` window puts in force under the persistent-memory config.
+    fn persistent_window(&self) -> MemoryAllocationMode {
+        match self.config {
+            PersistentMemory::Enabled | PersistentMemory::SizeMatch => {
+                MemoryAllocationMode::Persistent
+            }
+            PersistentMemory::Disabled | PersistentMemory::Enforced => self.base_mode,
+        }
+    }
+
+    fn cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled) && cleanup == Cleanup::Explicit,
             || "Manual memory cleanup ...".to_string(),
         );
 
-        self.persistent.cleanup(
-            &mut self.storage,
-            self.alloc_reserve_count,
-            cleanup,
-            failures,
-        );
-
+        self.persistent
+            .cleanup(&mut self.storage, self.reservation_count, cleanup, failures);
         // Dedicated buffers never wait for an explicit cleanup: freed is done.
-        if self.dedicated.reclaim(&mut self.storage, failures) {
-            self.storage.flush();
-        }
+        let reclaimed = self.dedicated.reclaim(&mut self.storage, failures);
+        self.cleanup_dynamic(cleanup, failures);
 
-        self.pools.cleanup(
-            &mut self.storage,
-            self.alloc_reserve_count,
-            cleanup,
-            failures,
-        );
-
-        // The pools only queue their page deallocations in the storage; an
-        // explicit cleanup means "release the memory now", so push them to the
-        // driver instead of leaving them pending.
-        if cleanup == Cleanup::Explicit {
+        // The pools only queue their page deallocations in the storage; a
+        // reclaimed dedicated buffer, or an explicit cleanup, means "release
+        // the memory now", so push them to the driver instead of leaving them
+        // pending.
+        if reclaimed || cleanup == Cleanup::Explicit {
             self.storage.flush();
         }
     }
 
-    /// Returns the storage from the specified binding
-    pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
-        let slice = self.find(&binding)?;
-        Ok(slice.cursor)
+    fn get_cursor(&self, binding: &ManagedMemoryBinding) -> Result<u64, IoError> {
+        Ok(self.find(binding)?.cursor)
     }
 
     /// The allocation behind `binding`.
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let slice = self.pool(allocated(binding.descriptor())?)?.find(binding)?;
-        owned_by(slice, binding)?;
+        let slice = self
+            .pool(allocated(binding.descriptor())?)
+            .find(binding)
+            .expect("a binding should name a slice its pool holds");
+        owned_by(slice, binding);
         Ok(slice)
     }
 
@@ -290,101 +638,93 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     /// [`written`](Self::written) take to reach the slice.
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let slice = self
-            .pool_mut(allocated(binding.descriptor())?)?
-            .find_mut(binding)?;
-        owned_by(slice, binding)?;
+            .pool_mut(allocated(binding.descriptor())?)
+            .find_mut(binding)
+            .expect("a binding should name a slice its pool holds");
+        owned_by(slice, binding);
         Ok(slice)
     }
 
     /// The pool `location` names.
-    fn pool(&self, location: MemoryLocation) -> Result<&dyn MemoryPool, IoError> {
-        match PoolPosition::new(location.pool) {
-            PoolPosition::Persistent => Ok(&self.persistent),
-            PoolPosition::Dedicated => Ok(&self.dedicated),
+    ///
+    /// # Panics
+    ///
+    /// When `location` names no pool of this memory.
+    fn pool(&self, location: MemoryLocation) -> &dyn SliceReserver {
+        match PoolPosition::from_pool_index(location.pool) {
+            PoolPosition::Persistent => &self.persistent,
+            PoolPosition::Dedicated => &self.dedicated,
             PoolPosition::Dynamic(index) => self
-                .pools
-                .pool(index)
-                .ok_or_else(|| PoolPosition::missing(index)),
+                .dynamic_pool_by_index(index)
+                .expect("a location should name a pool of the memory that placed it"),
         }
     }
 
     /// The pool `location` names, mutably.
-    fn pool_mut(&mut self, location: MemoryLocation) -> Result<&mut dyn MemoryPool, IoError> {
-        match PoolPosition::new(location.pool) {
-            PoolPosition::Persistent => Ok(&mut self.persistent),
-            PoolPosition::Dedicated => Ok(&mut self.dedicated),
-            PoolPosition::Dynamic(index) => self
-                .pools
-                .pool_mut(index)
-                .ok_or_else(|| PoolPosition::missing(index)),
+    ///
+    /// # Panics
+    ///
+    /// When `location` names no pool of this memory.
+    fn pool_mut(&mut self, location: MemoryLocation) -> &mut dyn SliceReserver {
+        self.try_pool_mut(location)
+            .expect("a location should name a pool of the memory that placed it")
+    }
+
+    /// [`pool_mut`](Self::pool_mut), `None` where it panics.
+    fn try_pool_mut(&mut self, location: MemoryLocation) -> Option<&mut dyn SliceReserver> {
+        match PoolPosition::from_pool_index(location.pool) {
+            PoolPosition::Persistent => Some(&mut self.persistent),
+            PoolPosition::Dedicated => Some(&mut self.dedicated),
+            PoolPosition::Dynamic(index) => self.dynamic_pool_by_index_mut(index),
         }
     }
 
-    /// Returns the storage from the specified binding.
-    ///
-    /// This is the funnel every buffer dereference passes through
-    /// ([`get_resource`](Self::get_resource) delegates here), so it is where
-    /// a lazily-carved allocation gets its real device backing: the handle
-    /// returned always refers to mapped memory.
-    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
-        self.materialize(&binding)?;
-        let slice = self.find(&binding)?;
-        Ok(slice.storage.clone())
+    fn get_storage(&mut self, binding: &ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        self.materialize(binding)?;
+        Ok(self.find(binding)?.storage.clone())
     }
 
-    /// The bytes this memory holds from the device right now, whatever pool
-    /// holds them.
-    pub fn bytes_allocated(&self) -> u64 {
+    fn bytes_allocated(&self) -> u64 {
         self.storage.bytes_allocated()
     }
 
-    /// Whether emptying the outdated pools is wanted, before the bytes the
-    /// device holds are known: only while something is outdated, when the
-    /// arena is full or the device is short of room, and not again while the
-    /// pools look as they did when the last relocation moved nothing.
-    pub fn relocation_need(&self) -> RelocationNeed {
-        self.pools.relocation_need()
+    fn relocation_need(&self) -> RelocationNeed {
+        match &self.dynamic {
+            MemoryReserverDispatch::Buckets(_) => RelocationNeed::Nothing,
+            MemoryReserverDispatch::Adaptive(memory) => memory.relocation_need(),
+        }
     }
 
-    /// Whether a growth left pages behind for a relocation to empty.
-    pub fn has_outdated(&self) -> bool {
-        self.pools.has_outdated()
-    }
-
-    /// Empty what the outdated pools hold into the current pages, so the
-    /// pages they held go back to the driver. `reason` decides whether a
-    /// target may take a new page.
-    pub fn relocate(
+    fn relocate(
         &mut self,
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
-        self.pools
-            .relocate(&mut self.storage, copier, reason, failures);
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(_) => {}
+            MemoryReserverDispatch::Adaptive(memory) => {
+                memory.relocate(&mut self.storage, copier, reason, failures)
+            }
+        }
     }
 
-    /// Move every allocation of `kept` that sits on a page a graph guards onto room no graph's
-    /// replay writes, with its bytes: what a graph capture's planning runs left alive, whose
-    /// addresses nothing recorded. The copies are queued on `copier`.
-    ///
-    /// # Errors
-    ///
-    /// When no room apart takes one, or a copy fails: nothing moved then.
-    pub fn move_apart(
+    fn move_apart(
         &mut self,
         kept: &[ManagedMemoryBinding],
-        copier: &mut dyn CopyQueue<Storage>,
+        copier: &mut dyn RelocationCopier<Storage>,
         failures: &mut ErrorGraph,
     ) -> Result<(), ServerError> {
-        self.pools
-            .move_apart(&mut self.storage, kept, copier, failures)
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(_) => Ok(()),
+            MemoryReserverDispatch::Adaptive(memory) => {
+                memory.move_apart(&mut self.storage, kept, copier, failures)
+            }
+        }
     }
 
-    /// Keep the page `location` names as it is for as long as the guard lives
-    /// (see [`PageGuard`]). `None` when no pool holds such a page.
-    pub fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
-        self.pool_mut(location).ok()?.guard(location)
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        self.try_pool_mut(location)?.guard(location)
     }
 
     /// Install real backing behind `binding` when its allocation was carved
@@ -395,79 +735,43 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         if location.init == 0 {
             return Ok(());
         }
-        match PoolPosition::new(location.pool) {
+        match PoolPosition::from_pool_index(location.pool) {
             PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
             PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
-            PoolPosition::Dynamic(_) => self.pools.materialize(&mut self.storage, binding),
+            PoolPosition::Dynamic(_) => self.materialize_dynamic(binding),
         }
     }
 
-    /// The resource behind `binding`, holding the allocation's binding for as
-    /// long as it lives: what a caller that keeps the raw address past this
-    /// call is handed. The binding keeps the allocation in place, and leaves
-    /// the rest of its page to other allocations.
-    pub fn managed_resource(
+    fn managed_resource(
         &mut self,
         binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Result<ManagedResource<Storage::Resource>, IoError> {
-        let resource = self.get_resource(binding.clone(), offset_start, offset_end)?;
+        let resource = self.get_resource(&binding, offset_start, offset_end)?;
         Ok(ManagedResource::new(binding, resource))
     }
 
-    /// The resource behind `binding`, trimmed by its offsets.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError::BindingOutOfBounds`] when the offsets reach past the end of
-    /// the binding's memory, and whatever [`get_storage`](Self::get_storage)
-    /// refuses.
-    pub fn get_resource(
+    fn get_resource(
         &mut self,
-        binding: ManagedMemoryBinding,
+        binding: &ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Result<Storage::Resource, IoError> {
         let handle = self.get_storage(binding)?;
-
         let size = handle.size();
         let handle = handle
             .trim_start_bytes(offset_start.unwrap_or(0))
             .and_then(|handle| handle.trim_end_bytes(offset_end.unwrap_or(0)))
             .ok_or_else(|| IoError::BindingOutOfBounds {
-                reason: alloc::format!(
-                    "offsets {offset_start:?} and {offset_end:?} on {size} bytes"
-                )
-                .into(),
+                reason: format!("offsets {offset_start:?} and {offset_end:?} on {size} bytes")
+                    .into(),
                 backtrace: BackTrace::capture(),
             })?;
-        Ok(self.storage().get(&handle))
+        Ok(self.storage.get(&handle))
     }
 
-    /// Reserve `size` bytes, changing the pages held only as far as `update`
-    /// allows.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError::PageUpdateForbidden`] when `update` forbids a new page and
-    /// the room held cannot serve it, and whatever the pools or the device
-    /// refused otherwise.
-    pub fn reserve(
-        &mut self,
-        size: u64,
-        update: PageUpdate,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        self.reserve_as(size, update, AllocationKind::Eager, failures)
-    }
-
-    /// [`reserve`](Self::reserve), for an allocation of `kind`.
-    ///
-    /// # Errors
-    ///
-    /// As [`reserve`](Self::reserve).
-    pub fn reserve_as(
+    fn reserve(
         &mut self,
         size: u64,
         update: PageUpdate,
@@ -475,24 +779,30 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match update {
-            PageUpdate::Allow => {
-                // Drive the pools' periodic deallocation. Each pool gates
-                // itself on its own `dealloc_period` (pools without one no-op),
-                // so this is a few comparisons per reservation — without it,
-                // pages freed long ago are never returned to the driver until
-                // an explicit cleanup, which on long-running processes lets
-                // every stream's pools grow monotonically.
-                self.cleanup(Cleanup::Periodic, failures);
-                self.reserve_adding(size, kind, failures)
-            }
+            PageUpdate::Allow => self.reserve_after_cleanup(size, kind, failures),
             PageUpdate::AddOnly => self.reserve_adding(size, kind, failures),
-            PageUpdate::Forbidden => self.reserve_held(size, kind, failures).ok_or_else(|| {
-                IoError::PageUpdateForbidden {
-                    size,
-                    backtrace: BackTrace::capture(),
-                }
-            }),
+            PageUpdate::Forbidden => self
+                .reserve_held(size, kind, failures)
+                .ok_or_else(|| page_update_forbidden(size)),
         }
+    }
+
+    /// Run the periodic cleanup, then [`reserve_adding`](Self::reserve_adding).
+    ///
+    /// The cleanup drives the pools' periodic deallocation. Each pool gates
+    /// itself on its own deallocation period (pools without one no-op), so
+    /// this is a few comparisons per reservation — without it, pages freed
+    /// long ago are never returned to the driver until an explicit cleanup,
+    /// which on long-running processes lets every stream's pools grow
+    /// monotonically.
+    fn reserve_after_cleanup(
+        &mut self,
+        size: u64,
+        kind: AllocationKind,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.cleanup(Cleanup::Periodic, failures);
+        self.reserve_adding(size, kind, failures)
     }
 
     /// Reserve `size` bytes, allocating a page when the room held has none,
@@ -505,8 +815,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
     ) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
-        self.alloc_reserve_count += 1;
-
+        self.reservation_count += 1;
         let mapping = PageMapping::current();
 
         if matches!(self.mode, MemoryAllocationMode::Dedicated) {
@@ -525,25 +834,16 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         let size_match = matches!(self.config, PersistentMemory::SizeMatch);
 
         if (persistent_mode || size_match)
-            && let Some(val) = self.persistent.try_reserve(size, failures)
+            && let Some(reserved) = self.persistent.try_reserve(size, failures)
         {
-            self.logger.log_memory(
-                |level| matches!(level, MemoryLogLevel::Full),
-                || {
-                    format!(
-                        "[{}] Reserved memory {size} using persistent memory",
-                        self.name
-                    )
-                },
-            );
-            return Ok(val);
+            self.log_full(|| format!("Reserved memory {size} using persistent memory"));
+            return Ok(reserved);
         }
 
-        if persistent_mode || (size_match && self.persistent.has_size(size)) {
+        if persistent_mode || (size_match && self.persistent.view().has_size_bytes(size)) {
             let allocated = self
                 .persistent
                 .alloc(&mut self.storage, size, mapping, failures);
-
             self.logger.log_memory(
                 |level| !matches!(level, MemoryLogLevel::Disabled),
                 || {
@@ -556,32 +856,25 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
             return allocated;
         }
 
-        self.logger.log_memory(
-            |level| matches!(level, MemoryLogLevel::Full),
-            || {
-                format!(
-                    "[{}] Reserved memory {} using dynamic pool",
-                    self.name,
-                    BytesFormat::from_byte_count(size)
-                )
-            },
-        );
-
-        let reserved = self
-            .pools
-            .reserve(&mut self.storage, size, mapping, kind, failures)?;
-
-        self.logger.log_memory(
-            |level| matches!(level, MemoryLogLevel::Full),
-            || {
-                format!(
-                    "[{}], Allocated a new memory page, current usage: \n{}",
-                    self.name, self
-                )
-            },
-        );
+        self.log_full(|| {
+            format!(
+                "Reserved memory {} using dynamic pool",
+                BytesFormat::from_byte_count(size)
+            )
+        });
+        let reserved = self.reserve_dynamic(size, mapping, kind, failures)?;
+        self.log_full(|| format!("Allocated a new memory page, current usage: \n{self}"));
 
         Ok(reserved)
+    }
+
+    /// Log the message `message` builds, under the name of this memory, at
+    /// the full memory log level.
+    fn log_full(&self, message: impl FnOnce() -> String) {
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || format!("[{}] {}", self.name, message()),
+        );
     }
 
     /// Reserve `size` bytes in the room the pools already hold, the way
@@ -596,79 +889,65 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         match self.mode {
             MemoryAllocationMode::Dedicated => self.dedicated.try_reserve(size, failures),
             MemoryAllocationMode::Persistent => self.persistent.try_reserve(size, failures),
-            MemoryAllocationMode::Auto => {
-                if matches!(self.config, PersistentMemory::SizeMatch)
-                    && let Some(handle) = self.persistent.try_reserve(size, failures)
-                {
-                    return Some(handle);
-                }
-                self.pools.try_reserve(size, kind, failures)
-            }
+            MemoryAllocationMode::Auto => self.reserve_held_auto(size, kind, failures),
         }
     }
 
-    /// Fetch the storage used by the memory manager.
-    ///
-    /// # Notes
-    ///
-    /// The storage should probably not be used for allocations since the handles won't be
-    /// compatible with the ones provided by the current trait. Prefer using the
-    /// [alloc](StorageAllocator::alloc) and [dealloc](StorageAllocator::dealloc) functions.
-    ///
-    /// This is useful if you need to time the deallocations based on async computation, or to
-    /// change the mode of storage for different reasons.
-    pub fn storage(&mut self) -> &mut Storage {
+    /// [`reserve_held`](Self::reserve_held) outside any window: the
+    /// persistent pool first under the `size-match` config, then the dynamic
+    /// pools.
+    fn reserve_held_auto(
+        &mut self,
+        size: u64,
+        kind: AllocationKind,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        if matches!(self.config, PersistentMemory::SizeMatch)
+            && let Some(handle) = self.persistent.try_reserve(size, failures)
+        {
+            return Some(handle);
+        }
+        self.try_reserve_dynamic(size, kind, failures)
+    }
+
+    fn storage(&mut self) -> &mut Storage {
         &mut self.storage
     }
 
-    /// Everything this memory holds, pool by pool: each pool's shape, usage
-    /// and high-water marks, the dynamic ones in allocation-routing order.
-    /// [`MemoryPoolsReport::usage`] sums them.
-    pub fn memory_report(&self) -> MemoryPoolsReport {
+    fn memory_report(&self) -> MemoryPoolsReport {
         MemoryPoolsReport {
-            dynamic: self.pools.report(),
+            dynamic: self.report_dynamic(),
             persistent: self.persistent.report(),
             dedicated: self.dedicated.report(),
         }
     }
 
-    /// Print out a report of the current memory usage.
-    pub fn print_memory_usage(&self) {
+    fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_report().usage());
     }
 
-    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
-    pub fn bind(
+    fn bind(
         &mut self,
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
         failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
-        let location = allocated(reserved.descriptor())?;
-        self.pool_mut(location)?
-            .bind(reserved, assigned, cursor, failures)
+    ) {
+        let location = allocated(reserved.descriptor())
+            .expect("a reservation should be placed by the memory that reserved it");
+        self.pool_mut(location)
+            .bind(reserved, assigned, cursor, failures);
     }
 
-    /// The failure claiming any byte of `range` in the allocation behind
-    /// `binding`, if one does.
-    ///
-    /// This is the read path's whole check: a field on a slice the resolution
-    /// walks anyway. A binding this manager does not hold answers `None` —
-    /// lookup errors are [`find`](Self::find)'s to report, and a failed lookup
-    /// carries no failure to name.
-    pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
+    fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
         self.find(binding)
-            .ok()
-            .and_then(|slice| slice.tainted.failure(&range))
+            .expect("a binding asked for its failure should be placed")
+            .tainted
+            .failure(&range)
     }
 
-    /// Point `range` of the allocation behind `binding` at `failure`.
-    ///
-    /// A binding this manager does not hold is left alone, for the same
-    /// reason [`failure`](Self::failure) answers `None` for one.
-    pub fn taint(
+    fn taint(
         &mut self,
         binding: &ManagedMemoryBinding,
         range: Range<u64>,
@@ -680,10 +959,7 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         }
     }
 
-    /// `range` of the allocation behind `binding` has a writer again: release
-    /// every claim on those bytes — and only those bytes, since a partial
-    /// write says nothing about the rest of the buffer.
-    pub fn written(
+    fn written(
         &mut self,
         binding: &ManagedMemoryBinding,
         range: Range<u64>,
@@ -692,6 +968,138 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         if let Ok(slice) = self.find_mut(binding) {
             slice.tainted.written(range, failures);
         }
+    }
+
+    /// The dynamic pool `index` names, while one is there.
+    fn dynamic_pool_by_index(&self, index: u8) -> Option<&dyn SliceReserver> {
+        match &self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => Some(buckets.pool_by_index(index)?),
+            MemoryReserverDispatch::Adaptive(memory) => memory.pool_by_index(index),
+        }
+    }
+
+    /// The dynamic pool `index` names, mutably.
+    fn dynamic_pool_by_index_mut(&mut self, index: u8) -> Option<&mut dyn SliceReserver> {
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => Some(buckets.pool_by_index_mut(index)?),
+            MemoryReserverDispatch::Adaptive(memory) => memory.pool_by_index_mut(index),
+        }
+    }
+
+    /// Install real backing behind `binding` when its allocation was carved
+    /// lazily. Only the adaptive pages are ever lazy.
+    fn materialize_dynamic(&mut self, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(_) => Ok(()),
+            MemoryReserverDispatch::Adaptive(memory) => {
+                memory.materialize(&mut self.storage, binding)
+            }
+        }
+    }
+
+    /// Reserve `size` bytes on the dynamic pool that serves them.
+    fn reserve_dynamic(
+        &mut self,
+        size: u64,
+        mapping: PageMapping,
+        kind: AllocationKind,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        match &mut self.dynamic {
+            // An exclusive pool pins a page by holding its one allocation, so
+            // its pins are never shared.
+            MemoryReserverDispatch::Buckets(buckets) => {
+                buckets.reserve(&mut self.storage, size, mapping, failures)
+            }
+            MemoryReserverDispatch::Adaptive(memory) => {
+                memory.reserve(&mut self.storage, size, mapping, kind, failures)
+            }
+        }
+    }
+
+    /// Reserve `size` bytes in the room a dynamic pool already holds,
+    /// without growing anything.
+    fn try_reserve_dynamic(
+        &mut self,
+        size: u64,
+        kind: AllocationKind,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => buckets.try_reserve(size, failures),
+            MemoryReserverDispatch::Adaptive(memory) => memory.try_reserve(size, kind, failures),
+        }
+    }
+
+    /// Release what the dynamic pools no longer need.
+    fn cleanup_dynamic(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
+        match &mut self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => {
+                buckets.cleanup(&mut self.storage, self.reservation_count, cleanup, failures)
+            }
+            MemoryReserverDispatch::Adaptive(memory) => {
+                memory.cleanup(&mut self.storage, self.reservation_count, cleanup, failures)
+            }
+        }
+    }
+
+    /// A report per dynamic pool held, in the order allocations are routed
+    /// through them.
+    fn report_dynamic(&self) -> Vec<MemoryPoolReport> {
+        match &self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => buckets.report(),
+            MemoryReserverDispatch::Adaptive(memory) => memory.report(),
+        }
+    }
+}
+
+impl MemoryReserverDispatch {
+    /// The pools `config` lays out on a device with `properties`.
+    fn new(
+        properties: &MemoryDeviceProperties,
+        config: MemoryConfiguration,
+        logger: Arc<ServerLogger>,
+        name: String,
+    ) -> Self {
+        match config {
+            MemoryConfiguration::ExclusivePages => {
+                Self::Buckets(log_buckets(BucketReserver::new(properties), &logger, &name))
+            }
+            // `Adaptive`, which only exists where `cubecl-runtime` allows
+            // sub-slicing. That crate alone decides, so this one cannot name
+            // the variant without disagreeing with it once the feature is
+            // turned on there directly.
+            #[allow(unreachable_patterns)]
+            _ => Self::Adaptive(Box::new(AdaptiveReserver::new(properties, logger, name))),
+        }
+    }
+}
+
+/// `buckets`, once logged as the pools the memory `name` uses.
+fn log_buckets(buckets: BucketReserver, logger: &ServerLogger, name: &str) -> BucketReserver {
+    logger.log_memory(
+        |level| !matches!(level, MemoryLogLevel::Disabled),
+        || format!("[{name}] Using memory pools:\n{buckets}"),
+    );
+    buckets
+}
+
+/// The mode the persistent-memory `config` puts in force outside any window.
+fn configured_mode(config: &PersistentMemory) -> MemoryAllocationMode {
+    match config {
+        PersistentMemory::Enabled | PersistentMemory::SizeMatch | PersistentMemory::Disabled => {
+            MemoryAllocationMode::Auto
+        }
+        PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+    }
+}
+
+/// The refusal of a reservation of `size` bytes the room held cannot serve,
+/// when no page may be added.
+fn page_update_forbidden(size: u64) -> IoError {
+    IoError::PageUpdateForbidden {
+        size,
+        backtrace: BackTrace::capture(),
     }
 }
 
@@ -707,43 +1115,32 @@ fn allocated(descriptor: &ManagedMemoryDescriptor) -> Result<MemoryLocation, IoE
     Ok(descriptor.location())
 }
 
-/// Whether `slice` still holds the allocation behind `binding`. A stale
-/// location (a page deallocated since, whose index a later cleanup reassigned)
-/// must surface as `NotFound`, never as another allocation's slice.
-fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
-    if slice.handle.descriptor() != binding.descriptor() {
-        return Err(IoError::NotFound {
-            backtrace: BackTrace::capture(),
-            reason: "Memory location points to a different allocation".into(),
-        });
-    }
-    Ok(())
+/// Check that `slice` still holds the allocation behind `binding`: a binding
+/// names its allocation's current location, so a slice holding another one
+/// is a broken assumption, never an answer.
+///
+/// # Panics
+///
+/// When `slice` holds another allocation than `binding`'s.
+fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) {
+    assert!(
+        slice.descriptor() == binding.descriptor(),
+        "a binding should name its allocation's current location"
+    );
 }
 
-impl<Storage: StorageAllocator> core::fmt::Display for MemoryManagement<Storage> {
+impl<Storage: StorageAllocator> core::fmt::Display for MemoryReserver<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("\n# MemoryManagement\n\n")?;
         f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
         f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
         f.write_str("\n## Dynamic\n\n")?;
-
-        f.write_fmt(format_args!("{}", self.pools))?;
+        match &self.dynamic {
+            MemoryReserverDispatch::Buckets(buckets) => write!(f, "{buckets}")?,
+            MemoryReserverDispatch::Adaptive(memory) => write!(f, "{memory}")?,
+        }
         let memory_usage = self.memory_report().usage();
-        f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
-
-        Ok(())
-    }
-}
-
-impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(
-            alloc::format!(
-                "DynamicMemoryManagement {:?}",
-                core::any::type_name::<Storage>(),
-            )
-            .as_str(),
-        )
+        f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))
     }
 }
 
@@ -752,19 +1149,42 @@ mod tests {
     use super::*;
     #[cfg(not(exclusive_memory_only))]
     use crate::memory_management::MemoryPoolKind;
-    use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use crate::storage::BytesStorage;
 
     const MIB: u64 = 1024 * 1024;
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties::new(128 * MIB, 32);
     /// The page the `Adaptive` preset's metadata pool carves.
     #[cfg(not(exclusive_memory_only))]
-    const METADATA_PAGE: u64 = 8 * MIB;
+    const METADATA_PAGE_BYTES: u64 = 8 * MIB;
 
-    fn options() -> MemoryManagementOptions {
-        MemoryManagementOptions {
-            name: "test".into(),
-            memory: MemoryAllocationOption::FromConfig,
-        }
+    fn memory(config: MemoryConfiguration) -> MemoryManagement<BytesStorage> {
+        memory_on(&DUMMY_MEM_PROPS, config)
+    }
+
+    fn memory_on(
+        properties: &MemoryDeviceProperties,
+        config: MemoryConfiguration,
+    ) -> MemoryManagement<BytesStorage> {
+        MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            properties,
+            config,
+            Arc::new(ServerLogger::default()),
+            MemoryManagementOptions::new("test"),
+        )
+    }
+
+    fn reserve(memory: &mut MemoryManagement<BytesStorage>, size: u64) -> ManagedMemoryHandle {
+        memory
+            .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
+            .expect("the memory should serve the size")
+    }
+
+    fn launch_failure(failures: &mut ErrorGraph) -> FailureId {
+        failures.insert(ServerError::Generic {
+            reason: "launch".into(),
+            backtrace: Default::default(),
+        })
     }
 
     /// The adaptive preset's small pool is for metadata: an allocation close
@@ -773,23 +1193,15 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn adaptive_preset_routes_near_page_sizes_to_the_adaptive_pool() {
-        let mut memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-        let _near = memory
-            .reserve(7 * MIB, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let mut memory = memory(MemoryConfiguration::Adaptive);
+        let _near = reserve(&mut memory, 7 * MIB);
 
         let served = memory
             .memory_report()
             .dynamic
             .into_iter()
             .find(|pool| pool.largest_alloc_bytes == 7 * MIB)
-            .expect("some pool served the allocation");
+            .expect("some pool should have served the allocation");
         assert!(
             matches!(served.kind, MemoryPoolKind::Adaptive { .. }),
             "served by {:?}",
@@ -797,63 +1209,43 @@ mod tests {
         );
     }
 
+    #[cfg(not(exclusive_memory_only))]
     #[test_log::test]
     fn a_binding_whose_offsets_reach_past_its_memory_is_refused() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-        let handle = memory_management
-            .reserve(16, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
+        let handle = reserve(&mut memory_management, 16);
         let resource = memory_management.get_resource(handle.binding(), Some(12), Some(8));
         assert!(matches!(resource, Err(IoError::BindingOutOfBounds { .. })));
     }
 
-    // Test pools with slices.
-    #[test_log::test]
+    /// A binding's offsets trim the resource it resolves to.
     #[cfg(not(exclusive_memory_only))]
-    fn test_handle_mutability() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-        let handle = memory_management
-            .reserve(10, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
-        let other_ref = handle.clone();
-        assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
-        drop(other_ref);
-        assert!(handle.can_mut(), "Handle should be mut when only one ref.");
+    #[test_log::test]
+    fn a_binding_resolves_to_its_trimmed_resource() {
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
+        let handle = reserve(&mut memory_management, 16);
+
+        let resource = memory_management
+            .get_resource(handle.binding(), Some(4), Some(4))
+            .expect("the offsets should fit the binding");
+
+        assert_eq!(resource.read().len(), 8);
     }
 
-    // Test pools with slices.
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn test_memory_usage() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-        let handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
+        let handle = reserve(&mut memory_management, 100);
         let usage = memory_management.memory_report().usage();
 
         assert_eq!(usage.in_use_bytes, 100);
         // A metadata-sized allocation is carved from one metadata page.
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
 
         // Drop and re-alloc.
         drop(handle);
-        let _handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, 100);
         let usage_new = memory_management.memory_report().usage();
         assert_eq!(usage, usage_new);
     }
@@ -861,19 +1253,11 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn find_uninit_binding_returns_not_found() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         // Even with a live page at index 0, a never-initialized descriptor must
         // not resolve to it.
-        let _live = memory_management
-            .reserve(512, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let _live = reserve(&mut memory_management, 512);
 
         let binding = ManagedMemoryHandle::new().binding();
         assert!(matches!(
@@ -882,58 +1266,164 @@ mod tests {
         ));
     }
 
+    /// A binding naming a slice another allocation took is never resolved to
+    /// that allocation's data.
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
-    fn find_stale_descriptor_returns_not_found() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
+    #[should_panic(expected = "a binding should name its allocation's current location")]
+    fn a_stale_binding_panics() {
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
+        let reserved = reserve(&mut memory_management, 512);
+        let stale = reserved.clone();
+        memory_management.bind(
+            reserved,
+            ManagedMemoryHandle::new(),
+            0,
+            &mut ErrorGraph::default(),
         );
 
-        let reserved = memory_management
-            .reserve(512, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
-        let stale = reserved.clone();
-        let assigned = ManagedMemoryHandle::new();
-        let assigned_binding = assigned.clone().binding();
+        let _ = memory_management.get_cursor(stale.binding());
+    }
 
-        memory_management
-            .bind(reserved, assigned, 0, &mut ErrorGraph::default())
-            .unwrap();
+    /// Binding a handle no reservation placed panics.
+    #[test_log::test]
+    #[should_panic(expected = "a reservation should be placed by the memory that reserved it")]
+    fn binding_an_unplaced_handle_panics() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
-        // The slice's identity is now `assigned`; the stale reserved descriptor
-        // must surface as `NotFound`, not as the new allocation's data.
-        assert!(matches!(
-            memory_management.get_cursor(stale.binding()),
-            Err(IoError::NotFound { .. })
-        ));
-        assert!(memory_management.get_cursor(assigned_binding).is_ok());
+        memory_management.bind(
+            ManagedMemoryHandle::new(),
+            ManagedMemoryHandle::new(),
+            0,
+            &mut ErrorGraph::default(),
+        );
+    }
+
+    /// A location naming a dynamic pool the layout does not have panics.
+    #[test_log::test]
+    #[should_panic(expected = "a location should name a pool of the memory that placed it")]
+    fn a_location_naming_no_pool_panics() {
+        let memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let handle = ManagedMemoryHandle::new();
+        handle
+            .descriptor()
+            .update_location(MemoryLocation::new(200, 0, 0));
+
+        let _ = memory_management.get_cursor(handle.binding());
+    }
+
+    /// A taint of a binding never placed takes nothing.
+    #[test_log::test]
+    fn a_taint_of_an_unplaced_binding_takes_nothing() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let mut failures = ErrorGraph::default();
+        let failure = launch_failure(&mut failures);
+
+        memory_management.taint(
+            &ManagedMemoryHandle::new().binding(),
+            0..8,
+            failure,
+            &mut failures,
+        );
+
+        failures.prune(failure);
+        assert!(failures.is_empty(), "nothing took the failure");
+    }
+
+    /// A write of a binding never placed releases no claim.
+    #[test_log::test]
+    fn a_write_of_an_unplaced_binding_releases_nothing() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let mut failures = ErrorGraph::default();
+        let failure = launch_failure(&mut failures);
+        let handle = reserve(&mut memory_management, 64);
+        let binding = handle.clone().binding();
+        memory_management.taint(&binding, 0..64, failure, &mut failures);
+
+        memory_management.written(&ManagedMemoryHandle::new().binding(), 0..64, &mut failures);
+
+        assert_eq!(memory_management.failure(&binding, 0..64), Some(failure));
+    }
+
+    /// The failure of a binding never placed is a broken assumption.
+    #[test_log::test]
+    #[should_panic(expected = "a binding asked for its failure should be placed")]
+    fn the_failure_of_an_unplaced_binding_panics() {
+        let memory_management = memory(MemoryConfiguration::ExclusivePages);
+
+        memory_management.failure(&ManagedMemoryHandle::new().binding(), 0..8);
+    }
+
+    /// A taint claims the bytes it names until they are written again.
+    #[test_log::test]
+    fn a_taint_claims_its_bytes_until_they_are_written() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let mut failures = ErrorGraph::default();
+        let failure = launch_failure(&mut failures);
+        let handle = reserve(&mut memory_management, 64);
+        let binding = handle.clone().binding();
+
+        memory_management.taint(&binding, 0..64, failure, &mut failures);
+        assert_eq!(memory_management.failure(&binding, 8..16), Some(failure));
+        memory_management.written(&binding, 0..64, &mut failures);
+
+        assert_eq!(memory_management.failure(&binding, 8..16), None);
+        assert!(failures.is_empty());
+    }
+
+    /// A reservation forbidden to update the pages is refused when the room
+    /// held cannot serve it.
+    #[test_log::test]
+    fn a_forbidden_page_update_is_refused_without_room() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+
+        let refused =
+            memory_management.reserve(1024, PageUpdate::Forbidden, &mut ErrorGraph::default());
+
+        assert!(matches!(refused, Err(IoError::PageUpdateForbidden { .. })));
+    }
+
+    /// A dedicated window allocates outside every pool.
+    #[test_log::test]
+    fn a_dedicated_window_reserves_its_own_allocation() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        memory_management.mode(MemoryAllocationMode::Dedicated);
+
+        let first = memory_management
+            .reserve(1024, PageUpdate::AddOnly, &mut ErrorGraph::default())
+            .expect("a dedicated allocation should be made");
+
+        assert_eq!(first.descriptor().location().pool, DEDICATED_POOL_POS);
+    }
+
+    /// A forbidden page update in a dedicated window reuses a freed dedicated
+    /// slice of the same size.
+    #[test_log::test]
+    fn a_dedicated_window_reuses_a_freed_dedicated_slice() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        memory_management.mode(MemoryAllocationMode::Dedicated);
+        drop(
+            memory_management
+                .reserve(1024, PageUpdate::AddOnly, &mut ErrorGraph::default())
+                .expect("a dedicated allocation should be made"),
+        );
+
+        let reused = memory_management
+            .reserve(1024, PageUpdate::Forbidden, &mut ErrorGraph::default())
+            .expect("the freed dedicated slice should serve it");
+
+        assert_eq!(reused.descriptor().location().pool, DEDICATED_POOL_POS);
     }
 
     #[test_log::test]
     fn held_binding_survives_explicit_cleanup_renumber() {
         // Exclusive pages: one page per allocation, so freeing two of three
         // leaves the pool with pages to drop and one to renumber.
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
-        let handle_a = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
-        let handle_b = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
-        let handle_c = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let handle_a = reserve(&mut memory_management, 1024);
+        let handle_b = reserve(&mut memory_management, 1024);
+        let handle_c = reserve(&mut memory_management, 1024);
 
         let binding_b = handle_b.binding();
         let reserved = memory_management.memory_report().usage().reserved_bytes;
@@ -958,22 +1448,14 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn persistent_windows_nest() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         memory_management.mode(MemoryAllocationMode::Persistent); // the load's window
         memory_management.mode(MemoryAllocationMode::Persistent); // one parameter's window
         memory_management.mode(MemoryAllocationMode::Auto); // that parameter is done
 
         // Still inside the load's window: the allocation must be persistent.
-        let weight = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let weight = reserve(&mut memory_management, 1024);
         let report = memory_management.memory_report();
         assert_eq!(
             report.persistent.usage.in_use_bytes, 1024,
@@ -991,9 +1473,7 @@ mod tests {
 
         // The outer window closes; ordinary allocations are dynamic again.
         memory_management.mode(MemoryAllocationMode::Auto);
-        let _transient = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let _transient = reserve(&mut memory_management, 1024);
         assert_eq!(
             memory_management
                 .memory_report()
@@ -1007,74 +1487,69 @@ mod tests {
         drop(weight);
     }
 
+    /// Closing a window none is open in keeps the configured mode.
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn closing_no_window_keeps_the_configured_mode() {
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
+
+        memory_management.mode(MemoryAllocationMode::Auto);
+        let _transient = reserve(&mut memory_management, 1024);
+
+        assert_eq!(
+            memory_management
+                .memory_report()
+                .persistent
+                .usage
+                .in_use_bytes,
+            0
+        );
+    }
+
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn alloc_two_chunks_on_one_page() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         let alloc_size = 512;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
         // One page, not two: both slices were carved from the same one.
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
     }
 
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         let alloc_size = 512;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        drop(_handle);
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let handle = reserve(&mut memory_management, alloc_size);
+        drop(handle);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 1);
         assert_eq!(usage.in_use_bytes, alloc_size);
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES);
     }
 
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn alloc_allocs_new_storage() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         // Three quarters of the adaptive pool's smallest page each: the second
         // one does not fit beside the first, so the pool has to grow a page.
         let page_size = 2 * MIB;
         let alloc_size = page_size / 4 * 3;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 2);
@@ -1085,18 +1560,13 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn alloc_respects_alignment_size() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+        let mut memory_management = memory_on(
             &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 50),
             MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
         );
         let alloc_size = 40;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
         let usage = memory_management.memory_report().usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.padding_bytes, 10 * 2);
@@ -1107,20 +1577,10 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn allocs_on_correct_page() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         let alloc_sizes = [4096, 4 * MIB];
-        let handles = alloc_sizes.map(|size| {
-            memory_management
-                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
-                .unwrap()
-        });
+        let handles = alloc_sizes.map(|size| reserve(&mut memory_management, size));
 
         assert_ne!(
             handles[0].descriptor().location().pool,
@@ -1132,7 +1592,7 @@ mod tests {
         // Total memory should be size of all pages, and no more: one metadata
         // page, and one adaptive page grown to the 4 MiB allocation.
         assert_eq!(usage.in_use_bytes, alloc_sizes.iter().sum::<u64>());
-        assert_eq!(usage.reserved_bytes, METADATA_PAGE + 5 * MIB);
+        assert_eq!(usage.reserved_bytes, METADATA_PAGE_BYTES + 5 * MIB);
     }
 
     // The motivating use case: allocations from different "sequence-length
@@ -1141,23 +1601,13 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn single_arena_reuses_across_sizes() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
 
         // A "small seq" allocation, then freed.
-        let small = memory_management
-            .reserve(128 * 1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let small = reserve(&mut memory_management, 128 * 1024);
         drop(small);
         // A "large seq" allocation must reuse the same arena page.
-        let large = memory_management
-            .reserve(512 * 1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let large = reserve(&mut memory_management, 512 * 1024);
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(
@@ -1172,35 +1622,17 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| {
-                memory_management.reserve(
-                    1000 * (i + 1),
-                    PageUpdate::Allow,
-                    &mut ErrorGraph::default(),
-                )
-            })
+            .map(|i| reserve(&mut memory_management, 1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_report().usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| {
-                memory_management.reserve(
-                    1000 * (i + 1),
-                    PageUpdate::Allow,
-                    &mut ErrorGraph::default(),
-                )
-            })
+            .map(|i| reserve(&mut memory_management, 1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_report().usage();
         assert_eq!(usage_before.allocation_count, usage_after.allocation_count);
@@ -1212,22 +1644,12 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::Adaptive);
         // Allocate a mix of small and large chunks
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
         let handles: Vec<_> = sizes
             .iter()
-            .map(|&size| {
-                memory_management
-                    .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
-                    .unwrap()
-            })
+            .map(|&size| reserve(&mut memory_management, size))
             .collect();
         let usage_before = memory_management.memory_report().usage();
         // Deallocate every other allocation
@@ -1236,9 +1658,7 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management
-                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
-                .unwrap();
+            reserve(&mut memory_management, size);
         }
         let usage_after = memory_management.memory_report().usage();
         // Check that we haven't increased our memory usage significantly
@@ -1247,38 +1667,12 @@ mod tests {
 
     // Test pools without slices. More or less same as tests above.
     #[test_log::test]
-    fn noslice_test_handle_mutability() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-        let handle = memory_management
-            .reserve(10, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
-        let other_ref = handle.clone();
-        assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
-        drop(other_ref);
-        assert!(handle.can_mut(), "Handle should be mut when only one ref.");
-    }
-
-    #[test_log::test]
     fn noslice_alloc_two_chunk() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
         let alloc_size = 512;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
 
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 2);
@@ -1287,44 +1681,12 @@ mod tests {
     }
 
     #[test_log::test]
-    fn noslice_alloc_reuses_storage() {
-        // If no storage is re-used, this will allocate two pages.
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        let alloc_size = 512;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        drop(_handle);
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-
-        let usage = memory_management.memory_report().usage();
-        assert_eq!(usage.allocation_count, 1);
-        assert_eq!(usage.in_use_bytes, alloc_size);
-        assert!(usage.reserved_bytes >= alloc_size);
-    }
-
-    #[test_log::test]
     fn noslice_alloc_allocs_new_storage() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
         let alloc_size = 768;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
         let usage = memory_management.memory_report().usage();
         assert_eq!(usage.allocation_count, 2);
         assert_eq!(usage.in_use_bytes, alloc_size * 2);
@@ -1333,18 +1695,13 @@ mod tests {
 
     #[test_log::test]
     fn noslice_alloc_respects_alignment_size() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+        let mut memory_management = memory_on(
             &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 50),
             MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
         );
         let alloc_size = 40;
-        let _handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let _new_handle =
-            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _handle = reserve(&mut memory_management, alloc_size);
+        let _new_handle = reserve(&mut memory_management, alloc_size);
         let usage = memory_management.memory_report().usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.padding_bytes, 10 * 2);
@@ -1352,17 +1709,13 @@ mod tests {
 
     #[test_log::test]
     fn noslice_allocs_on_correct_page() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+        let mut memory_management = memory_on(
             &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 10),
             MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes
-            .map(|s| memory_management.reserve(s, PageUpdate::Allow, &mut ErrorGraph::default()));
+        let _handles = alloc_sizes.map(|s| reserve(&mut memory_management, s));
         let usage = memory_management.memory_report().usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.in_use_bytes, alloc_sizes.iter().sum::<u64>());
@@ -1370,28 +1723,18 @@ mod tests {
 
     #[test_log::test]
     fn a_guarded_allocation_is_never_handed_out_again() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
-        let recorded = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let recorded = reserve(&mut memory_management, 1024);
         let guard = memory_management
             .guard(recorded.descriptor().location())
-            .expect("the pool holds the page");
+            .expect("the pool should hold the page");
         drop(recorded);
 
         // Freed, but guarded: the next allocation of that size needs a page
         // of its own, and a cleanup leaves the guarded one where it is.
         let before = memory_management.memory_report().usage().reserved_bytes;
-        let other = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let other = reserve(&mut memory_management, 1024);
         let after = memory_management.memory_report().usage().reserved_bytes;
         assert!(after > before, "the guarded page was handed out again");
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
@@ -1414,13 +1757,7 @@ mod tests {
     #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn a_pinned_page_is_carved_only_by_a_capture() {
-        let mut memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Adaptive,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory = memory(MemoryConfiguration::Adaptive);
         let share = |memory: &mut MemoryManagement<BytesStorage>, update| {
             memory.reserve_as(
                 MIB,
@@ -1429,27 +1766,25 @@ mod tests {
                 &mut ErrorGraph::default(),
             )
         };
-        let temporary = share(&mut memory, PageUpdate::Allow).unwrap();
+        let temporary = share(&mut memory, PageUpdate::Allow).expect("a capture should reserve");
         let _pin = memory
             .guard(temporary.descriptor().location())
-            .expect("the pool holds the page");
+            .expect("the pool should hold the page");
         drop(temporary);
         let pinned = memory.memory_report().usage().reserved_bytes;
 
         let later = share(&mut memory, PageUpdate::Forbidden)
-            .expect("a capture carves the room the pin keeps");
+            .expect("a capture should carve the room the pin keeps");
         assert_eq!(memory.memory_report().usage().reserved_bytes, pinned);
 
-        let _eager = memory
-            .reserve(MIB, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let _eager = reserve(&mut memory, MIB);
         assert!(
             memory.memory_report().usage().reserved_bytes > pinned,
             "work outside a capture took a page of its own"
         );
 
         let held = share(&mut memory, PageUpdate::Forbidden)
-            .expect("the pinned page has room past the held slice");
+            .expect("the pinned page should have room past the held slice");
         assert_ne!(
             held.descriptor().location(),
             later.descriptor().location(),
@@ -1459,17 +1794,9 @@ mod tests {
 
     #[test_log::test]
     fn a_guard_leaves_in_place_updates_alone() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
 
-        let cache = memory_management
-            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
-            .unwrap();
+        let cache = reserve(&mut memory_management, 1024);
         let _guard = memory_management.guard(cache.descriptor().location());
 
         assert!(
@@ -1478,41 +1805,74 @@ mod tests {
         );
     }
 
+    /// A dedicated allocation is its own device allocation, returned on the
+    /// tick after it is freed, whatever mode encloses it.
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn dedicated_allocations_are_released_once_freed() {
+        /// The floor the `Adaptive` preset carves its pages at.
+        const FLOOR_BYTES: u64 = 2 * MIB;
+        let mut memory = memory_on(
+            &MemoryDeviceProperties::new(1024 * MIB, 32),
+            MemoryConfiguration::Adaptive,
+        );
+
+        memory.mode(MemoryAllocationMode::Persistent);
+        memory.mode(MemoryAllocationMode::Dedicated);
+        let probe = reserve(&mut memory, 200 * MIB);
+        memory.mode(MemoryAllocationMode::Auto);
+        let weight = reserve(&mut memory, MIB);
+        memory.mode(MemoryAllocationMode::Auto);
+
+        assert_eq!(
+            memory.memory_report().persistent.usage.in_use_bytes,
+            MIB,
+            "closing the dedicated window restores the persistent one"
+        );
+        let report = memory.memory_report();
+        assert_eq!(report.usage().reserved_bytes, 200 * MIB + MIB);
+        assert_eq!(
+            (report.dedicated.kind, report.dedicated.page_count),
+            (MemoryPoolKind::Direct, 1),
+            "the dedicated allocation is reported as its own pool"
+        );
+
+        drop(probe);
+        let _tick = reserve(&mut memory, MIB);
+        assert_eq!(
+            memory.memory_report().usage().reserved_bytes,
+            MIB + FLOOR_BYTES,
+            "the probe buffer is gone; the weight and one adaptive page remain"
+        );
+        drop(weight);
+    }
+
     #[test_log::test]
     fn noslice_allocate_deallocate_reallocate() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| {
-                memory_management.reserve(
-                    1000 * (i + 1),
-                    PageUpdate::Allow,
-                    &mut ErrorGraph::default(),
-                )
-            })
+            .map(|i| reserve(&mut memory_management, 1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_report().usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| {
-                memory_management.reserve(
-                    1000 * (i + 1),
-                    PageUpdate::Allow,
-                    &mut ErrorGraph::default(),
-                )
-            })
+            .map(|i| reserve(&mut memory_management, 1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_report().usage();
         assert_eq!(usage_before.allocation_count, usage_after.allocation_count);
         assert_eq!(usage_before.in_use_bytes, usage_after.in_use_bytes);
         assert_eq!(usage_before.reserved_bytes, usage_after.reserved_bytes);
+    }
+
+    /// A memory of buckets never has anything outdated.
+    #[test_log::test]
+    fn buckets_never_need_a_relocation() {
+        let mut memory_management = memory(MemoryConfiguration::ExclusivePages);
+        let _held = reserve(&mut memory_management, 1024);
+
+        assert_eq!(memory_management.relocation_need(), RelocationNeed::Nothing);
     }
 }

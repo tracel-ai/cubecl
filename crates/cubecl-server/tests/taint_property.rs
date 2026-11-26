@@ -247,15 +247,12 @@ impl Harness {
                 Ok(reserved) => reserved,
                 Err(err) => panic!("the harness never outgrows its pools: {err}"),
             };
-        stream
-            .memory
-            .bind(
-                reserved,
-                handle.memory.clone(),
-                0,
-                device.failures.graph_mut(),
-            )
-            .unwrap();
+        stream.memory.bind(
+            reserved,
+            handle.memory.clone(),
+            0,
+            device.failures.graph_mut(),
+        );
 
         self.buffers.push(Buffer {
             binding: handle.clone().binding(),

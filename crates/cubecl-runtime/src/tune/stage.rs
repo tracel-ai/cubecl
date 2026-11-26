@@ -62,10 +62,10 @@ where
 ///
 /// `FnMut` for the reason [`Evictor`](crate::tune::Evictor) is: it holds the inputs, which are only
 /// `Send`, and is lent out exclusively to the device thread the stage runs on.
-pub(crate) type BoundStageEnterer<'i> = dyn FnMut(TuneStage) -> Box<dyn Any> + Send + 'i;
+pub type BoundStageEnterer<'i> = dyn FnMut(TuneStage) -> Box<dyn Any> + Send + 'i;
 
 /// The guard of `stage` entered by `enterer`, or none where the set registered no enterer.
-pub(crate) fn enter_stage(
+pub fn enter_stage(
     enterer: Option<&mut BoundStageEnterer<'_>>,
     stage: TuneStage,
 ) -> Option<Box<dyn Any>> {

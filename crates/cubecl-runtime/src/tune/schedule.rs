@@ -9,28 +9,28 @@ use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::Evictor;
+use crate::tune::base::Batch;
 use crate::tune::first_pass::{CompileWindows, FirstPassPlanner};
 use crate::tune::sampler::{SampleSet, measured};
 use crate::tune::stage::{BoundStageEnterer, enter_stage};
 use crate::tune::{
-    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, Batch, TuneFn, TuneInputs,
-    TunePlan,
+    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
 };
 use crate::tune::{TuneDeviceAccess, TuneStage};
 
 /// The outcome of benchmarking one batch of the [`TunePlan`].
 #[derive(Debug)]
-pub(crate) struct BatchOutcome {
-    pub(crate) results: Vec<(usize, AutotuneResult)>,
-    pub(crate) steps: Vec<(String, Duration)>,
-    pub(crate) short_circuit: Option<String>,
-    pub(crate) any_success: bool,
+pub struct BatchOutcome {
+    pub results: Vec<(usize, AutotuneResult)>,
+    pub steps: Vec<(String, Duration)>,
+    pub short_circuit: Option<String>,
+    pub any_success: bool,
     /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
     /// the caller must not re-derive it by comparing the results.
-    pub(crate) decided: Option<usize>,
+    pub decided: Option<usize>,
     /// The candidates never measured: skipped by their groups' patience, or not reached
     /// before a short circuit.
-    pub(crate) unmeasured: Vec<usize>,
+    pub unmeasured: Vec<usize>,
 }
 
 /// Round robin benchmarking with early elimination.
@@ -49,21 +49,21 @@ pub(crate) struct BatchOutcome {
 /// past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total tuning
 /// cost on one card and −20% on another, both dominated by where the short circuit fires rather
 /// than by the sample budget.
-pub(crate) struct Schedule<'i> {
-    pub(crate) config: BenchConfig,
-    pub(crate) limit: Option<Duration>,
-    pub(crate) short_circuit: bool,
-    pub(crate) track_steps: bool,
+pub struct Schedule<'i> {
+    pub config: BenchConfig,
+    pub limit: Option<Duration>,
+    pub short_circuit: bool,
+    pub track_steps: bool,
     /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the window a round
     /// that may stop early compiles ahead of measuring.
     ///
     /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
-    pub(crate) compile_parallelism: usize,
+    pub compile_parallelism: usize,
     /// What runs before every measured sample, when the set registered one.
-    pub(crate) evictor: Option<Box<Evictor<'i>>>,
-    pub(crate) stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
+    pub evictor: Option<Box<Evictor<'i>>>,
+    pub stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
     /// How the batches hold the device, and how their samples are timed.
-    pub(crate) access: TuneDeviceAccess,
+    pub access: TuneDeviceAccess,
 }
 
 impl Schedule<'_> {
@@ -72,7 +72,7 @@ impl Schedule<'_> {
     /// Under [`TuneDeviceAccess::Exclusive`], takes exclusive device access for the entire round
     /// robin: candidates are interleaved, so releasing the device between them would let unrelated
     /// work land in the middle of a measurement.
-    pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
+    pub fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
@@ -109,7 +109,7 @@ impl Schedule<'_> {
                     .into_iter()
                     .map(|index| {
                         let error = AutotuneError::Unknown {
-                            name: autotunables[index].name.to_string(),
+                            name: autotunables[index].name().to_string(),
                             err: err.to_string(),
                         };
                         (index, AutotuneResult::error(error))
@@ -141,7 +141,7 @@ impl Schedule<'_> {
         let mut candidates: Vec<Candidate> = batch
             .entries
             .into_iter()
-            .map(|entry| Candidate::new(entry.index, autotunables[entry.index].name.to_string()))
+            .map(|entry| Candidate::new(entry.index, autotunables[entry.index].name().to_string()))
             .collect();
 
         let mut short_circuit = None;
@@ -518,7 +518,7 @@ impl Schedule<'_> {
     /// # Errors
     ///
     /// The device fault a sync reports once every candidate has failed: the device is lost.
-    pub(crate) fn run_plan<'a, K, F, Out>(
+    pub fn run_plan<'a, K, F, Out>(
         &mut self,
         key: &K,
         plan: &mut TunePlan,
@@ -614,10 +614,10 @@ fn executed_unmeasured(results: &[AutotuneResult]) -> Option<usize> {
 
 /// What walking the whole [`TunePlan`] produced: everything the tuner has to report or commit.
 #[derive(Debug)]
-pub(crate) struct PlanOutcome {
-    pub(crate) steps: Vec<(String, Duration)>,
-    pub(crate) short_circuit: Option<String>,
-    pub(crate) decided: Option<usize>,
+pub struct PlanOutcome {
+    pub steps: Vec<(String, Duration)>,
+    pub short_circuit: Option<String>,
+    pub decided: Option<usize>,
 }
 
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a

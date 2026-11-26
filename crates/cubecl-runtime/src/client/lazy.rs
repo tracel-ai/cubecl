@@ -41,7 +41,7 @@ pub struct LazyDeviceController {
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: Client, source: CopyDescriptor<Handle>) -> Self {
+    pub fn new(client: Client, source: CopyDescriptor<Handle>) -> Self {
         Self {
             client,
             len: source.shape.iter().product::<usize>() * source.elem_size,
@@ -51,7 +51,7 @@ impl LazyDeviceController {
     }
 
     /// The [`Bytes`] this controller reads into on first access.
-    pub(super) fn into_bytes(self) -> Bytes {
+    pub fn into_bytes(self) -> Bytes {
         let len = self.len;
         // SAFETY: the controller materializes exactly `len` bytes on first access.
         unsafe { Bytes::from_controller(Box::new(self), len) }

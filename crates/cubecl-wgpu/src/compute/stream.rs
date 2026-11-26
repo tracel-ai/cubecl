@@ -4,8 +4,8 @@ use super::{
     poll::WgpuPoll,
     timings::{QueryProfiler, TimestampQuerySetBudget, TimestampSampling},
 };
-use crate::compute::copies::WgpuCopies;
 use crate::compute::device_poison::PoisonWatch;
+use crate::compute::relocation_copier::WgpuRelocationCopier;
 use crate::{
     WgpuResource, WgpuStorage,
     controller::MappingStaging,
@@ -31,7 +31,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::relocation::{
-    RelocatableStream, RelocationNeed, RelocationReason,
+    RelocationReason, StreamRelocationState, StreamRelocator, StreamsSubmitted,
 };
 use cubecl_server::memory_management::{Cleanup, MemoryManagement};
 use cubecl_server::{
@@ -141,26 +141,29 @@ impl StreamMemory for WgpuStream {
     }
 }
 
-impl RelocatableStream for WgpuStream {
-    fn recording(&self) -> bool {
-        self.capturing.device().any_recording()
+impl StreamRelocator for WgpuStream {
+    fn relocation_state(&self) -> StreamRelocationState {
+        StreamRelocationState {
+            need: self
+                .memory
+                .relocation_need()
+                .while_recording(self.capturing.device().any_recording()),
+            allocated_bytes: self.memory.bytes_allocated() + self.auxiliary.bytes_allocated(),
+        }
     }
 
-    fn has_outdated(&self) -> bool {
-        self.memory.has_outdated()
-    }
-
-    fn relocation_need(&self) -> RelocationNeed {
-        self.memory.relocation_need()
-    }
-
-    fn bytes_allocated(&self) -> u64 {
-        self.memory.bytes_allocated() + self.auxiliary.bytes_allocated()
-    }
-
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        let mut copier =
-            WgpuCopies::new(self.device.clone(), self.queue.clone(), self.poison.clone());
+    fn relocate(
+        &mut self,
+        reason: RelocationReason,
+        submitted: &StreamsSubmitted,
+        failures: &mut ErrorGraph,
+    ) {
+        let mut copier = WgpuRelocationCopier::new(
+            self.device.clone(),
+            self.queue.clone(),
+            self.poison.clone(),
+            submitted,
+        );
         self.memory.relocate(&mut copier, reason, failures);
     }
 

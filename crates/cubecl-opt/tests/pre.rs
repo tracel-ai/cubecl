@@ -1057,6 +1057,65 @@ fn pre_aliasing_write_preserves_reads_and_dependents() -> Result<()> {
 }
 
 #[test]
+fn pre_speculates_an_expression_only_with_its_operands() -> Result<()> {
+    // `index_again` equals `index` but uses a division computed after the inner branch, which
+    // makes `index` not speculatable above the outer branch. `offset` uses `index`, so it must
+    // not be hoisted there either, where `index` would have no leader.
+    let input = r#"
+  builtin.module @module {
+    ^module_block():
+    builtin.func @f: builtin.function <(
+        builtin.integer ui32, builtin.integer ui32
+    ) -> (builtin.integer ui32)>
+        [entry_point: cube.entrypoint_abi <cube_dim: (1, 1, 1)>] {
+      ^entry(a: builtin.integer ui32, b: builtin.integer ui32):
+        outer_cond = plane.elect () [] []: <() -> (cube.bool)>;
+        inner_cond = plane.elect () [] []: <() -> (cube.bool)>;
+        quotient = math.u_div (a, b) [] []:
+            <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+        result = scf.if outer_cond : builtin.integer ui32 then {
+          ^outer_then():
+            inner = scf.if inner_cond : builtin.integer ui32 then {
+              ^inner_then():
+                index = math.i_add (quotient, a) [] []:
+                    <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+                offset = math.i_mul (index, b) [] []:
+                    <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+                pre.black_box offset;
+                branch.yield (a)
+            } else {
+              ^inner_else():
+                branch.yield (a)
+            };
+            again = math.u_div (a, b) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            index_again = math.i_add (again, a) [] []:
+                <(builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)>;
+            pre.black_box index_again;
+            branch.yield (inner)
+        } else {
+          ^outer_else():
+            branch.yield (a)
+        };
+        branch.return result
+    }
+  }
+    "#;
+
+    assert_sscm_result(input, IRStatus::Changed, |ctx, op| {
+        let quotient = find_single_op_in(ctx, op, "entry", "math.u_div").result(ctx);
+        let index = find_single_op_in(ctx, op, "outer_then", "math.i_add");
+        let offset = find_single_op_in(ctx, op, "outer_then", "math.i_mul");
+
+        assert_eq!(find_ops(ctx, op, "math.u_div").len(), 1);
+        assert_eq!(find_ops(ctx, op, "math.i_add").len(), 1);
+        assert_eq!(find_ops(ctx, op, "math.i_mul").len(), 1);
+        assert_eq!(index.operand(ctx, 0), quotient);
+        assert_eq!(offset.operand(ctx, 0), index.result(ctx));
+    })
+}
+
+#[test]
 fn pre_is_idempotent_after_speculative_insertion() -> Result<()> {
     init_env_logger_for_tests!();
 

@@ -3,19 +3,20 @@ use core::time::Duration;
 
 use cubecl_environment::collections::HashMap;
 
+use crate::tune::Patience;
+use crate::tune::base::{Batch, GroupId};
 use crate::tune::sampler::TimeChange;
-use crate::tune::{Batch, GroupId, Patience};
 
 /// The [`PatienceTracker`] of every group with a [`Patience`] in a [`Batch`], and the groups
 /// that brought each slot of the batch in.
 #[derive(Debug)]
-pub(crate) struct PatienceTable {
+pub struct PatienceTable {
     groups: Vec<Vec<GroupId>>,
     trackers: HashMap<GroupId, PatienceTracker>,
 }
 
 impl PatienceTable {
-    pub(crate) fn new(batch: &Batch) -> Self {
+    pub fn new(batch: &Batch) -> Self {
         Self {
             groups: batch
                 .entries
@@ -32,7 +33,7 @@ impl PatienceTable {
 
     /// Count the best time of the candidate at `slot` against each of the groups that brought
     /// it in.
-    pub(crate) fn record(&mut self, slot: usize, time: Duration) {
+    pub fn record(&mut self, slot: usize, time: Duration) {
         for group in &self.groups[slot] {
             if let Some(tracker) = self.trackers.get_mut(group) {
                 tracker.record(time);
@@ -53,7 +54,7 @@ impl PatienceTable {
 
     /// Whether the candidate at `slot` is skipped: every group that brought it in ran out of
     /// patience. One that a group without patience brought in, or that no group did, never is.
-    pub(crate) fn skips(&self, slot: usize) -> bool {
+    pub fn skips(&self, slot: usize) -> bool {
         let groups = &self.groups[slot];
         !groups.is_empty()
             && groups.iter().all(|group| {
@@ -108,7 +109,7 @@ impl PatienceTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tune::BatchEntry;
+    use crate::tune::base::BatchEntry;
 
     /// Feeds each member's best time in microseconds to a fresh [`PatienceTracker`],
     /// returning how many were measured before patience ran out, if it did.

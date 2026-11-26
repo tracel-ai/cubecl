@@ -6,5 +6,6 @@ pub mod threadpool;
 pub(crate) mod alloc_controller;
 pub(crate) mod cpu_kernel;
 pub mod kernel_compiler;
+mod relocation_copier;
 pub(crate) mod schedule;
 pub(crate) mod stream;

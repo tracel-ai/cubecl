@@ -30,7 +30,7 @@ impl<O: Countable> Settled<O> {
 
 impl<O: Countable> Settled<O> {
     /// An item `recorder` counted as ended in `outcome`.
-    pub(crate) fn new(recorder: StatisticsRecorder, outcome: O) -> Self {
+    pub fn new(recorder: StatisticsRecorder, outcome: O) -> Self {
         recorder.count_outcome(outcome);
         Self {
             recorder,

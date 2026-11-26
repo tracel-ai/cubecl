@@ -7,7 +7,7 @@ mod collective;
 mod collective_server;
 mod peers;
 mod staging;
-mod stream_copies;
+mod stream_relocation_copier;
 
 pub use backend::*;
 pub use base::*;

@@ -220,8 +220,8 @@ impl Driver for Cuda {
     fn wait_outside_streams(ctx: &mut CudaContext) -> Result<(), ServerError> {
         // Collectives and transfers run on streams of their own: one still
         // reading or writing an allocation has to finish before it moves.
-        Fence::new(ctx.comm_stream).wait_sync()?;
-        Fence::new(ctx.transfer_stream).wait_sync()
+        Fence::new(ctx.comm_stream).sync_host()?;
+        Fence::new(ctx.transfer_stream).sync_host()
     }
 }
 

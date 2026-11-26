@@ -3,12 +3,8 @@ use core::time::Duration;
 use alloc::vec::Vec;
 
 use crate::config::autotune::AutotuneLevel;
+use crate::throughput::ResourceBound;
 use crate::tune::TuneInputs;
-
-// A bound-builder constructs `AutotuneBound { resource: ResourceBound { .. }, .. }`
-// alongside this module's own types, so the neutral record is re-exported
-// here too, the same way `Work` is below.
-pub use crate::throughput::ResourceBound;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,10 +71,6 @@ impl PartialEq for AutotuneBound {
 }
 
 impl Eq for AutotuneBound {}
-
-// `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
-// autotune bounds and benchmark reporting share one definition.
-pub use cubecl_common::work::Work;
 
 /// Target fractions of modeled peak compute and memory roofline throughput.
 #[derive(Debug, Clone, Copy, PartialEq)]

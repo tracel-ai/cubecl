@@ -32,10 +32,10 @@ impl AliasAnalysis for RootAllocAA {
             return AliasResult::MustAlias;
         }
 
-        let Some(lhs_root) = lhs.get_root_defining_op(ctx) else {
+        let Some(lhs_root) = lhs.get_root_ptr_defining_op(ctx) else {
             return AliasResult::MayAlias;
         };
-        let Some(rhs_root) = rhs.get_root_defining_op(ctx) else {
+        let Some(rhs_root) = rhs.get_root_ptr_defining_op(ctx) else {
             return AliasResult::MayAlias;
         };
         let lhs_is_alloc = lhs_root.impls::<dyn PromotableAllocationInterface>(ctx)
@@ -44,12 +44,12 @@ impl AliasAnalysis for RootAllocAA {
             || rhs_root.is_op::<SliceSharedOp>(ctx);
 
         if lhs_is_alloc && rhs_is_alloc {
-            let root_value = lhs.get_root_value(ctx);
+            let root_value = lhs.get_root_ptr(ctx);
             let lhs_type = lhs.get_type(ctx).unwrap_ptr(ctx);
             let rhs_type = rhs.get_type(ctx).unwrap_ptr(ctx);
             let root_type = root_value.get_type(ctx).unwrap_ptr(ctx);
 
-            if lhs_root == rhs_root && root_value == rhs.get_root_value(ctx) {
+            if lhs_root == rhs_root && root_value == rhs.get_root_ptr(ctx) {
                 // If the full type is accessed, the pointers must alias
                 if let Extent::Exact(lhs_extent) = lhs_extent
                     && let Extent::Exact(rhs_extent) = rhs_extent

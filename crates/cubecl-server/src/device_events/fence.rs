@@ -11,7 +11,7 @@ use crate::server::ServerError;
 /// event costs the host nothing: the server records one and returns, and
 /// whoever holds the fence waits on its own time.
 ///
-/// Named for the trait it is not: `memory_management::drop_queue::Fence` is the
+/// `memory_management::drop_queue::StreamSyncer` is the
 /// contract, and this is the implementation of it that a device event gives
 /// you. Backends alias it back to `Fence` for their own call sites. Named in
 /// prose rather than linked because that trait is `multi_threading`-only while
@@ -59,9 +59,9 @@ impl<A: EventApi> EventFence<A> {
     ///
     /// Returns a [`ServerError`] if the driver refused to create or record the
     /// fence, or if the device was already faulty.
-    pub fn wait_sync(self) -> Result<(), ServerError> {
+    pub fn sync_host(self) -> Result<(), ServerError> {
         match self.event? {
-            Some(event) => Ok(event.wait()?),
+            Some(event) => Ok(event.sync_host()?),
             None => Ok(()),
         }
     }
@@ -74,13 +74,13 @@ impl<A: EventApi> EventFence<A> {
     /// # Errors
     ///
     /// Returns a [`ServerError`] when the fenced stream's work failed.
-    pub fn wait_async(self, stream: A::Stream) -> Result<(), ServerError> {
+    pub fn sync_device(self, stream: A::Stream) -> Result<(), ServerError> {
         let Some(event) = self.event? else {
             return Ok(());
         };
-        if let Err(err) = event.wait_async(stream) {
+        if let Err(err) = event.sync_device(stream) {
             log::warn!("a stream could not be made to wait on a fence, waiting on the host: {err}");
-            event.wait()?;
+            event.sync_host()?;
         }
         Ok(())
     }
@@ -96,8 +96,8 @@ impl<A: EventApi> core::fmt::Debug for EventFence<A> {
 /// rather than on the server — and it is `multi_threading`-only, so the impl is
 /// too. Everything above it is the same fence either way.
 #[cfg(multi_threading)]
-impl<A: EventApi> drop_queue::Fence for EventFence<A> {
-    fn wait(self) -> Result<(), ServerError> {
-        self.wait_sync()
+impl<A: EventApi> drop_queue::StreamSyncer for EventFence<A> {
+    fn sync_host(self) -> Result<(), ServerError> {
+        self.sync_host()
     }
 }
