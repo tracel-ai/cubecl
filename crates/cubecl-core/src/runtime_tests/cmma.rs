@@ -722,6 +722,76 @@ pub fn test_downcast<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
     assert_equals_approx::<f32>(&client, out, &test_simple_1_expected(), 1e-3);
 }
 
+/// An `f32` accumulator loaded row-major from `input`, then each cell its lane's registers hold
+/// written back where [`cmma::MmaDefinition::position_of_nth`] places it.
+#[cube(launch)]
+pub fn kernel_fragment_registers(input: &[f32], out: &mut [f32]) {
+    let acc = cmma::Matrix::<f32>::from_slice(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        input,
+        16,
+    );
+    let def = cmma::MmaDefinition::<f16, f16, f32>::new(16usize, 16usize, 16usize);
+    let width = def.vector_size(MatrixIdent::Accumulator);
+    let count = def.vectors_per_lane(MatrixIdent::Accumulator);
+    let size!(NV) = width;
+    let registers = acc.to_registers::<NV>();
+    #[unroll]
+    for i in 0..count {
+        #[unroll]
+        for e in 0..width {
+            let nth = comptime!((i * width + e) as u32);
+            let (row, col) = def.position_of_nth(UNIT_POS_PLANE, nth, MatrixIdent::Accumulator);
+            out[(row * 16 + col) as usize] = registers[i].extract(e);
+        }
+    }
+}
+
+/// A fragment's registers hold its cells where the target's element positions place them
+/// ([`cmma::Matrix::to_registers`]): every lane's every cell lands back on the cell it was loaded
+/// from. Skipped where the compiler hides its fragments' positions.
+pub fn test_fragment_registers_hold_their_positions<R: Runtime>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    let stated = client.target_properties().mma.fragment_positions
+        == cubecl_ir::FragmentPositions::AsElementPositions;
+    if !stated
+        || !client.features().matmul.cmma.contains(&MmaConfig {
+            a_type: f16::cube_type(),
+            b_type: f16::cube_type(),
+            cd_type: f32::cube_type(),
+            m: 16,
+            k: 16,
+            n: 16,
+        })
+    {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
+    let input_handle = client.create_from_slice(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
+
+    kernel_fragment_registers::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dimensions,
+        unsafe { BufferArg::from_raw_parts(input_handle, 256) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 256) },
+    );
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+    assert_eq!(actual.len(), input.len(), "the whole tile should read back");
+    assert_eq!(actual, &input[..]);
+}
+
 #[cube(launch)]
 pub fn kernel_unsupported_fragment(out: &mut [f32]) {
     let acc = cmma::Matrix::<f32>::from_value(
@@ -1590,11 +1660,11 @@ pub fn test_cmma_manual_positions_on_the_host<
 
     let shape = cmma::MatrixShape::from((m, n, k));
     let mma = &client.target_properties().mma;
-    let lanes = mma.const_plane_size as usize;
+    let lanes = mma.const_plane_lane_count as usize;
     for (ident, duplication) in [
-        (MatrixIdent::A, mma.register_duplication_a),
-        (MatrixIdent::B, mma.register_duplication_b),
-        (MatrixIdent::Accumulator, mma.register_duplication_acc),
+        (MatrixIdent::A, mma.register_copy_count_a),
+        (MatrixIdent::B, mma.register_copy_count_b),
+        (MatrixIdent::Accumulator, mma.register_copy_count_acc),
     ] {
         let held = shape.num_elems(ident) * duplication;
         let out = client.create_from_slice(u32::as_bytes(&vec![0; held]));
@@ -3148,6 +3218,15 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_downcast::<TestRuntime>(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_fragment_registers_hold_their_positions() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_fragment_registers_hold_their_positions::<
+                TestRuntime,
+            >(client, cube_dimensions);
         }
 
         #[$crate::runtime_tests::test_log::test]

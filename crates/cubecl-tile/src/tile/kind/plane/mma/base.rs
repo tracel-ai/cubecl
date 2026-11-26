@@ -938,11 +938,12 @@ impl MmaData {
 /// The plane width the manual-mma layouts are stated for, read off the target at expansion.
 #[cube]
 fn mma_plane_width() -> comptime_type!(u32) {
-    intrinsic!(|scope| scope.state().target_properties.mma.const_plane_size)
+    intrinsic!(|scope| scope.state().target_properties.mma.const_plane_lane_count)
 }
 
+/// Bind `NA` to the width of a lane's vector of `def`'s accumulator.
 #[cube]
-fn register_acc_size<A: Numeric>(def: &MmaDefinition<A, A, A>) {
+pub(crate) fn register_acc_size<A: Numeric>(def: &MmaDefinition<A, A, A>) {
     let va = def.vector_size(MatrixIdent::Accumulator);
     intrinsic!(|scope| {
         scope.register_size::<NA>(va);
@@ -1446,25 +1447,37 @@ fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) 
     }
 }
 
-/// Each unit's accumulator cells written through `mem`'s own write: one element at a time, or,
-/// where `mem` is bound as wide as a unit's run of cells along a row of a row-major destination,
-/// a run at a time, as a sink that adds whole lines takes them.
+/// Each unit's accumulator cells written through `mem`'s own write ([`write_cells`]): one element
+/// at a time, or, where `mem` is bound as wide as a unit's run of cells along a row of a row-major
+/// destination, a run at a time, as a sink that adds whole lines takes them.
 #[cube]
-fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+pub(crate) fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     mem: &mut Memory,
     fragment: &Array<Vector<T, NA>>,
     def: &MmaDefinition<A, B, CD>,
     #[comptime] layout: MatrixLayout,
     #[comptime] space: &Space,
 ) {
-    let width = comptime!(mem.store.vector_size);
+    if comptime!(mem.store.vector_size == 1) {
+        store_cells_one_by_one::<T, Out, A, B, CD>(mem, fragment, def, layout, space);
+    } else {
+        store_cell_runs::<T, Out, A, B, CD>(mem, fragment, def, layout, space);
+    }
+}
+
+/// [`store_cells`] one element at a time.
+#[cube]
+fn store_cells_one_by_one<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+    mem: &mut Memory,
+    fragment: &Array<Vector<T, NA>>,
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] space: &Space,
+) {
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    let dimensions = comptime!(MatrixDimensions::trailing(space));
-
-    if width == 1 {
-        let mut sink = mem.matrix_mut::<Out, Const<1>>(0usize, dimensions, space);
+    write_cells::<Out, Const<1>>(mem, space, |sink| {
         #[unroll]
         for i in 0..num_vectors {
             #[unroll]
@@ -1478,14 +1491,34 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
                 sink.write(at, value);
             }
         }
-    } else {
-        comptime!(assert!(
-            width == vector_size && layout == MatrixLayout::RowMajor,
-            "MmaData: a fragment drains one element at a time, or a unit's run of {vector_size} \
-             cells along a row of a row-major destination; its destination is bound {width} wide"
-        ));
-        let size!(W) = width;
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
+    });
+}
+
+/// [`store_cells`] a unit's run along a row at a time.
+///
+/// # Panics
+///
+/// - Where the destination is not row-major, or not bound as wide as a unit's run.
+#[cube]
+fn store_cell_runs<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+    mem: &mut Memory,
+    fragment: &Array<Vector<T, NA>>,
+    def: &MmaDefinition<A, B, CD>,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] space: &Space,
+) {
+    let width = comptime!(mem.store.vector_size);
+    let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
+    let vector_size = def.vector_size(MatrixIdent::Accumulator);
+    let unit_id = UNIT_POS_PLANE;
+    comptime!(assert!(
+        width == vector_size && layout == MatrixLayout::RowMajor,
+        "MmaData: a fragment should drain one element at a time, or a unit's run of \
+         {vector_size} cells along a row of a row-major destination; its destination is bound \
+         {width} wide"
+    ));
+    let size!(W) = width;
+    write_cells::<Out, W>(mem, space, |sink| {
         #[unroll]
         for i in 0..num_vectors {
             // A run starts at a column the width divides: the sink's lines count columns by it.
@@ -1498,7 +1531,7 @@ fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
             }
             sink.write((row, col / comptime!(width as u32)), value);
         }
-    }
+    });
 }
 
 /// A run of accumulators along `k`, `accs`, regrouped as the `A` operand of an `m × n × k`

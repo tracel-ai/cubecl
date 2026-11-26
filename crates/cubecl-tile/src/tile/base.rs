@@ -143,13 +143,19 @@ impl Tile {
 
     /// Whether a cmma fragment draining into this tile goes through a scratch
     /// ([`FragmentDrain::Bounce`]): a destination that adds, overhangs, or has no address, or one
-    /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]).
-    pub(crate) fn fragments_bounce(&self, #[comptime] in_place: bool) -> comptime_type!(bool) {
+    /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]),
+    /// unless its units write its cells out of their registers (`by_cell`).
+    pub(crate) fn fragments_bounce(
+        &self,
+        #[comptime] in_place: bool,
+        #[comptime] by_cell: bool,
+    ) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(m) => {
                 let addressed = m.store.addressed();
                 comptime!(
-                    FragmentDrain::of(&m.access, addressed, in_place) == FragmentDrain::Bounce
+                    FragmentDrain::of(&m.access, addressed, in_place, by_cell)
+                        == FragmentDrain::Bounce
                 )
             }
             TileKind::PlaneTile(_)
@@ -412,6 +418,19 @@ impl Tile {
             true => KeyOrder::AccumulatorRun,
             false => KeyOrder::AsLaid,
         })
+    }
+
+    /// The order this tile's window lays its dimensions down in: the one a stage's buffer lays
+    /// its axes down in, its Space's for every other tile.
+    pub(crate) fn stage_order(&self) -> comptime_type!(StageOrder) {
+        match &self.kind {
+            TileKind::Memory(m) => comptime!(m.layout.order),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(StageOrder::AsSource),
+        }
     }
 
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
@@ -855,6 +874,7 @@ impl Tile {
             comptime!(None),
             comptime!(StageOwner::CUBE),
             comptime!(None),
+            comptime!(None),
         )
     }
 
@@ -882,6 +902,7 @@ impl Tile {
                 decoded,
                 owner,
             }),
+            comptime!(None),
         )
     }
 
@@ -946,7 +967,7 @@ impl Tile {
         Memory::smem_owned::<Served>(
             &self.place.space,
             1usize,
-            comptime!(StageStorage::Strided),
+            comptime!(StageStorage::STRIDED),
             units,
             comptime!(Delivery::TMA_STAGE_ALIGNMENT),
             comptime!(StageOwner::CUBE),
@@ -1150,9 +1171,11 @@ impl Tile {
         }
     }
 
-    /// Add `src`'s spilled cells into this memory window.
+    /// Add `src`'s spilled cells into this memory window, its box listed in `src`'s order as
+    /// [`copy_cast_from`](Tile::copy_cast_from) lists it, so the spilled rows land on the
+    /// accumulator's rows whatever order the window lists its dimensions in.
     pub(crate) fn add_from_scratch<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        let space = comptime!(self.place.space.clone());
+        let space = comptime!(self.place.space.in_order_of(&src.place.space));
         match (&mut self.kind, &src.kind) {
             (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.add_from_scratch::<R, S>(d, &space),
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
@@ -2059,7 +2082,7 @@ mod tests {
 
     /// A tile of shared memory over `space`, which varies along each of its dimensions.
     fn shared(scope: &Scope, space: &[(Dimension, usize)]) -> TileExpand {
-        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::Strided)
+        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::STRIDED)
     }
 
     #[test]

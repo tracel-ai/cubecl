@@ -2,22 +2,87 @@
 
 use crate::launch::Delivery;
 use crate::{ChunkSwizzle, Decline, Dimension, Instruction, LineBytes, Space, StageForm};
+use cubecl::cmma::MatrixLayout;
+use cubecl::ir::{MmaProperties, StridedRunRead};
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
 /// [`Stages::smem`](crate::Stages::smem).
+///
+/// # Assumptions
+///
+/// - A shared-memory stage lays its axes down in the [`order`](StageOrder) it holds, the
+///   innermost one carrying its lines.
+/// - A gathered operand stages only into a [`Strided`](StageStorage::Strided) storage in the
+///   source's order.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageStorage {
     /// Shared memory grouped into `block`-sized tiles, one edge per dimension of the operation.
     Tiled {
+        /// The edge of a block along each dimension, read by its dimension (a Keyed Usage).
         block: Vec<(Dimension, usize)>,
         chunks: RowChunks,
+        order: StageOrder,
     },
-    Strided,
+    /// Shared memory as one dense block.
+    Strided { order: StageOrder },
     /// The plane's units, one line per unit.
-    Lines {
-        read: UnitRead,
-    },
+    Lines { read: UnitRead },
+}
+
+/// The order in which a shared-memory stage lays its axes down.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum StageOrder {
+    /// The order of the stage's Space, as the source holds it: its last dimension innermost.
+    AsSource,
+    /// The order of the stage's Space with this Dimension, the one a contraction sums the operand
+    /// along, moved innermost, one value a line: the run of `k` a fragment's lane holds lies
+    /// contiguous whatever the source's order.
+    AlongRun(Dimension),
+}
+
+impl StageOrder {
+    /// The values one line of a stage laid in this order holds, its source served `source_width`
+    /// wide: the source's width in the source's order, one value where each source line's values
+    /// are laid apart.
+    pub(crate) fn line_width(self, source_width: usize) -> usize {
+        match self {
+            StageOrder::AsSource => source_width,
+            StageOrder::AlongRun(_) => 1,
+        }
+    }
+
+    /// Whether the Lowering lays a stage along its fragments' run at all. Its fill writes such a
+    /// stage one value a store, each source line's values scattered over their cells, and on
+    /// RDNA4 (gfx1201) those stores cost more than the full-width fragment reads they buy:
+    /// cube-staged `f16` products of 4096 ran 1.2-1.7x slower. Off until the fill writes the
+    /// stage whole lines at a time.
+    const LAYS_ALONG_RUN: bool = false;
+
+    /// The order a matrix instruction's fragments read a stage of an operand over `space` in at
+    /// full width, the contraction summing it along `contracted`: `contracted` innermost where
+    /// the Lowering lays stages along the run ([`LAYS_ALONG_RUN`](Self::LAYS_ALONG_RUN)), the
+    /// target's fragment load reads a lane's run of `k` laid across its memory's rows one element
+    /// at a time ([`StridedRunRead::ElementWise`]) and the source lays it otherwise, the source's
+    /// order everywhere else.
+    ///
+    /// # Guarantees
+    ///
+    /// - [`AlongRun`](Self::AlongRun) only where both of the target's fragments hold their runs
+    ///   along `k` (an `A` along its rows, a `B` along its columns), so the order serves either
+    ///   side of the contraction.
+    pub(crate) fn for_fragments(space: &Space, contracted: Dimension, mma: &MmaProperties) -> Self {
+        let runs_along_k = mma.register_layout_a == MatrixLayout::RowMajor
+            && mma.register_layout_b == MatrixLayout::ColMajor;
+        let reads_element_wise = mma.strided_run_read == StridedRunRead::ElementWise;
+        let innermost = space.dimension_at(space.rank() - 1);
+        let reordered =
+            Self::LAYS_ALONG_RUN && reads_element_wise && runs_along_k && innermost != contracted;
+        match reordered && space.contains(contracted) {
+            true => StageOrder::AlongRun(contracted),
+            false => StageOrder::AsSource,
+        }
+    }
 }
 
 /// How a [`Tiled`](StageStorage::Tiled) block lays each row down, in 16-byte chunks.
@@ -70,15 +135,30 @@ pub enum UnitRead {
 }
 
 impl StageStorage {
+    /// One dense block of shared memory in the source's order.
+    pub const STRIDED: Self = StageStorage::Strided {
+        order: StageOrder::AsSource,
+    };
+
     /// This storage as a stage read by `instruction` and written by `delivery` lays its cells
     /// out: a tiled stage's rows arranged as both can use (`RowChunks::read_by`); any other
     /// storage as it is. What a host that names its instruction asks; one that names its Step
     /// asks the Step ([`ProductStep::stage_storage`](crate::ProductStep::stage_storage)).
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its order: only a tiled stage's row chunks
+    ///   change.
     pub fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
         match self {
-            Self::Tiled { block, chunks } => Self::Tiled {
+            Self::Tiled {
+                block,
+                chunks,
+                order,
+            } => Self::Tiled {
                 block,
                 chunks: chunks.read_by(instruction, delivery),
+                order,
             },
             other => other,
         }
@@ -89,12 +169,23 @@ impl StageStorage {
     /// `elem_bits` bits, which a line holds whole bytes of (a packed operand's line is its words).
     /// What the launch builds the descriptor with, and what the stage fill holds the stage to.
     ///
+    /// # Assumptions
+    ///
+    /// - A line of `vector_size` values of `elem_bits` bits is whole bytes.
+    /// - The storage is in shared memory, and a tiled storage's block states an edge for every
+    ///   dimension of `space` that divides its extent.
+    ///
     /// # Errors
     ///
     /// Blocks splitting a row, which a box lands whole; blocks stacking a number of rows the
     /// swizzle's period of rows does not divide, whose rows a box keys off their place in the
     /// stage rather than in the block; padded rows, which a box lands dense, and swizzled rows
     /// longer than a descriptor swizzle spans.
+    ///
+    /// # Panics
+    ///
+    /// - Where a line is not whole bytes, or the storage is not shared memory, or a block lacks
+    ///   or does not divide an edge.
     pub fn tma_swizzle(
         &self,
         space: &Space,
@@ -103,8 +194,8 @@ impl StageStorage {
     ) -> Result<TensorMapSwizzle, Decline> {
         assert!(
             (vector_size * elem_bits).is_multiple_of(8),
-            "StageStorage::tma_swizzle: a line of {vector_size} {elem_bits}-bit values is not whole \
-             bytes"
+            "StageStorage::tma_swizzle: a line of {vector_size} {elem_bits}-bit values should be \
+             whole bytes"
         );
         let form = StageForm::dense(
             space,
@@ -124,7 +215,7 @@ impl StageStorage {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
         };
-        for block in self.nesting(space) {
+        for block in self.nesting(space).iter() {
             let rows = match rank > span {
                 true => block.extent_at(rank - 1 - span),
                 false => 1,
@@ -142,44 +233,254 @@ impl StageStorage {
     }
 
     /// Bytes a stage over `space` holds laid out this way, its lines `vector_size` values of
-    /// `elem_bits` bits, which a line holds whole bytes of: every line of its cells, and the
-    /// padding after each row. [`Stages::smem`](crate::Stages::smem) allocates it once, rounding each
-    /// plane's copy up to the stage alignment where planes own one each.
+    /// `elem_bits` bits, which a line holds whole bytes of. [`Stages::smem`](crate::Stages::smem)
+    /// allocates it once, rounding each plane's copy up to the stage alignment where planes own
+    /// one each.
+    ///
+    /// # Assumptions
+    ///
+    /// - The storage is in shared memory, and a tiled storage's block states an edge for every
+    ///   dimension of `space` that divides its extent.
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes cover every line of the block in the order the storage names, and the padding
+    ///   after each of its rows.
+    ///
+    /// # Panics
+    ///
+    /// - Where the storage is not shared memory, or a block lacks or does not divide an edge.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
         let line = vector_size * elem_bits / 8;
         StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
 
-    /// The storage-tiling nesting a stage over `space` gets, coarse to fine; empty is row-major.
-    pub(crate) fn nesting(&self, space: &Space) -> Vec<Space> {
+    /// Bytes a stage of a factor of a contraction summed along `contracted`, its source served
+    /// `vector_size` values of `elem_bits` bits a line and moved in by `delivery`, holds where
+    /// the fragments of `mma`'s target read it: [`bytes`](Self::bytes) of the storage the
+    /// Lowering lays it out in ([`ordered_for_fragments`](Self::ordered_for_fragments)), one
+    /// value a line where that order is not the source's. What a host sizes a stage the Lowering
+    /// builds for a plain factor staged as it lies.
+    ///
+    /// # Assumptions
+    ///
+    /// - As [`bytes`](Self::bytes).
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are those of the stage the Lowering allocates for such a factor: the source's
+    ///   order, and so [`bytes`](Self::bytes) itself, on every target that reads a strided run at
+    ///   full width.
+    ///
+    /// # Panics
+    ///
+    /// - As [`bytes`](Self::bytes).
+    #[allow(clippy::too_many_arguments)]
+    pub fn bytes_read_by_fragments(
+        &self,
+        space: &Space,
+        vector_size: usize,
+        elem_bits: usize,
+        contracted: Dimension,
+        delivery: Delivery,
+        mma: &MmaProperties,
+    ) -> usize {
+        let laid = self
+            .clone()
+            .ordered_for_fragments(space, contracted, delivery, mma);
+        let width = laid.order().line_width(vector_size);
+        laid.bytes(space, width, elem_bits)
+    }
+
+    /// This storage as the Lowering lays a stage of an operand over `space` out for the fragments
+    /// of a matrix instruction to read, the contraction summing it along `contracted` and its
+    /// lines moved in by `delivery`: a tiled stage of unswizzled rows filled by the units' own
+    /// loads and stores, in the order its fragments read at full width
+    /// ([`StageOrder::for_fragments`]); any other as it is. A copy engine moves each source line
+    /// whole and a swizzle permutes the chunks of the source's rows, so neither lays a stage in
+    /// another order. The one decision the Lowering lays such a stage by and a host sizes it by
+    /// ([`bytes_read_by_fragments`](Self::bytes_read_by_fragments)).
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its row chunks: only a tiled stage's order
+    ///   changes, from the source's, and only on a target whose fragment load reads a run laid
+    ///   across its memory's rows one element at a time.
+    pub fn ordered_for_fragments(
+        self,
+        space: &Space,
+        contracted: Dimension,
+        delivery: Delivery,
+        mma: &MmaProperties,
+    ) -> Self {
+        match self {
+            Self::Tiled {
+                block,
+                chunks,
+                order: StageOrder::AsSource,
+            } if chunks != RowChunks::Swizzled && delivery == Delivery::SyncPerUnit => {
+                Self::Tiled {
+                    block,
+                    chunks,
+                    order: StageOrder::for_fragments(space, contracted, mma),
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+impl StageStorage {
+    /// The order this storage lays a shared-memory stage down in.
+    pub(crate) fn order(&self) -> StageOrder {
+        match self {
+            Self::Tiled { order, .. } | Self::Strided { order } => *order,
+            Self::Lines { .. } => StageOrder::AsSource,
+        }
+    }
+
+    /// The storage-tiling block a stage over `space` nests in its grid, `None` where it is one
+    /// row-major block.
+    pub(crate) fn nesting(&self, space: &Space) -> Option<Space> {
         match self {
             StageStorage::Lines { .. } => {
-                panic!("StageStorage::Lines: the plane's units are not shared memory")
+                panic!(
+                    "StageStorage::Lines: the plane's units should not be laid out as shared memory"
+                )
             }
-            StageStorage::Tiled { block, .. } => {
-                let nested = Space::new(
-                    &space
-                        .dimensions()
-                        .map(|dimension| {
-                            let edge = block
-                                .iter()
-                                .find(|&&(a, _)| a == dimension)
-                                .unwrap_or_else(|| {
-                                    panic!(
-                                        "StageStorage::Tiled: the block states no edge for {dimension:?}"
-                                    )
-                                })
-                                .1;
-                            (dimension, edge)
-                        })
-                        .collect::<Vec<_>>(),
-                );
-                if &nested == space {
-                    return Vec::new();
-                }
-                vec![nested]
-            }
-            StageStorage::Strided => Vec::new(),
+            StageStorage::Tiled { block, .. } => block_space(block, space),
+            StageStorage::Strided { .. } => None,
         }
+    }
+}
+
+/// The block of edges `block` over `space`, `None` where it covers the whole of `space`.
+fn block_space(block: &[(Dimension, usize)], space: &Space) -> Option<Space> {
+    let nested = Space::new(
+        &space
+            .dimensions()
+            .map(|dimension| {
+                let edge = block
+                    .iter()
+                    .find(|&&(a, _)| a == dimension)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "StageStorage::Tiled: the block should state an edge for {dimension:?}"
+                        )
+                    })
+                    .1;
+                (dimension, edge)
+            })
+            .collect::<Vec<_>>(),
+    );
+    (&nested != space).then_some(nested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+
+    /// A target whose fragment load reads a run across its memory's rows one element at a time.
+    fn element_wise() -> MmaProperties {
+        MmaProperties {
+            strided_run_read: StridedRunRead::ElementWise,
+            ..MmaProperties::default()
+        }
+    }
+
+    fn tiled(chunks: RowChunks) -> StageStorage {
+        StageStorage::Tiled {
+            block: vec![(M, 16), (N, 16), (K, 16)],
+            chunks,
+            order: StageOrder::AsSource,
+        }
+    }
+
+    fn ordered(space: &Space, delivery: Delivery, mma: &MmaProperties) -> StageOrder {
+        tiled(RowChunks::Padded)
+            .ordered_for_fragments(space, K, delivery, mma)
+            .order()
+    }
+
+    /// A row-major rhs keeps its source's order even where runs read element by element, until
+    /// the fill writes a stage laid along the run whole lines at a time.
+    #[test]
+    fn row_major_rhs_stays_as_source_while_no_stage_is_laid_along_the_run() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let order = ordered(&rhs, Delivery::SyncPerUnit, &element_wise());
+        assert_eq!(order, StageOrder::AsSource);
+    }
+
+    /// An operand already laid `k` innermost, a row-major lhs, keeps its source's order.
+    #[test]
+    fn a_row_major_lhs_stays_as_source() {
+        let lhs = Space::new(&[(M, 16), (K, 16)]);
+        let order = ordered(&lhs, Delivery::SyncPerUnit, &element_wise());
+        assert_eq!(order, StageOrder::AsSource);
+    }
+
+    #[test]
+    fn stage_stays_as_source_where_runs_read_whole() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let order = ordered(&rhs, Delivery::SyncPerUnit, &MmaProperties::default());
+        assert_eq!(order, StageOrder::AsSource);
+    }
+
+    /// A copy engine moves each source line whole, so it lays no stage in another order.
+    #[test]
+    fn stage_stays_as_source_under_a_copy_engine() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        for delivery in [Delivery::AsyncPerUnit, Delivery::Tma] {
+            let order = ordered(&rhs, delivery, &element_wise());
+            assert_eq!(order, StageOrder::AsSource, "{delivery:?}");
+        }
+    }
+
+    /// A swizzle permutes the chunks of the source's rows, so a swizzled stage keeps them.
+    #[test]
+    fn a_swizzled_stage_stays_as_source() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let storage = tiled(RowChunks::Swizzled).ordered_for_fragments(
+            &rhs,
+            K,
+            Delivery::SyncPerUnit,
+            &element_wise(),
+        );
+        assert_eq!(storage.order(), StageOrder::AsSource);
+    }
+
+    /// A padded stage of `16 × 32` `[k, n]`, `f16` in 8-wide lines.
+    fn wide_rhs() -> (Space, StageStorage) {
+        let storage = StageStorage::Tiled {
+            block: vec![(K, 16), (N, 32)],
+            chunks: RowChunks::Padded,
+            order: StageOrder::AsSource,
+        };
+        (Space::new(&[(K, 16), (N, 32)]), storage)
+    }
+
+    /// On a target whose fragments read a strided run at full width, the stage keeps its order,
+    /// and its bytes are the storage's own: 16 rows of 32 `f16` and a 16-byte chunk each.
+    #[test]
+    fn a_whole_run_target_sizes_the_stage_as_before() {
+        let (rhs, storage) = wide_rhs();
+        let mma = MmaProperties::default();
+        let bytes = storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &mma);
+        assert_eq!(bytes, storage.bytes(&rhs, 8, 16));
+        assert_eq!(bytes, 16 * (64 + 16));
+    }
+
+    /// Where the target reads a strided run element by element, the stage is sized as the
+    /// Lowering lays it: in the source's order, while no stage is laid along the run.
+    #[test]
+    fn an_element_wise_target_sizes_the_stage_as_the_lowering_lays_it() {
+        let (rhs, storage) = wide_rhs();
+        let bytes =
+            storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &element_wise());
+        assert_eq!(bytes, storage.bytes(&rhs, 8, 16));
     }
 }

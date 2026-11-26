@@ -4,8 +4,8 @@ use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_manual_product_kernel,
     cdna_quantized_product_kernel, cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel,
     fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    staged_fragment_product_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -108,6 +108,52 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
         let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+    }
+}
+
+/// A `B` fragment whose lanes' runs of `k` are contiguous in shared memory loads each run as
+/// 16-byte reads, not element by element. A CDNA lane's run of a 16-deep `f16` tile is only 8
+/// bytes, so the kernel does not apply there.
+#[test]
+fn a_k_contiguous_b_fragment_loads_in_b128() {
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(staged_fragment_product_kernel(&GfxArch::parse(arch)), arch);
+        assert!(
+            asm.contains("ds_load_b128"),
+            "{arch}: the runs load whole:\n{asm}"
+        );
+        assert!(
+            !asm.contains("ds_load_u16_d16"),
+            "{arch}: no run loads element by element:\n{asm}"
+        );
+    }
+}
+
+/// A sum read out of its fragment's registers adds each cell into shared memory with one atomic
+/// add, never through a scratch it is first stored to.
+#[test]
+fn a_fragment_adds_into_shared_memory_without_scratch() {
+    for (arch, cells, product, store) in [
+        ("gfx1151", 8, "v_wmma", "ds_store"),
+        ("gfx1201", 8, "v_wmma", "ds_store"),
+        ("gfx942", 4, "v_mfma", "ds_write"),
+    ] {
+        let asm = asm_of(staged_fragment_product_kernel(&GfxArch::parse(arch)), arch);
+        assert_eq!(
+            asm.matches("ds_add_f32").count(),
+            cells,
+            "{arch}: each of a lane's {cells} cells adds once:\n{asm}"
+        );
+        let product = asm
+            .find(product)
+            .expect("the product is one matrix instruction");
+        let first_add = asm
+            .find("ds_add_f32")
+            .expect("the sum adds into shared memory");
+        assert!(
+            !asm[product..first_add].contains(store) && !asm.contains("scratch_"),
+            "{arch}: no cell is stored between the product and its add:\n{asm}"
+        );
     }
 }
 

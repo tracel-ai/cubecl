@@ -213,6 +213,14 @@ impl<C: Int> CoordsExpand<C> {
     pub fn __expand_len_method(&self, _scope: &Scope) -> usize {
         self.values.len()
     }
+
+    /// Every coordinate's value where each is a constant, read while the kernel expands.
+    pub(crate) fn constants(&self) -> Option<Vec<usize>> {
+        self.values
+            .iter()
+            .map(|value| crate::algebra::constant(value).map(|value| value as usize))
+            .collect()
+    }
     pub fn __expand_to_dyn_method(&self, scope: &Scope) -> SequenceExpand<u32> {
         let mut out = Sequence::<u32>::__expand_new(scope);
         for v in &self.values {

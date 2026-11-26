@@ -28,17 +28,24 @@ impl Tile {
         g.window_view::<T, W>(comptime!(Guard::Checked))
     }
 
-    /// Scalars of this stage one unit holds in registers across a contraction; none for a tile
-    /// that is not a memory window or whose share is unknown.
+    /// Scalars of this stage's fill from `src` one unit holds in registers across a contraction;
+    /// none for a tile that is not a memory window or whose share is unknown.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
-    pub(crate) fn fetched_scalars(&self) -> comptime_type!(Option<usize>) {
-        match &self.kind {
-            TileKind::Memory(m) => m.fetched_scalars(),
-            TileKind::PlaneTile(_)
-            | TileKind::PlanePartition(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => comptime!(None),
+    pub(crate) fn fetched_scalars(&self, src: &Tile) -> comptime_type!(Option<usize>) {
+        match (&self.kind, &src.kind) {
+            (TileKind::Memory(m), TileKind::Memory(s)) => m.fetched_scalars(s),
+            _ => comptime!(None),
+        }
+    }
+
+    /// The width a register fetch of this stage's fill from `src` holds each line at
+    /// ([`Memory::fill_width`]); this tile's own where either is not a memory window.
+    #[allow(dead_code)] // Reached through its expand, from the register fetch's counts.
+    pub(crate) fn fetched_width(&self, src: &Tile) -> comptime_type!(usize) {
+        let own = self.vector_size();
+        match (&self.kind, &src.kind) {
+            (TileKind::Memory(m), TileKind::Memory(s)) => m.fill_width(s),
+            _ => comptime!(own),
         }
     }
 
@@ -321,6 +328,7 @@ impl Memory {
             physical_strides: strides,
             projection: comptime!(Projection::direct(positional.dimensions())),
             rows: RowArrangement::InOrder,
+            order: StageOrder::AsSource,
             paging: ComptimeOption::new_None(),
         }
     }
@@ -423,8 +431,9 @@ impl Memory {
     }
 
     /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
-    /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
-    /// and every dimension of `space` but the last two a single cell. The second-to-last dimension
+    /// direct, untiled store laid down in its source's order, its rows unswizzled and never paged,
+    /// read with no overhang to mask, and every dimension of `space` but the last two a single
+    /// cell. The second-to-last dimension
     /// then steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through
     /// a row's cells, so a cell lies its row times the stride plus its column past the first.
     pub(crate) fn rows_step_by_stride(&self, #[comptime] space: &Space) -> comptime_type!(bool) {
@@ -435,6 +444,7 @@ impl Memory {
                 && !self.layout.projection.is_tiled()
                 && self.layout.paging.is_none()
                 && self.layout.rows.rows_are_runs()
+                && self.layout.order == StageOrder::AsSource
                 && !self.access.overhang.masks()
                 && self.store.packing == Packing::Plain
                 && rank >= 2

@@ -8,9 +8,14 @@
 //! reads as NaN, so it is cleared to a positive zero first. OCP NaN and infinity codes read as
 //! large finite values there, which a saturating quantizer never stores.
 
-use super::*;
+use super::base::{MatrixForm, add, emit, store_fragment};
 use crate::amdgpu::fragment::{F32, I32, INSTRUCTION_M, INSTRUCTION_N, TILE_DEPTHS, WORD_BITS};
+use crate::amdgpu::mfma::CodeReading;
+use crate::prelude::*;
+use crate::shared::matrix::elem_type;
 use crate::shared::matrix::{registers_as_vector, registers_value};
+use crate::shared::plane::bitcast;
+use cubecl_core::ir::{ElemType, amd::AmdMatrixCore, types::MatrixShape};
 use cubecl_core::ir::{dialect::matrix::MmaQuantizedOp, features::QuantizedMmaConfig};
 use cubecl_core::quant::scheme::{QuantValue, ScaleDtype};
 use pliron::{attribute::boxed_attr_cast, builtin::attributes::FPSingleAttr};
@@ -143,7 +148,7 @@ pub fn mma_quantized(
     let sum_ty = LlvmVectorType::get(ctx, sum_scalar, sums, VectorTypeKind::Fixed).into();
     let zero = sum.zero(ctx, rw);
     let zero = insert_splat(ctx, rw, sum_ty, zero, sums as usize);
-    let Some(product) = form.emit(ctx, rw, shape, (a_val, b_val, zero), sum_ty) else {
+    let Some(product) = emit(ctx, rw, form, shape, (a_val, b_val, zero), sum_ty) else {
         return input_err!(op.loc(ctx), unsupported);
     };
     let product = sum.to_f32(ctx, rw, product, cd_ty);

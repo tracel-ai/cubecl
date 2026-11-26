@@ -136,11 +136,10 @@ impl Walk {
             sizes,
         );
         let walk = Region::rooted(&space, comptime!(vec![level.clone()]), 0usize).walk();
-        let written = comptime!(
-            known
-                .and_then(|lines| level.copy_turns(lines as usize))
-                .is_some_and(|turns| turns <= Walk::MOST_WRITTEN_TURNS)
-        );
+        let written = comptime!(Walk::copy_turns_written(
+            level,
+            known.map(|lines| lines as usize)
+        ));
         if written { walk.unrolled() } else { walk }
     }
 
@@ -269,6 +268,14 @@ impl Walk {
 
     /// This walk taking one step along `dimension`, at the coordinate `coord`, counted in the
     /// level's tiles; a coordinate past the last takes the last.
+    ///
+    /// # Assumptions
+    ///
+    /// - `dimension` is a dimension of this walk's space.
+    ///
+    /// # Panics
+    ///
+    /// - Where `dimension` is not one of this walk's space, as the kernel expands.
     pub fn routed(self, #[comptime] dimension: Dimension, coord: usize) -> Walk {
         let rank = comptime!(self.space.rank());
         let at = comptime!(self.space.position(dimension));
@@ -339,18 +346,23 @@ impl Walk {
     }
 
     /// Whether this instance takes turn `t` of a bounded walk: a constant for a turn every
-    /// instance takes ([`takes`](Walk::takes) otherwise).
+    /// instance takes ([`takes_step`](Walk::takes_step) otherwise).
     pub(crate) fn takes_turn(&self, #[comptime] t: usize) -> bool {
         match comptime!(self.bounds) {
-            Some((sure, _)) if t >= sure => self.takes(t),
+            Some((sure, _)) if t >= sure => self.takes_step(t),
             _ => true.runtime(),
         }
+    }
+
+    /// The line a copy walk ([`Walk::copy`]) hands this instance at turn `t`.
+    pub(crate) fn copied_line(&self, t: usize) -> usize {
+        self.region(t).copied_line()
     }
 
     /// Whether this instance takes step `i` of a bounded walk ([`bounds`](Walk::bounds)): whether
     /// the tile it reaches along the dimension its units take in turns lies inside the dimension's
     /// tiles.
-    pub(crate) fn takes(&self, i: usize) -> bool {
+    pub(crate) fn takes_step(&self, i: usize) -> bool {
         let p = comptime!(Walk::turns_at(&self.space, &self.level));
         self.tile_coord(self.step_coord(i, p), p) < self.tiles.at(p)
     }
@@ -484,7 +496,7 @@ impl Iterable for WalkExpand {
                 match i < sure {
                     true => body(scope, self.__expand_region_method(scope, step)),
                     false => {
-                        let taken = self.__expand_takes_method(scope, step);
+                        let taken = self.__expand_takes_step_method(scope, step);
                         if_expand(scope, taken, |scope| {
                             body(scope, self.__expand_region_method(scope, step))
                         });
@@ -535,6 +547,61 @@ impl Walk {
     /// pipe; a long run written out bloats the kernel.
     const MOST_WRITTEN_TURNS: usize = 8;
 
+    /// Whether a copy of `lines` lines that `level` deals writes its turns out: where each unit
+    /// takes a known few of them, a known count of lines dealt to a known count of units.
+    fn copy_turns_written(level: &Level, lines: Option<usize>) -> bool {
+        lines
+            .and_then(|lines| level.copy_turns(lines))
+            .is_some_and(|turns| turns <= Walk::MOST_WRITTEN_TURNS)
+    }
+
+    /// What each turn of a copy of `lines` lines that `level` deals adds, at expansion, to the
+    /// first value `at` gives the unit's first line: for turn `t`, one value per value `at` gives
+    /// its line, the same for every unit that takes the turn. `None` where `level` writes no turns
+    /// out, `at` gives no value for a line, or two units' turns differ.
+    ///
+    /// # Guarantees
+    ///
+    /// - Where it is `Some`, `at(u + t·n)[v]` is `at(u)[0]` plus its turn `t`'s value `v` for
+    ///   every unit `u` of the `n` the level deals lines to whose turn `t` lies below `lines`.
+    pub(crate) fn uniform_turn_offsets(
+        level: &Level,
+        lines: Option<usize>,
+        at: impl Fn(usize) -> Option<Vec<usize>>,
+    ) -> Option<Vec<Vec<usize>>> {
+        let (_, Some(units), 0) = level.copied_units() else {
+            return None;
+        };
+        let lines = lines.filter(|&lines| Walk::copy_turns_written(level, Some(lines)))?;
+        (0..lines.div_ceil(units))
+            .map(|turn| Walk::turn_offset(units, lines, turn, &at))
+            .collect()
+    }
+
+    /// The values turn `turn` adds for every one of `units` units over `lines`, where they agree
+    /// ([`uniform_turn_offsets`](Walk::uniform_turn_offsets)).
+    fn turn_offset(
+        units: usize,
+        lines: usize,
+        turn: usize,
+        at: &impl Fn(usize) -> Option<Vec<usize>>,
+    ) -> Option<Vec<usize>> {
+        let mut agreed: Option<Vec<usize>> = None;
+        for unit in (0..units).take_while(|unit| unit + turn * units < lines) {
+            let first = *at(unit)?.first()?;
+            let offsets: Option<Vec<usize>> = at(unit + turn * units)?
+                .into_iter()
+                .map(|value| value.checked_sub(first))
+                .collect();
+            let offsets = offsets?;
+            if agreed.as_ref().is_some_and(|agreed| *agreed != offsets) {
+                return None;
+            }
+            agreed = Some(offsets);
+        }
+        agreed
+    }
+
     /// The position of the one dimension `level`'s units take in turns ([`Count::InTurns`]): such a
     /// level cuts that dimension alone.
     fn turns_at(space: &Space, level: &Level) -> usize {
@@ -545,7 +612,7 @@ impl Walk {
                     Some(Count::InTurns { .. })
                 )
             })
-            .expect("Walk: only a walk whose units take a dimension in turns guards its turns")
+            .expect("Walk: a walk that guards its turns should be one whose units take a dimension in turns")
     }
 
     /// Whether this walk's units take the one dimension of its space in turns
@@ -663,6 +730,46 @@ mod tests {
     fn a_ragged_deal_is_bounded_by_its_whole_and_its_last_turn() {
         assert_eq!(bounds(200, Some(64)), Some((3, 4)));
         assert_eq!(bounds(1, Some(64)), Some((0, 1)));
+    }
+
+    /// A turn's offset is a comptime constant only where every unit that takes it agrees on it:
+    /// a line's offset growing with the line by a constant step does, a ragged last turn too; one
+    /// growing faster does not, and neither does a copy dealt to units of unknown count.
+    #[test]
+    fn turn_offset_uniform_only_when_every_unit_agrees() {
+        let level = Level::copied_by(ComputeScope::Cube, Some(4));
+        let strided = |line: usize| Some(vec![line * 3, line * 3 + 1]);
+        assert_eq!(
+            Walk::uniform_turn_offsets(&level, Some(10), strided),
+            Some(vec![vec![0, 1], vec![12, 13], vec![24, 25]])
+        );
+        let squared = |line: usize| Some(vec![line * line]);
+        assert_eq!(Walk::uniform_turn_offsets(&level, Some(8), squared), None);
+        let unknown = Level::copied_by(ComputeScope::Cube, None);
+        assert_eq!(Walk::uniform_turn_offsets(&unknown, Some(8), strided), None);
+    }
+
+    /// A copy whose every unit takes a known few turns writes them out.
+    #[test]
+    fn a_copy_of_a_few_known_turns_writes_them_out() {
+        let level = Level::copied_by(ComputeScope::Cube, Some(64));
+        assert!(Walk::copy_turns_written(&level, Some(256)));
+        assert!(Walk::copy_turns_written(
+            &level,
+            Some(64 * Walk::MOST_WRITTEN_TURNS)
+        ));
+    }
+
+    /// A copy of many turns, of an unknown count of lines, or dealt to an unknown count of units
+    /// strides from the unit's place instead.
+    #[test]
+    fn a_copy_of_many_or_unknown_turns_strides() {
+        let known = Level::copied_by(ComputeScope::Cube, Some(64));
+        let unknown = Level::copied_by(ComputeScope::Cube, None);
+        let many = 64 * (Walk::MOST_WRITTEN_TURNS + 1);
+        assert!(!Walk::copy_turns_written(&known, Some(many)));
+        assert!(!Walk::copy_turns_written(&known, None));
+        assert!(!Walk::copy_turns_written(&unknown, Some(256)));
     }
 
     /// An even deal takes a constant count, and an unknown count of units bounds nothing.

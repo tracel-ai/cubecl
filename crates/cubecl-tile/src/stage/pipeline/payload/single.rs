@@ -23,7 +23,7 @@ impl Payload<Tile> for Tile {
         if comptime!(refills[0] == Refill::Shared) {
             first.clone()
         } else {
-            stage_one(self, comptime!(spec))
+            stage_one(self, comptime!(spec), comptime!(None))
         }
     }
 

@@ -37,15 +37,13 @@ pub fn supported_mma_combinations_metal(arch: &MetalArchitecture) -> SupportedMm
 pub fn mma_properties_metal() -> MmaProperties {
     MmaProperties {
         register_size_bits: 32,
-        const_plane_size: 32,
+        const_plane_lane_count: 32,
         register_layout_a: MatrixLayout::RowMajor,
         register_layout_b: MatrixLayout::RowMajor,
         register_layout_acc: MatrixLayout::RowMajor,
-        register_duplication_a: 1,
-        register_duplication_b: 1,
-        register_duplication_acc: 1,
         contiguous_elements: ContiguousElements::new(contiguous_elements_metal),
         element_positions: OperandFact::new(|_, _, _| Some(element_positions_metal())),
+        ..MmaProperties::default()
     }
 }
 

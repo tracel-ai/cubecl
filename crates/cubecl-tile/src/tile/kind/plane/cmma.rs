@@ -1,11 +1,14 @@
 //! The tensor-core encoding of a plane tile ([`CmmaData`]) and its fragment↔memory transports.
 
 use cubecl::{
-    cmma::{self, Matrix, MatrixIdent, MatrixLayout},
-    ir::{ElemType, FloatKind},
+    cmma::{self, Matrix, MatrixIdent, MatrixLayout, MmaDefinition},
+    ir::{ElemType, FloatKind, FragmentPositions, Scope},
     prelude::*,
+    unexpanded,
 };
 
+use super::mma::widths::NA;
+use crate::ops::matmul::leaf::cmma::laid_fragment_read;
 use crate::*;
 
 /// A tensor-core fragment plus the comptime config its load/store paths dispatch on.
@@ -111,6 +114,38 @@ impl CmmaData {
         }
     }
 
+    /// Fill this fragment from `mem`'s window over `space`: stepping rows along `row` in the
+    /// layout it was opened with where the window lies in its Space's order, and as its stage lays
+    /// it where the stage lies along a run of `k` ([`laid_fragment_read`]).
+    pub(crate) fn load_window_over<T: Numeric>(
+        &mut self,
+        mem: &Memory,
+        #[comptime] space: &Space,
+        #[comptime] row: usize,
+    ) {
+        let laid = comptime!(laid_fragment_read(self.ident, space, mem.layout.order));
+        match laid {
+            Some((layout, row)) => self.load_laid_window::<T>(mem, row, layout),
+            None => self.load_window::<T>(mem, row),
+        }
+    }
+
+    /// Fill this fragment from `mem`'s window read as `layout`, its rows stepping along `row`.
+    fn load_laid_window<T: Numeric>(
+        &mut self,
+        mem: &Memory,
+        #[comptime] row: usize,
+        #[comptime] layout: MatrixLayout,
+    ) {
+        let stride = mem.row_stride_at(row);
+        cmma::load_with_layout(
+            &mut self.fragment.downcast::<T>(),
+            mem.window_slice::<T>(),
+            stride,
+            layout,
+        )
+    }
+
     /// Drain this fragment into `mem`'s *window* (origin offset, physical row stride).
     pub(crate) fn store_window<T: Numeric>(&self, mem: &mut Memory, #[comptime] row: usize) {
         let stride = mem.row_stride_at(row);
@@ -130,12 +165,20 @@ impl CmmaData {
         scales: &mut CellScales,
         #[comptime] origin: (usize, usize),
     ) {
-        self.spill_to_scratch::<T>();
-        sync_plane();
+        self.bounced::<T>(|| self.scale_spilled::<T>(scales, origin));
+    }
+
+    /// Each of this fragment's spilled cells under its `scales`, the fragment's first cell at
+    /// `origin` of the sum's window, the plane's units taking them in turns. The caller owns the
+    /// barriers.
+    fn scale_spilled<T: Numeric>(
+        &self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        let mut nth = UNIT_POS_PLANE as usize;
-        while nth < m * n {
+        in_plane_turns(m * n, |nth| {
             let mut cells = Sequence::<HeldCell>::new();
             cells.push(HeldCell {
                 row: (nth / n) as u32 + comptime!(origin.0 as u32),
@@ -144,11 +187,7 @@ impl CmmaData {
             });
             let cell = Vector::<T, Const<1>>::cast_from(scratch[nth]);
             scratch[nth] = scales.applied::<T, Const<1>>(cell, &cells).extract(0usize);
-            nth += PLANE_DIM as usize;
-        }
-        sync_plane();
-        self.reload_from_scratch::<T>();
-        sync_plane();
+        });
     }
 
     /// `self[i, :] *= factors[first + i]` for every slice `i` along the fragment's columns,
@@ -156,12 +195,7 @@ impl CmmaData {
     /// turns, and reloaded, each step met on `sync_plane`. The slot is the plane's own, so no
     /// other plane waits; every unit of the plane calls it.
     pub(crate) fn mul_along<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
-        self.spill_to_scratch::<T>();
-        sync_plane();
-        self.mul_spilled(factors, first);
-        sync_plane();
-        self.reload_from_scratch::<T>();
-        sync_plane();
+        self.bounced::<T>(|| self.mul_spilled(factors, first));
     }
 
     /// `slot[i, :] *= factors[first + i]` over this fragment's spilled cells, the plane's units
@@ -169,11 +203,9 @@ impl CmmaData {
     pub(crate) fn mul_spilled<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        let mut cell = UNIT_POS_PLANE as usize;
-        while cell < m * n {
+        in_plane_turns(m * n, |cell| {
             scratch[cell] *= factors[first + cell / n];
-            cell += PLANE_DIM as usize;
-        }
+        });
     }
 
     /// Load this fragment back from its slot of the plane's scratch. The caller owns the barriers.
@@ -188,7 +220,18 @@ impl CmmaData {
         self.store_scratch(&self.scratch_slot::<T>());
     }
 
-    /// Write this fragment's spilled cells into `mem` through the store's own write.
+    /// Write this fragment's spilled cells into `mem` through the store's own write
+    /// ([`write_cells`]), the plane's units taking its runs in turns: each run read out of the
+    /// scratch in one load and written a store's line at a time ([`ScratchRuns`]). Each cell is
+    /// added once into a destination that adds, and written once into any other.
+    ///
+    /// # Assumptions
+    ///
+    /// - The scratch slot holds the whole fragment, row-major, and starts on 16 bytes.
+    ///
+    /// # Panics
+    ///
+    /// - Where the store's lines do not divide the fragment's columns.
     pub(crate) fn add_from_scratch<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
@@ -197,30 +240,69 @@ impl CmmaData {
         let scratch = self.scratch_slot::<T>();
         let (m, n) = comptime!(self.shape);
         let width = comptime!(mem.store.vector_size);
-        comptime!(assert!(
-            n.is_multiple_of(width),
-            "CmmaData::add_from_scratch: the store's lines ({width}) do not divide the \
-             fragment's columns ({n})"
-        ));
+        let runs = comptime!(ScratchRuns::new(m, n, width));
         let size!(W) = width;
-        let lines_per_row = n / width;
-        let lines = m * lines_per_row;
-        let dimensions = comptime!(MatrixDimensions::trailing(space));
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
-        let plane_units = PLANE_DIM as usize;
-        let mut line = UNIT_POS_PLANE as usize;
-        while line < lines {
-            let mut value = Vector::<Out, W>::empty();
-            #[unroll]
-            for e in 0..width {
-                value.insert(e, Out::cast_from(scratch[line * width + e]));
-            }
-            sink.write(
-                ((line / lines_per_row) as u32, (line % lines_per_row) as u32),
-                value,
-            );
-            line += plane_units;
-        }
+        let size!(R) = runs.run;
+        let lines = runs.lines_per_run();
+        let read = scratch.as_vectorized().with_vector_size::<R>();
+        write_cells::<Out, W>(mem, space, |sink| {
+            in_plane_turns(comptime!(runs.count()), |run| {
+                let cells = read[run];
+                let (row, first_line) = scratch_run_place(comptime!(runs), run);
+                #[unroll]
+                for l in 0..lines {
+                    let mut value = Vector::<Out, W>::empty();
+                    #[unroll]
+                    for e in 0..width {
+                        value.insert(e, Out::cast_from(cells.extract(l * width + e)));
+                    }
+                    sink.write((row, first_line + l as u32), value);
+                }
+            });
+        });
+    }
+
+    /// Whether this fragment's sum reaches a destination bound `width` values a line written cell
+    /// by cell out of its units' registers where it would otherwise bounce
+    /// ([`FragmentDrain::Cells`]): where the target states which unit holds which cell, into a
+    /// destination one value a line, or a unit's run of cells a line along a row of a row-major
+    /// sum.
+    pub(crate) fn drains_by_cell<T: Numeric>(
+        &self,
+        #[comptime] width: usize,
+    ) -> comptime_type!(bool) {
+        let target = comptime::target_properties().comptime();
+        let (m, n) = comptime!(self.shape);
+        // The depth names no cell of an accumulator.
+        let def = MmaDefinition::<T, T, T>::new(m, n, m);
+        let run = def.vector_size(MatrixIdent::Accumulator);
+        let layout = comptime!(self.layout);
+        comptime!(
+            target.mma.fragment_positions == FragmentPositions::AsElementPositions
+                && (width == 1 || (width == run && layout == MatrixLayout::RowMajor))
+        )
+    }
+
+    /// Write this fragment's cells into `mem` through the store's own write ([`write_cells`]),
+    /// each unit the ones its registers hold ([`Matrix::to_registers`]), cast to the store's
+    /// element: a fragment whose positions the target states drains so where it would otherwise
+    /// bounce through a scratch.
+    ///
+    /// # Assumptions
+    ///
+    /// - The target states which unit holds which cell of a fragment
+    ///   ([`drains_by_cell`](Self::drains_by_cell)).
+    pub(crate) fn store_cells<T: Numeric, Out: Numeric>(
+        &self,
+        mem: &mut Memory,
+        #[comptime] space: &Space,
+    ) {
+        let (m, n) = comptime!(self.shape);
+        // The depth names no cell of an accumulator.
+        let def = MmaDefinition::<T, T, T>::new(m, n, m);
+        register_acc_size::<T>(&def);
+        let registers = self.fragment.downcast::<T>().to_registers::<NA>();
+        store_cells::<T, Out, T, T, T>(mem, &registers, &def, comptime!(self.layout), space);
     }
 
     /// Drain this fragment through its slot of the plane's scratch. The slot is the plane's own,
@@ -265,6 +347,32 @@ impl CmmaData {
             stride,
             comptime!(self.layout),
         )
+    }
+}
+
+impl CmmaData {
+    /// Runs `work` on this fragment's cells spilled into its slot of the plane's scratch, then
+    /// reloads it, each step met on `sync_plane`: the slot is the plane's own, so no other plane
+    /// waits, and every unit of the plane calls it.
+    // `T` is read by the expansion, which spills and reloads the fragment at it.
+    #[allow(clippy::extra_unused_type_parameters)]
+    pub(crate) fn bounced<T: Numeric>(&self, _work: impl FnOnce()) {
+        unexpanded!()
+    }
+}
+
+impl CmmaDataExpand {
+    pub(crate) fn __expand_bounced_method<T: Numeric>(
+        &self,
+        scope: &Scope,
+        work: impl FnOnce(&Scope),
+    ) {
+        self.__expand_spill_to_scratch_method::<T>(scope);
+        sync_plane::expand(scope);
+        work(scope);
+        sync_plane::expand(scope);
+        self.__expand_reload_from_scratch_method::<T>(scope);
+        sync_plane::expand(scope);
     }
 }
 
@@ -342,6 +450,9 @@ mod accumulator_cast_layout_tests {
 pub(crate) enum FragmentDrain {
     /// The fragment's store intrinsic: a replacing destination, window wholly inside it.
     Intrinsic,
+    /// Each unit's cells out of its registers, where the target states their positions: a
+    /// destination the intrinsic cannot store to, one value a line or a unit's run a line.
+    Cells,
     /// Through the plane's scratch: a destination that adds, or a window cut short by the edge.
     Bounce,
 }
@@ -349,15 +460,93 @@ pub(crate) enum FragmentDrain {
 impl FragmentDrain {
     /// How a fragment drains into a destination written as `access` says, `addressed` when its
     /// values sit at an address the intrinsic can store to, `in_place` when the fragment cast to
-    /// the destination's element is one the device holds ([`casts_in_place`]).
-    pub(crate) const fn of(access: &Access, addressed: bool, in_place: bool) -> Self {
-        match (access.write, access.overhang, addressed && in_place) {
-            (Write::Replace, Overhang::Never | Overhang::Fits, true) => FragmentDrain::Intrinsic,
-            (Write::Replace, _, _) | (Write::Accumulate | Write::Exclusive(_), _, _) => {
-                FragmentDrain::Bounce
-            }
+    /// the destination's element is one the device holds ([`casts_in_place`]), and `by_cell` when
+    /// its units can write its cells out of their registers ([`CmmaData::drains_by_cell`]).
+    pub(crate) const fn of(
+        access: &Access,
+        addressed: bool,
+        in_place: bool,
+        by_cell: bool,
+    ) -> Self {
+        match (
+            access.write,
+            access.overhang,
+            addressed && in_place,
+            by_cell,
+        ) {
+            (Write::Replace, Overhang::Never | Overhang::Fits, true, _) => FragmentDrain::Intrinsic,
+            (_, _, _, true) => FragmentDrain::Cells,
+            (Write::Replace, _, _, false)
+            | (Write::Accumulate | Write::Exclusive(_), _, _, false) => FragmentDrain::Bounce,
         }
     }
+}
+
+/// How a fragment's spilled cells are read out of its scratch: in runs of `run` cells along a
+/// row, each read in one load and written as whole lines of the store, a run never splitting a
+/// line.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct ScratchRuns {
+    /// Cells one run reads.
+    pub(crate) run: usize,
+    /// The fragment's rows.
+    pub(crate) rows: usize,
+    /// The fragment's columns.
+    pub(crate) cols: usize,
+    /// Cells one line of the store holds.
+    pub(crate) width: usize,
+}
+
+impl ScratchRuns {
+    /// The cells a 16-byte load reads of a 32-bit sum, at least.
+    const LEAST_RUN_CELLS: usize = 4;
+
+    /// The runs of a `rows × cols` fragment written into a store of `width` cells a line: runs of
+    /// the widest of a line and four cells, as wide as a row at most.
+    ///
+    /// # Panics
+    ///
+    /// - Where the store's lines do not divide the fragment's columns.
+    pub(crate) fn new(rows: usize, cols: usize, width: usize) -> Self {
+        assert!(
+            cols.is_multiple_of(width),
+            "CmmaData::add_from_scratch: the store's lines ({width}) should divide the \
+             fragment's columns ({cols})"
+        );
+        let run = width.max(Self::LEAST_RUN_CELLS).min(cols);
+        Self {
+            run,
+            rows,
+            cols,
+            width,
+        }
+    }
+
+    /// The runs the fragment's cells are read in.
+    pub(crate) fn count(&self) -> usize {
+        self.rows * self.cols / self.run
+    }
+
+    /// The store's lines one run holds.
+    pub(crate) fn lines_per_run(&self) -> usize {
+        self.run / self.width
+    }
+
+    /// The runs one row holds.
+    pub(crate) fn runs_per_row(&self) -> usize {
+        self.cols / self.run
+    }
+}
+
+/// The row of `runs`' run `run`, and the first of the store's lines along it the run covers.
+#[cube]
+fn scratch_run_place(#[comptime] runs: ScratchRuns, run: usize) -> (u32, u32) {
+    let runs_per_row = comptime!(runs.runs_per_row());
+    let lines = comptime!(runs.lines_per_run());
+    (
+        (run / runs_per_row) as u32,
+        (run % runs_per_row * lines) as u32,
+    )
 }
 
 #[cfg(test)]
@@ -378,23 +567,43 @@ mod fragment_drain_tests {
     #[test]
     fn a_replacing_window_inside_its_buffer_stores_through_the_intrinsic() {
         for overhang in [Overhang::Never, Overhang::Fits] {
-            let drain = FragmentDrain::of(&access(Write::Replace, overhang), true, true);
-            assert_eq!(drain, FragmentDrain::Intrinsic);
+            for by_cell in [false, true] {
+                let access = access(Write::Replace, overhang);
+                let drain = FragmentDrain::of(&access, true, true, by_cell);
+                assert_eq!(drain, FragmentDrain::Intrinsic);
+            }
         }
     }
 
     #[test]
-    fn an_overhanging_or_summing_window_bounces() {
-        let masked = FragmentDrain::of(&access(Write::Replace, Overhang::Masked), true, true);
+    fn an_overhanging_window_bounces() {
+        let masked =
+            FragmentDrain::of(&access(Write::Replace, Overhang::Masked), true, true, false);
         assert_eq!(masked, FragmentDrain::Bounce);
+    }
+
+    #[test]
+    fn a_summing_window_bounces() {
         for overhang in [Overhang::Never, Overhang::Fits, Overhang::Masked] {
             for write in [Write::Accumulate, Write::Exclusive(Schedule::Sequential)] {
                 assert_eq!(
-                    FragmentDrain::of(&access(write, overhang), true, true),
+                    FragmentDrain::of(&access(write, overhang), true, true, false),
                     FragmentDrain::Bounce,
                     "{write:?} {overhang:?}"
                 );
             }
+        }
+    }
+
+    /// Where the target states which unit holds which cell, a destination the intrinsic cannot
+    /// store to takes each unit's cells out of its registers rather than through a scratch.
+    #[test]
+    fn cmma_drains_by_cell_where_positions_are_stated() {
+        let summing = access(Write::Accumulate, Overhang::Never);
+        let masked = access(Write::Replace, Overhang::Masked);
+        for access in [summing, masked] {
+            let drain = FragmentDrain::of(&access, true, true, true);
+            assert_eq!(drain, FragmentDrain::Cells, "{access:?}");
         }
     }
 
@@ -403,7 +612,7 @@ mod fragment_drain_tests {
     #[test]
     fn a_fragment_with_no_cast_in_place_bounces() {
         for overhang in [Overhang::Never, Overhang::Fits] {
-            let drain = FragmentDrain::of(&access(Write::Replace, overhang), true, false);
+            let drain = FragmentDrain::of(&access(Write::Replace, overhang), true, false, false);
             assert_eq!(drain, FragmentDrain::Bounce);
         }
     }
@@ -413,9 +622,46 @@ mod fragment_drain_tests {
     #[test]
     fn a_window_with_no_address_bounces() {
         for overhang in [Overhang::Never, Overhang::Fits] {
-            let drain = FragmentDrain::of(&access(Write::Replace, overhang), false, true);
+            let drain = FragmentDrain::of(&access(Write::Replace, overhang), false, true, false);
             assert_eq!(drain, FragmentDrain::Bounce);
         }
+    }
+}
+
+#[cfg(test)]
+mod scratch_runs_tests {
+    use super::*;
+
+    /// Every cell of the fragment is in exactly one run, which a plane's units take in turns
+    /// whatever its width: each run once, its lines the store's.
+    #[test]
+    fn add_from_scratch_runs_match_cells() {
+        for (cols, width) in [(8, 1), (16, 1), (16, 2), (16, 8), (8, 8)] {
+            for plane in [32usize, 64] {
+                let runs = ScratchRuns::new(16, cols, width);
+                let mut seen = vec![0usize; 16 * cols];
+                for unit in 0..plane {
+                    for run in (unit..runs.count()).step_by(plane) {
+                        let row = run / runs.runs_per_row();
+                        let line = run % runs.runs_per_row() * runs.lines_per_run();
+                        for cell in 0..runs.run {
+                            let col = line * width + cell;
+                            assert_eq!(run * runs.run + cell, row * cols + col, "{cols} {width}");
+                            seen[row * cols + col] += 1;
+                        }
+                    }
+                }
+                assert!(seen.iter().all(|&n| n == 1), "{cols} {width} {plane}");
+            }
+        }
+    }
+
+    /// A run reads at least a 16-byte load of a 32-bit sum, and never splits a store's line.
+    #[test]
+    fn a_run_is_a_whole_line_at_least_four_cells() {
+        assert_eq!(ScratchRuns::new(16, 16, 1).run, 4);
+        assert_eq!(ScratchRuns::new(16, 16, 8).run, 8);
+        assert_eq!(ScratchRuns::new(16, 2, 1).run, 2);
     }
 }
 

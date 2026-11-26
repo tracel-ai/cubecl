@@ -113,8 +113,8 @@ fn plane_attention<E: Float>(
             };
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
-            let mut p = Tile::scratch::<E>(&walk, comptime!(vec![Q, S]), StageStorage::Strided);
+            let score = Tile::scratch::<f32>(&walk, comptime!(vec![Q, S]), StageStorage::STRIDED);
+            let mut p = Tile::scratch::<E>(&walk, comptime!(vec![Q, S]), StageStorage::STRIDED);
             // The value's sum is opened against what it contracts: the probabilities. A rescaled
             // one is held where its units scale a row in registers, where the device offers that.
             let acc = match rescaled {
@@ -131,10 +131,10 @@ fn plane_attention<E: Float>(
             };
             let mut softmax = OnlineSoftmax::<f32>::along(&score, S).with_headroom(headroom);
             // The query spans no key: staged once, before the walk, where the keys are staged.
-            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
+            let mut q_s = q_p.stage_for(&walk, StageStorage::STRIDED, None);
             q_s.copy_from(&q_p);
             sync_plane();
-            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
+            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {
@@ -232,7 +232,7 @@ fn register_plane_attention<E: Float>(
             let q_s = match held {
                 true => q_p.clone(),
                 false => {
-                    let mut staged = q_p.stage_for(&walk, StageStorage::Strided, None);
+                    let mut staged = q_p.stage_for(&walk, StageStorage::STRIDED, None);
                     staged.copy_from(&q_p);
                     sync_plane();
                     staged
@@ -256,7 +256,7 @@ fn register_plane_attention<E: Float>(
                 .at(&plane)
                 .accumulator::<f32>(&logits, &v_p, Semiring::SumProd);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S).with_headroom(headroom);
-            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
+            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {
@@ -285,9 +285,9 @@ fn register_plane_attention<E: Float>(
                     // any unit.
                     let rows_walk = plane.walk().range(0, blocks);
                     let mut max_w =
-                        Tile::scratch::<f32>(&rows_walk, comptime!(vec![Q]), StageStorage::Strided);
+                        Tile::scratch::<f32>(&rows_walk, comptime!(vec![Q]), StageStorage::STRIDED);
                     let mut sum_w =
-                        Tile::scratch::<f32>(&rows_walk, comptime!(vec![Q]), StageStorage::Strided);
+                        Tile::scratch::<f32>(&rows_walk, comptime!(vec![Q]), StageStorage::STRIDED);
                     softmax.store_rows(&logits, &mut max_w, &mut sum_w);
                     sync_plane();
                     let (max_r, sum_r) =
@@ -350,7 +350,7 @@ fn cut_plane_attention<E: Float>(
             let keys_walk = plane.walk();
             let blocks = reach.div_ceil(block_keys).min(keys_walk.total());
             let walk = keys_walk.range(0, blocks);
-            let mut q_s = q_p.stage_for(&walk, StageStorage::Strided, None);
+            let mut q_s = q_p.stage_for(&walk, StageStorage::STRIDED, None);
             q_s.copy_from(&q_p);
             sync_plane();
             let logits = Tile::stage_accumulator::<f32>(&walk, comptime!(vec![Q, S]), &q_s);
@@ -358,7 +358,7 @@ fn cut_plane_attention<E: Float>(
                 out.at(&plane)
                     .accumulator::<f32>(&logits.cast::<E>(), &v_p, Semiring::SumProd);
             let mut softmax = OnlineSoftmax::<f32>::along(&logits, S);
-            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::Strided, 1usize, None);
+            let mut stages = Stages::smem(&walk, &k_p, &v_p, StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, stage| {
                 let bias_s = bias_p.at(stage);
                 slot.consume(|k_s, v_s| {

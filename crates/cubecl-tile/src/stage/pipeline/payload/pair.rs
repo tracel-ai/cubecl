@@ -43,19 +43,36 @@ pub struct OperandPair {
     pub staged: StagedOperands,
 }
 
-/// `operand` in a slot whose refill of it is `refill`: a stage of its own, the one `first` slot
-/// holds, or the operand itself, read where it lies.
+/// `operand` in a slot whose refill of it is `refill`: a stage of its own, contracted with
+/// `other`, the one `first` slot holds, or the operand itself, read where it lies.
 #[cube]
 fn staged_operand(
     operand: &Tile,
+    other: &Tile,
     first: &Tile,
     #[comptime] spec: StageSpec,
     #[comptime] refill: Refill,
 ) -> Tile {
+    let contracted = comptime!(contracted_dimension(
+        &spec.level.child(&operand.place.space),
+        &other.place.space
+    ));
     match refill {
-        Refill::EveryRegion | Refill::Once => stage_one(operand, spec),
+        Refill::EveryRegion | Refill::Once => stage_one(operand, spec, contracted),
         Refill::Shared => first.clone(),
         Refill::InPlace => operand.clone(),
+    }
+}
+
+/// The one Dimension of `stage` longer than one cell that the operand it is contracted with also
+/// spans, the one the contraction sums along; `None` where there are none or several.
+fn contracted_dimension(stage: &Space, other: &Space) -> Option<Dimension> {
+    let mut shared = stage.dimensions().filter(|&dimension| {
+        other.contains(dimension) && !matches!(stage.extent_raw(dimension), Extent::Static(1))
+    });
+    match (shared.next(), shared.next()) {
+        (Some(contracted), None) => Some(contracted),
+        _ => None,
     }
 }
 
@@ -104,8 +121,14 @@ impl Payload<OperandPair> for OperandPair {
         #[comptime] refills: Vec<Refill>,
     ) -> OperandPair {
         OperandPair {
-            lhs: staged_operand(&self.lhs, &first.lhs, spec.clone(), refills[0]),
-            rhs: staged_operand(&self.rhs, &first.rhs, comptime!(spec), refills[1]),
+            lhs: staged_operand(&self.lhs, &self.rhs, &first.lhs, spec.clone(), refills[0]),
+            rhs: staged_operand(
+                &self.rhs,
+                &self.lhs,
+                &first.rhs,
+                comptime!(spec),
+                refills[1],
+            ),
             staged: comptime!(self.staged),
         }
     }

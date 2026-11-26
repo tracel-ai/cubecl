@@ -43,13 +43,11 @@ impl Memory {
         });
         let shape = self.layout.physical_shape.clone();
         let plen = shape.len().comptime();
-        let total = shape
-            .product(comptime!((0..plen).collect::<Vec<_>>()))
-            .cast::<usize>();
+        let total = self.stage_lines();
         let layout = self.layout.clone();
         let extent = comptime!(fill_extent(space, sw, w, check));
         let src_rank = comptime!(src.projection.physical_rank());
-        let padding = comptime!((sw != w).then(|| {
+        let padding = comptime!((sw == 1 && w > 1).then(|| {
             // `source_component` only addresses the source when both boxes share a rank.
             assert!(
                 src_rank == plen,
@@ -115,24 +113,100 @@ impl Memory {
                 fill,
             );
         } else {
-            let s = if steps.is_empty() {
-                src.edged(
-                    src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked)),
-                    check,
-                )
-            } else {
-                src.edged(
-                    src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked))
-                        .view(CompactionStep::new(
-                            widened_shape(&shape, comptime!(plen), comptime!(w)),
-                            comptime!(steps),
-                        )),
-                    check,
-                )
-            };
-            // A padded stage assembles each line out of narrower ones, through the registers.
-            Memory::sync_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
+            Memory::fill_rewidened::<I2, WP2>(
+                d, src, &layout, &shape, total, fill, padding, steps, check,
+            );
         }
+    }
+
+    /// The straight fill of a stage served at another width than its source: a padded stage's
+    /// lines assembled out of a scalar source's cells, or a stage of one value a line scattering
+    /// each wider source line's values over their cells.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rewidened<I2: Numeric, WP2: Size>(
+        d: &mut [Vector<I2, WP2>],
+        src: &Memory,
+        layout: &BufferLayout,
+        shape: &Coords<u32>,
+        total: usize,
+        #[comptime] fill: Level,
+        #[comptime] padding: Option<Padding>,
+        #[comptime] steps: Vec<usize>,
+        #[comptime] check: bool,
+    ) {
+        match padding {
+            Some(padding) => Memory::fill_padded::<I2, WP2>(
+                d, src, layout, shape, total, fill, padding, steps, check,
+            ),
+            None => Memory::fill_scattered::<I2, WP2>(d, src, layout, total, fill, steps, check),
+        }
+    }
+
+    /// A padded stage's lines assembled out of a scalar source's cells, through the registers.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_padded<I2: Numeric, WP2: Size>(
+        d: &mut [Vector<I2, WP2>],
+        src: &Memory,
+        layout: &BufferLayout,
+        shape: &Coords<u32>,
+        total: usize,
+        #[comptime] fill: Level,
+        #[comptime] padding: Padding,
+        #[comptime] steps: Vec<usize>,
+        #[comptime] check: bool,
+    ) {
+        let plen = shape.len().comptime();
+        let w = comptime!(padding.width);
+        let s = if steps.is_empty() {
+            src.edged(
+                src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked)),
+                check,
+            )
+        } else {
+            src.edged(
+                src.window_view_storage::<I2, Const<1>>(comptime!(Guard::Checked))
+                    .view(CompactionStep::new(
+                        widened_shape(shape, comptime!(plen), comptime!(w)),
+                        comptime!(steps),
+                    )),
+                check,
+            )
+        };
+        Memory::sync_lines::<I2, WP2, Const<1>>(
+            d,
+            &s,
+            layout,
+            total,
+            fill,
+            comptime!(Some(padding)),
+        );
+    }
+
+    /// A stage of one value a line filled from its wider source's lines whole, each line's values
+    /// scattered over their cells ([`Memory::scatter_lines`]).
+    #[allow(clippy::too_many_arguments)]
+    fn fill_scattered<I2: Numeric, WP2: Size>(
+        d: &mut [Vector<I2, WP2>],
+        src: &Memory,
+        layout: &BufferLayout,
+        total: usize,
+        #[comptime] fill: Level,
+        #[comptime] steps: Vec<usize>,
+        #[comptime] check: bool,
+    ) {
+        comptime!(assert!(
+            steps.is_empty(),
+            "Memory::fill_straight: a stage laid out of its source's lines whole reads a dense, \
+             ungathered source"
+        ));
+        let sw = comptime!(src.store.vector_size);
+        let size!(SW) = sw;
+        let s = src.edged(
+            src.window_view_storage::<I2, SW>(comptime!(Guard::Checked)),
+            check,
+        );
+        let lines = total.divided_by(comptime!(sw).runtime());
+        Memory::scatter_lines::<I2, WP2, SW>(d, &s, layout, lines, fill);
     }
 }
 

@@ -3,7 +3,8 @@
 use cubecl::cmma::{MatrixIdent, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
-    DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
+    DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
+    features::ScaledMmaConfig,
 };
 
 use cubecl::quant::scheme::QuantValue;
@@ -52,6 +53,28 @@ impl Instruction {
         match self {
             Self::Registers { .. } | Self::Mma { .. } => true,
             Self::Cmma | Self::Wgmma => false,
+        }
+    }
+
+    /// Whether a sum this instruction contracts, compiled for `target`, hides which unit holds
+    /// which of its cells: a cmma fragment's does where the compiler keeps its positions to itself
+    /// ([`FragmentPositions::Hidden`]), so it reaches a destination that adds, overhangs or casts
+    /// out of place through a scratch, a cell at a time, and the host sizes that scratch. Where
+    /// the compiler states them, each unit writes the cells its registers hold.
+    pub fn hides_cell_positions(self, target: &TargetProperties) -> bool {
+        match self {
+            Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// Whether a sum this instruction contracts is scaled through a scratch, its cells spilled,
+    /// scaled and reloaded: a cmma fragment's is, wherever its positions are stated, since the
+    /// fragment API reads no cell of it in place.
+    pub fn scales_through_scratch(self) -> bool {
+        match self {
+            Self::Cmma => true,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
         }
     }
 }
@@ -565,7 +588,7 @@ fn rereads(target: &TargetProperties, [m, n]: [usize; 2], call: &MmaConfig) -> b
     let element = call.a_type;
     let vectors = |ident, shape: MatrixShape, copies: usize| {
         let width = target.mma.vector_size(ident, shape, element);
-        let cells = shape.num_elems(ident) * copies / target.mma.const_plane_size as usize;
+        let cells = shape.num_elems(ident) * copies / target.mma.const_plane_lane_count as usize;
         LaneVectors {
             width,
             count: cells / width,
@@ -574,12 +597,12 @@ fn rereads(target: &TargetProperties, [m, n]: [usize; 2], call: &MmaConfig) -> b
     let acc = vectors(
         MatrixIdent::Accumulator,
         (m, n, n).into(),
-        target.mma.register_duplication_acc,
+        target.mma.register_copy_count_acc,
     );
     let a = vectors(
         MatrixIdent::A,
         (call.m as usize, call.n as usize, call.k as usize).into(),
-        target.mma.register_duplication_a,
+        target.mma.register_copy_count_a,
     );
     KeyOrder::rereading(element.size(), acc, a).is_some()
 }
@@ -605,7 +628,7 @@ fn deepest_run(held_width: usize) -> usize {
 fn accumulator_is_a(target: &TargetProperties) -> bool {
     let layout = &target.mma;
     layout.register_layout_a == layout.register_layout_acc
-        && layout.register_duplication_a == layout.register_duplication_acc
+        && layout.register_copy_count_a == layout.register_copy_count_acc
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -833,7 +856,7 @@ pub(crate) mod tests {
     pub(crate) fn sum_is_next_a() -> TargetProperties {
         let mut target = TargetProperties::default();
         target.mma.register_layout_a = target.mma.register_layout_acc;
-        target.mma.register_duplication_a = target.mma.register_duplication_acc;
+        target.mma.register_copy_count_a = target.mma.register_copy_count_acc;
         target
     }
 

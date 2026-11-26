@@ -202,6 +202,8 @@ struct Case {
     mn: usize,
     /// How much of `K` one stage holds.
     stage_k: usize,
+    /// The blocks one stage holds along `K`, each `stage_k / k_blocks` deep.
+    k_blocks: usize,
     /// The width the operands are served in.
     v: usize,
     /// The rhs stored `{n, k}` rather than `{k, n}`.
@@ -225,6 +227,7 @@ impl Case {
         chunks: RowChunks::InOrder,
         mn: 16,
         stage_k: 32,
+        k_blocks: 1,
         v: 8,
         transposed: false,
         lhs_transposed: false,
@@ -241,6 +244,7 @@ fn check(case: Case) {
         chunks,
         mn,
         stage_k,
+        k_blocks,
         v,
         transposed,
         lhs_transposed,
@@ -352,8 +356,9 @@ fn check(case: Case) {
     let storage = step
         .stage_storage(
             StageStorage::Tiled {
-                block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
+                block: vec![(M, edge_m), (N, edge_n), (K, stage_k / k_blocks)],
                 chunks,
+                order: StageOrder::AsSource,
             },
             Delivery::default(),
             client.properties(),
@@ -672,6 +677,32 @@ fn the_ldmatrix_transport_reads_bf16() {
                 leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
+        }
+    }
+}
+
+/// A row-major rhs, and an lhs stored `{k, m}` beside it, read by the fragment API, filled in
+/// slots and through registers alike, over a box of three blocks a side, one or two blocks deep.
+/// Where the Lowering lays stages along the run and the target's fragment load reads a run across
+/// its memory's rows one element at a time, each stage lays its `k` innermost, each source line's
+/// values scattered over their cells; elsewhere each keeps its source's order.
+#[test]
+fn transposed_fill_lands_every_cell() {
+    for chunks in [RowChunks::InOrder, RowChunks::Padded] {
+        for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
+            for lhs_transposed in [false, true] {
+                for k_blocks in [1, 2] {
+                    check(Case {
+                        chunks,
+                        mn: 48,
+                        k_blocks,
+                        lhs_transposed,
+                        schedule,
+                        leaf: Leaf::Cmma,
+                        ..Case::DEFAULT
+                    });
+                }
+            }
         }
     }
 }

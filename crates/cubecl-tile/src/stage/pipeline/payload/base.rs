@@ -68,11 +68,16 @@ pub(crate) trait Payload<Me: CubeType>: CubeType {
     );
 }
 
-/// One operand's stage, placed in the operand's nest at the depth the walk's regions sit below.
-/// The nest's levels come with it: a plane's window of the stage is the plane's, and a landing
-/// out of it takes a window for every plane the levels lay out.
+/// One operand's stage, placed in the operand's nest at the depth the walk's regions sit below,
+/// `contracted` the Dimension a contraction sums it along where it is one's factor. The nest's
+/// levels come with it: a plane's window of the stage is the plane's, and a landing out of it
+/// takes a window for every plane the levels lay out.
 #[cube]
-pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
+pub(crate) fn stage_one(
+    operand: &Tile,
+    #[comptime] spec: StageSpec,
+    #[comptime] contracted: Option<Dimension>,
+) -> Tile {
     // An operand whose table this level reads stages one region of it: one slab, not the stack.
     let shaped = operand.shaped_for(spec.level.clone());
     let operand = &shaped;
@@ -84,6 +89,7 @@ pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
         spec.width,
         spec.owner,
         spec.decoded,
+        contracted,
     );
     let stage = Tile::new::<Staged>(
         stage.kind,

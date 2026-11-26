@@ -720,6 +720,120 @@ fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
+/// Rows of the `B` stage of [`staged_fragment_product`]: sixteen of `k` and one 16-byte chunk of
+/// padding, so each row starts on its own chunk.
+#[cfg(feature = "amdgpu")]
+const STAGE_PITCH: usize = 24;
+
+/// One `16 × 16 × 16` `f16` product summed in `f32`: `A` loaded row-major from `lhs`, `B` from a
+/// stage in shared memory holding each column's `k` contiguous, one padded row a column, and the
+/// sum added cell by cell into shared memory from the `cells` registers each lane holds, then
+/// written out.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn staged_fragment_product(
+    lhs: &[half::f16],
+    rhs: &[half::f16],
+    out: &mut [f32],
+    #[comptime] cells: usize,
+) {
+    let mut stage = Shared::<[half::f16]>::new_aligned_slice(16 * STAGE_PITCH, 16usize);
+    let mut cell = UNIT_POS as usize;
+    while cell < 256 {
+        stage[(cell / 16) * STAGE_PITCH + cell % 16] = rhs[cell];
+        cell += CUBE_DIM as usize;
+    }
+    let sum = Shared::<[Atomic<f32>]>::new_slice(256usize);
+    let mut zeroed = UNIT_POS as usize;
+    while zeroed < 256 {
+        sum[zeroed].store(0.0);
+        zeroed += CUBE_DIM as usize;
+    }
+    sync_cube();
+    let a = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16u32,
+    );
+    let b = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        &stage,
+        STAGE_PITCH as u32,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    cmma::execute(&a, &b, &c, &c);
+    let def = cmma::MmaDefinition::<half::f16, half::f16, f32>::new(16usize, 16usize, 16usize);
+    let registers = c.to_registers::<Const<1>>();
+    #[unroll]
+    for nth in 0..cells {
+        let (row, col) =
+            def.position_of_nth(UNIT_POS_PLANE, nth as u32, cmma::MatrixIdent::Accumulator);
+        sum[(row * 16 + col) as usize].fetch_add(registers[nth].extract(0usize));
+    }
+    sync_cube();
+    let mut written = UNIT_POS as usize;
+    while written < 256 {
+        out[written] = sum[written].load();
+        written += CUBE_DIM as usize;
+    }
+}
+
+/// [`staged_fragment_product`] for one plane of `arch`, whose target states its fragments' element
+/// positions.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn staged_fragment_product_kernel(
+    arch: &cubecl_core::ir::amd::GfxArch,
+) -> impl CubeKernel {
+    let plane_dim = arch
+        .plane_dim()
+        .expect("the architecture has a known plane width");
+    let core = arch
+        .matrix_core()
+        .expect("the architecture has matrix instructions");
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(plane_dim),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(plane_dim)).clone();
+    let half = half::f16::cube_type();
+    props.features.matmul.cmma.insert(MmaConfig {
+        a_type: half,
+        b_type: half,
+        cd_type: f32::cube_type(),
+        m: 16,
+        n: 16,
+        k: 16,
+    });
+    let target = TargetProperties {
+        mma: core.mma_properties(),
+    };
+    staged_fragment_product::StagedFragmentProduct::new(
+        settings,
+        Arc::new(props),
+        Arc::new(target),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        (16 * 16 / plane_dim) as usize,
+    )
+}
+
 /// Each lane of the plane loads the elements of role `ident` it holds of `def`'s tile into
 /// `registers`, from `source`, where a row is `row_stride` elements after the one before it and
 /// a column `col_stride`.
