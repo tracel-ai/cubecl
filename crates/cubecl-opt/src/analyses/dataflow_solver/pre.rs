@@ -54,7 +54,7 @@ use crate::{
                 DenseBackwardDataflowAnalysis, DenseForwardDataflowAnalysis, DenseLattice,
                 LatticeValue,
             },
-            speculatability::{NotSpeculatable, SpeculatableAnalysis},
+            speculatability::{NotSpeculatable, SpeculatableBackward},
             value_dependents::{DependentsLattice, ValueDependentsAnalysis},
             value_numbering::{ValueNumberLattice, ValueNumberingAnalysis},
             value_uniformity::{DynamicUniformityAnalysis, DynamicUniformityLattice},
@@ -114,7 +114,9 @@ pub fn compute_lcm_analyses(
         |analysis: &dyn DataflowAnalysis| !finished_analyses.contains(&analysis.type_id());
 
     if mode == AnticipatedMode::Speculative {
-        solver.load(SpeculatableAnalysis::default());
+        solver.load(SpeculatableBackward::new(collect_expression_dependents(
+            &solver,
+        )));
         solver.load(DynamicUniformityAnalysis::default());
     }
 
@@ -591,7 +593,27 @@ pub(crate) fn collect_memory_kill_sets(
     out
 }
 
-pub(super) fn op_transitive_kill_set(
+/// The expressions that transitively use each expression. Equal values can have different
+/// users, so this is the union over every value the expression numbers.
+pub(super) fn collect_expression_dependents(solver: &DataflowSolver) -> HMap<u64, SparseBitSet> {
+    let mut out = HMap::<u64, SparseBitSet>::new();
+    for dependents in solver.states_of_type::<DependentsLattice>() {
+        let dependents = dependents.deref();
+        if dependents.value().0.is_empty() {
+            continue;
+        }
+        let Some(number) = solver
+            .lookup_state::<ValueNumberLattice>(dependents.anchor())
+            .and_then(|it| it.deref().value().value())
+        else {
+            continue;
+        };
+        out.entry(number).or_default().unite(&dependents.value().0);
+    }
+    out
+}
+
+fn op_transitive_kill_set(
     solver: &DataflowSolver,
     computes: &ReadRef<Computes>,
     values: impl Iterator<Item = Value>,
@@ -601,7 +623,7 @@ pub(super) fn op_transitive_kill_set(
     res
 }
 
-pub(super) fn values_transitive_kill_set(
+fn values_transitive_kill_set(
     solver: &DataflowSolver,
     values: impl Iterator<Item = Value>,
 ) -> SparseBitSet {
