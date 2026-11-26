@@ -290,6 +290,9 @@ where
         func_passes.add_pass(CppUnrollPass::default());
         func_passes.add_pass(LowerBuiltinsPass::<T>::default());
         func_passes.add_pass(LowerOpsAfterUnrollCppPass::<T>::default());
+        // The unroll packs the lanes of each op into a vector the next op extracts from again.
+        // Fold those first, so the fusion below sees each lane's product as it sees a scalar one.
+        func_passes.add_pass(SROAPass);
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(InstCombinePass::default());
