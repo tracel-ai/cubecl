@@ -1,4 +1,5 @@
 use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
+use crate::config::autotune::AutotuneLevel;
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -175,6 +176,27 @@ pub struct Patience {
     /// Members in a row that miss before the group stops. Zero stops it at
     /// [`min_measured`](Self::min_measured), whatever they measured.
     pub max_misses: usize,
+}
+
+impl Patience {
+    /// The patience an [`AutotuneLevel`] races an ordered group with: none at
+    /// [`Full`](AutotuneLevel::Full), which measures every member, and twenty misses after ten
+    /// measured members at every other level.
+    ///
+    /// Twenty misses, not fewer, while the estimates that order a group still miss some kernels
+    /// by several times: replayed over matmul and attention races on four devices, it settles on
+    /// the fastest candidate of each, measuring about a third of them.
+    pub const fn for_level(level: &AutotuneLevel) -> Option<Self> {
+        match level {
+            AutotuneLevel::Full => None,
+            AutotuneLevel::Minimal | AutotuneLevel::Balanced | AutotuneLevel::Extensive => {
+                Some(Self {
+                    min_measured: 10,
+                    max_misses: 20,
+                })
+            }
+        }
+    }
 }
 
 impl<K> core::fmt::Debug for TuneGroup<K> {
@@ -1030,6 +1052,12 @@ mod tests {
 
         assert_eq!(plan.next().indices(), vec![1, 3, 4, 0]);
         assert!(plan.next().is_empty());
+    }
+
+    #[test_log::test]
+    fn full_level_races_every_member() {
+        assert_eq!(Patience::for_level(&AutotuneLevel::Full), None);
+        assert!(Patience::for_level(&AutotuneLevel::Balanced).is_some());
     }
 
     #[test_log::test]
