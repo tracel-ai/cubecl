@@ -11,7 +11,7 @@
 //! The calls that are not are [`Driver`](super::Driver)'s.
 
 use super::stream_relocation_copier::StreamRelocationCopier;
-use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
+use super::{ChunkStager, CopyLayout, DeviceResource, DeviceStream, Driver, Staging, StagingKind};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::StreamSyncer;
 use crate::memory_management::relocation::{
@@ -29,12 +29,14 @@ use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
 use crate::stream::{Placement, TouchedPage};
 use alloc::boxed::Box;
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{bytes::Bytes, device::ServiceId};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_zspace::{Shape, Strides};
 
 /// One unit of work against the device: the context that holds its compiled
 /// kernels, and the streams it was resolved against.
@@ -524,11 +526,16 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Enqueue a copy of `data` into the device memory `descriptor` names.
     ///
+    /// A large contiguous copy from pageable memory, on a driver that
+    /// [chunks it](Driver::CHUNKS_LARGE_UPLOADS), returns only once the device
+    /// has read all but its last two chunks.
+    ///
     /// # Errors
     ///
     /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
     /// row-major, [`IoError::BindingOutOfBounds`] for a binding whose offsets reach
-    /// past the end of its memory, and the driver's refusal to copy.
+    /// past the end of its memory, the driver's refusal to copy, and the fault
+    /// a wait on the copy of an earlier chunk reveals.
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
@@ -547,24 +554,24 @@ impl<'a, D: Driver> Command<'a, D> {
         }
 
         let layout = CopyLayout::of(&shape, &strides, elem_size)?;
-        let resource = self.resource(binding)?;
-        let staging = Staging::of(size, data.property());
+        // A recording replays each copy from the host pointer it was given,
+        // so a buffer reused from chunk to chunk would replay as the last
+        // chunk everywhere, and the host cannot wait on a fence mid-capture.
+        let chunkable = D::CHUNKS_LARGE_UPLOADS
+            && layout.pitch.is_none()
+            && !self.streams.current().capturing().is_recording();
+        let staging = Staging::of(size, data.property(), chunkable);
 
-        let data = match staging.through_pinned {
-            true => {
-                // Pinned staging is a DMA optimization, not a requirement, so
-                // an exhausted pinned pool falls back to a plain heap buffer
-                // rather than failing the write — the same answer `reserve_cpu`
-                // gives for the same condition. File-backed data still lands in
-                // real memory before the driver reads it asynchronously, which
-                // is the half of the staging that is mandatory.
-                let mut buffer = self
-                    .reserve_pinned(size, None)
-                    .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]));
-                data.copy_into(&mut buffer);
-                buffer
-            }
-            false => data,
+        if staging.kind == StagingKind::Chunked
+            && let Some(stager) = self.reserve_stager()
+        {
+            return self.write_chunked(binding, &data, stager);
+        }
+
+        let resource = self.resource(binding)?;
+        let data = match staging.kind {
+            StagingKind::Whole => self.staged_whole(data),
+            StagingKind::Direct | StagingKind::Chunked => data,
         };
 
         let current = self.streams.current();
@@ -591,6 +598,90 @@ impl<'a, D: Driver> Command<'a, D> {
             }
         }
 
+        Ok(())
+    }
+
+    /// `data` copied into one pinned buffer of its size.
+    ///
+    /// Pinned staging is a DMA optimization, not a requirement, so an
+    /// exhausted pinned pool falls back to a plain heap buffer rather than
+    /// failing the write: the same answer `reserve_cpu` gives for the same
+    /// condition. File-backed data still lands in real memory before the
+    /// driver reads it asynchronously, which is the half of the staging that
+    /// is mandatory.
+    fn staged_whole(&mut self, data: Bytes) -> Bytes {
+        let size = data.len();
+        let mut buffer = self
+            .reserve_pinned(size, None)
+            .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]));
+        data.copy_into(&mut buffer);
+        buffer
+    }
+
+    /// A stager over two pinned chunks, or `None` when the pool cannot serve
+    /// both.
+    fn reserve_stager(&mut self) -> Option<ChunkStager<Fence<D>>> {
+        let first = self.reserve_pinned(Staging::CHUNK_BYTES, None)?;
+        let second = self.reserve_pinned(Staging::CHUNK_BYTES, None)?;
+        Some(ChunkStager::new(first, second))
+    }
+
+    /// Copy `data` into the memory `binding` names through `stager`, then
+    /// hand the stager's buffers to the drop queue, whether or not every
+    /// chunk was copied, since the device may still be reading them.
+    ///
+    /// The host waits for the device to read a chunk before refilling its
+    /// buffer, so the write returns once all but the last two chunks have
+    /// been read, behind whatever the stream had queued before it. A copy
+    /// from pageable memory this large blocks the host the same way, on the
+    /// driver's own staging.
+    fn write_chunked(
+        &mut self,
+        binding: BufferBinding,
+        data: &[u8],
+        mut stager: ChunkStager<Fence<D>>,
+    ) -> Result<(), IoError> {
+        let copied = self.copy_chunks(binding, data, &mut stager);
+
+        let current = self.streams.current();
+        for buffer in stager.into_buffers() {
+            current.drop_queue().push(buffer);
+        }
+        let signal = current.signal();
+        current.drop_queue().flush(|| D::Stream::fence(signal));
+
+        copied
+    }
+
+    /// Enqueue a copy of each chunk of `data`, staged through `stager`, into
+    /// the part of the memory `binding` names that it lands in.
+    ///
+    /// Each chunk's target runs from its offset to the end of `binding`, so
+    /// the driver refuses a chunk that would land past it: a write longer
+    /// than its target fails there, with the chunks before it written.
+    fn copy_chunks(
+        &mut self,
+        mut binding: BufferBinding,
+        data: &[u8],
+        stager: &mut ChunkStager<Fence<D>>,
+    ) -> Result<(), IoError> {
+        let start = binding.offset_start.unwrap_or(0);
+        for (index, chunk) in data.chunks(Staging::CHUNK_BYTES).enumerate() {
+            let staged = stager.stage(chunk).map_err(into_io_error)?;
+            binding.offset_start = Some(start + (index * Staging::CHUNK_BYTES) as u64);
+            let target = self.resource(binding.clone())?;
+            let shape = Shape::from([chunk.len()]);
+            let strides = Strides::from([1]);
+            let layout = CopyLayout::of(&shape, &strides, 1)?;
+            let current = self.streams.current();
+
+            // SAFETY: `target` is a live device allocation, and `staged` is a
+            // pinned buffer of the stager, which the host does not refill
+            // before the fence recorded below and which `write_chunked` hands
+            // to the drop queue once the last chunk is enqueued.
+            unsafe { D::copy_to_device(&target, &layout, staged, current)? };
+            stager.fence(D::Stream::fence(current.signal()));
+        }
         Ok(())
     }
 
@@ -796,6 +887,21 @@ enum Room {
     Planned,
     /// Apart from the room the stream's graphs share, while a capture is under way.
     Separate,
+}
+
+/// The fence a driver's streams record.
+type Fence<D> = <<D as Driver>::Stream as DeviceStream>::Fence;
+
+/// `error` as the error of a copy, keeping what a copy can report as it is.
+fn into_io_error(error: ServerError) -> IoError {
+    match error {
+        ServerError::Io(error) => error,
+        ServerError::DevicePoisoned(poison) => IoError::DevicePoisoned(poison),
+        error => IoError::Unknown {
+            description: error.to_string(),
+            backtrace: BackTrace::capture(),
+        },
+    }
 }
 
 /// How many bytes reading `descriptor` copies to the host.

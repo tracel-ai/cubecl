@@ -15,4 +15,5 @@ pub use capture::*;
 pub use collective::*;
 pub use collective_server::*;
 pub use peers::*;
-pub use staging::*;
+pub(crate) use staging::ChunkStager;
+pub use staging::{Staging, StagingKind};

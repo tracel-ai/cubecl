@@ -622,7 +622,7 @@ impl Client {
                         alloc.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    Bytes::from_bytes_vec(data),
                 )
             })
             .collect::<Vec<_>>();

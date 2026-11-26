@@ -67,6 +67,9 @@ impl Driver for Cuda {
     /// descriptor sits in it beside a buffer's device pointer.
     type LaunchArgs = [*mut c_void];
     type Loaded = CudaCompiledKernel;
+    // The driver stages a pageable copy itself, serially, at a fraction of
+    // the bandwidth a pinned source reaches.
+    const CHUNKS_LARGE_UPLOADS: bool = true;
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
