@@ -112,35 +112,49 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
 }
 
 /// A `B` fragment whose lanes' runs of `k` are contiguous in shared memory loads each run as
-/// 16-byte reads, not element by element.
+/// 16-byte reads, not element by element. A CDNA lane's run of a 16-deep `f16` tile is only 8
+/// bytes, so the kernel does not apply there.
 #[test]
 fn a_k_contiguous_b_fragment_loads_in_b128() {
-    let asm = asm_of(staged_fragment_product_kernel(), "gfx1151");
-    assert!(asm.contains("ds_load_b128"), "the runs load whole:\n{asm}");
-    assert!(
-        !asm.contains("ds_load_u16_d16"),
-        "no run loads element by element:\n{asm}"
-    );
+    for arch in ["gfx1151", "gfx1201"] {
+        let asm = asm_of(staged_fragment_product_kernel(&GfxArch::parse(arch)), arch);
+        assert!(
+            asm.contains("ds_load_b128"),
+            "{arch}: the runs load whole:\n{asm}"
+        );
+        assert!(
+            !asm.contains("ds_load_u16_d16"),
+            "{arch}: no run loads element by element:\n{asm}"
+        );
+    }
 }
 
 /// A sum read out of its fragment's registers adds each cell into shared memory with one atomic
 /// add, never through a scratch it is first stored to.
 #[test]
 fn a_fragment_adds_into_shared_memory_without_scratch() {
-    let asm = asm_of(staged_fragment_product_kernel(), "gfx1151");
-    assert_eq!(
-        asm.matches("ds_add_f32").count(),
-        8,
-        "each of a lane's eight cells adds once:\n{asm}"
-    );
-    let product = asm.find("v_wmma").expect("the product is one WMMA");
-    let first_add = asm
-        .find("ds_add_f32")
-        .expect("the sum adds into shared memory");
-    assert!(
-        !asm[product..first_add].contains("ds_store") && !asm.contains("scratch_"),
-        "no cell is stored between the product and its add:\n{asm}"
-    );
+    for (arch, cells, product, store) in [
+        ("gfx1151", 8, "v_wmma", "ds_store"),
+        ("gfx1201", 8, "v_wmma", "ds_store"),
+        ("gfx942", 4, "v_mfma", "ds_write"),
+    ] {
+        let asm = asm_of(staged_fragment_product_kernel(&GfxArch::parse(arch)), arch);
+        assert_eq!(
+            asm.matches("ds_add_f32").count(),
+            cells,
+            "{arch}: each of a lane's {cells} cells adds once:\n{asm}"
+        );
+        let product = asm
+            .find(product)
+            .expect("the product is one matrix instruction");
+        let first_add = asm
+            .find("ds_add_f32")
+            .expect("the sum adds into shared memory");
+        assert!(
+            !asm[product..first_add].contains(store) && !asm.contains("scratch_"),
+            "{arch}: no cell is stored between the product and its add:\n{asm}"
+        );
+    }
 }
 
 /// RDNA4 multiplies `e4m3` (`fp8`) and `e5m2` (`bf8`) operands into `f32`, each side its own

@@ -727,10 +727,16 @@ const STAGE_PITCH: usize = 24;
 
 /// One `16 × 16 × 16` `f16` product summed in `f32`: `A` loaded row-major from `lhs`, `B` from a
 /// stage in shared memory holding each column's `k` contiguous, one padded row a column, and the
-/// sum added cell by cell into shared memory from the registers its lanes hold, then written out.
+/// sum added cell by cell into shared memory from the `cells` registers each lane holds, then
+/// written out.
 #[cfg(feature = "amdgpu")]
 #[cube(launch)]
-fn staged_fragment_product(lhs: &[half::f16], rhs: &[half::f16], out: &mut [f32]) {
+fn staged_fragment_product(
+    lhs: &[half::f16],
+    rhs: &[half::f16],
+    out: &mut [f32],
+    #[comptime] cells: usize,
+) {
     let mut stage = Shared::<[half::f16]>::new_aligned_slice(16 * STAGE_PITCH, 16usize);
     let mut cell = UNIT_POS as usize;
     while cell < 256 {
@@ -774,7 +780,7 @@ fn staged_fragment_product(lhs: &[half::f16], rhs: &[half::f16], out: &mut [f32]
     let def = cmma::MmaDefinition::<half::f16, half::f16, f32>::new(16usize, 16usize, 16usize);
     let registers = c.to_registers::<Const<1>>();
     #[unroll]
-    for nth in 0..8usize {
+    for nth in 0..cells {
         let (row, col) =
             def.position_of_nth(UNIT_POS_PLANE, nth as u32, cmma::MatrixIdent::Accumulator);
         sum[(row * 16 + col) as usize].fetch_add(registers[nth].extract(0usize));
@@ -787,18 +793,24 @@ fn staged_fragment_product(lhs: &[half::f16], rhs: &[half::f16], out: &mut [f32]
     }
 }
 
-/// [`staged_fragment_product`] for one plane of RDNA3, whose target states its fragments' element
+/// [`staged_fragment_product`] for one plane of `arch`, whose target states its fragments' element
 /// positions.
 #[cfg(feature = "amdgpu")]
-pub(crate) fn staged_fragment_product_kernel() -> impl CubeKernel {
-    use cubecl_core::ir::amd::{AmdMatrixCore, AmdWmma};
-    const PLANE_DIM: u32 = 32;
+pub(crate) fn staged_fragment_product_kernel(
+    arch: &cubecl_core::ir::amd::GfxArch,
+) -> impl CubeKernel {
+    let plane_dim = arch
+        .plane_dim()
+        .expect("the architecture has a known plane width");
+    let core = arch
+        .matrix_core()
+        .expect("the architecture has matrix instructions");
     let settings = KernelSettings::new(
-        *CubeDim::new_1d(PLANE_DIM),
+        *CubeDim::new_1d(plane_dim),
         ExecutionMode::Unchecked,
         AddressType::U32,
     );
-    let mut props = (*device_properties(PLANE_DIM)).clone();
+    let mut props = (*device_properties(plane_dim)).clone();
     let half = half::f16::cube_type();
     props.features.matmul.cmma.insert(MmaConfig {
         a_type: half,
@@ -809,7 +821,7 @@ pub(crate) fn staged_fragment_product_kernel() -> impl CubeKernel {
         k: 16,
     });
     let target = TargetProperties {
-        mma: AmdMatrixCore::Wmma(AmdWmma::Rdna3).mma_properties(),
+        mma: core.mma_properties(),
     };
     staged_fragment_product::StagedFragmentProduct::new(
         settings,
@@ -818,6 +830,7 @@ pub(crate) fn staged_fragment_product_kernel() -> impl CubeKernel {
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
         BufferCompilationArg { inplace: None },
+        (16 * 16 / plane_dim) as usize,
     )
 }
 
