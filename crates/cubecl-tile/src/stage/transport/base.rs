@@ -8,13 +8,25 @@ use cubecl::prelude::*;
 use super::straight::fill_extent;
 use crate::*;
 
+/// The line of `d` the stage line `i` of `layout` lies at, written with `value`: the one write
+/// every unit's fill makes of a stage line.
+#[cube]
+pub(crate) fn store_line<T: Numeric, W: Size>(
+    d: &mut [Vector<T, W>],
+    layout: &BufferLayout,
+    i: usize,
+    value: Vector<T, W>,
+) {
+    d[layout.line_offset(i)] = value;
+}
+
 /// One side of a fill, as far as choosing a transport goes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct StoreForm {
     /// How the values sit in the buffer.
     pub(crate) packing: Packing,
-    /// The physical line width.
-    pub(crate) width: usize,
+    /// The values one physical line holds.
+    pub(crate) vector_size: usize,
     /// Whether the coordinates gather.
     pub(crate) gathered: bool,
     /// Whether the gather lands two cells on one, so a write through it aliases.
@@ -51,37 +63,44 @@ pub(crate) enum Scan {
 impl TransportKind {
     /// The transport `src` reaches `dst` by; panics on a pairing with no transport, or an engine
     /// moving memory to memory on one that does not move each line whole
-    /// ([`refuse_past_registers`](TransportKind::refuse_past_registers)).
+    /// ([`refusal_past_registers`](TransportKind::refusal_past_registers)).
     pub(crate) fn new(dst: StoreForm, src: StoreForm, access: &Access, space: &Space) -> Self {
         let kind = Self::choose(dst, src, access, space);
-        if src.delivery.route() == Route::MemoryToMemory {
-            kind.refuse_past_registers(dst, src);
+        if let Some(why) = kind.refusal_past_registers(dst, src) {
+            panic!("TransportKind: {why}");
         }
         kind
     }
 
-    /// An engine moving memory to memory, as the copy engine, moves a source line's bytes to one
-    /// destination line, by address, without a unit touching them: only a transport whose every
-    /// line is such a move takes one. A scan may sum into or window its destination, and a padded
-    /// stage assembles each line out of several source cells.
-    fn refuse_past_registers(self, dst: StoreForm, src: StoreForm) {
-        assert!(
-            !matches!(self, TransportKind::Scanned(_)),
-            "TransportKind: a copy moved memory to memory fills a whole, unmasked stage that \
-             replaces, and this destination is windowed, masked, summing or a sink"
-        );
-        assert!(
-            dst.width == src.width,
-            "TransportKind: a copy moved memory to memory moves whole source lines, but this stage \
-             is served in {}-wide lines out of {}-wide ones",
-            dst.width,
-            src.width
-        );
-        assert!(
-            src.addressed,
-            "TransportKind: a copy moved memory to memory reads its source by address, and this \
-             one is an erased call"
-        );
+    /// Why an engine moving memory to memory cannot move `src`'s lines into `dst` by this
+    /// transport, `None` where it can or where no such engine moves them. Such an engine, as the
+    /// copy engine, moves a source line's bytes to one destination line, by address, without a
+    /// unit touching them: only a transport whose every line is such a move takes one. A scan may
+    /// sum into or window its destination, and a padded stage assembles each line out of several
+    /// source cells.
+    fn refusal_past_registers(self, dst: StoreForm, src: StoreForm) -> Option<String> {
+        if src.delivery.route() != Route::MemoryToMemory {
+            return None;
+        }
+        if matches!(self, TransportKind::Scanned(_)) {
+            return Some(
+                "a copy moved memory to memory fills a whole, unmasked stage that replaces, and \
+                 this destination is windowed, masked, summing or a sink"
+                    .to_string(),
+            );
+        }
+        if dst.vector_size != src.vector_size {
+            return Some(format!(
+                "a copy moved memory to memory moves whole source lines, but this stage is served \
+                 in {}-wide lines out of {}-wide ones",
+                dst.vector_size, src.vector_size
+            ));
+        }
+        (!src.addressed).then(|| {
+            "a copy moved memory to memory reads its source by address, and this one is an \
+             erased call"
+                .to_string()
+        })
     }
 
     /// The transport the two forms and the destination's access leave, before any claim a
@@ -92,7 +111,7 @@ impl TransportKind {
                 access.whole
                     && !access.overhang.masks()
                     && src.packing == dst.packing
-                    && dst.width == src.width,
+                    && dst.vector_size == src.vector_size,
                 "TransportKind: a packed stage is a fresh whole buffer filled from the window it \
                  was shaped over, at the same packing and width"
             );
@@ -107,10 +126,10 @@ impl TransportKind {
         {
             // A padded stage assembles each destination line from scalar source cells.
             assert!(
-                dst.width == src.width || src.width == 1,
+                dst.vector_size == src.vector_size || src.vector_size == 1,
                 "TransportKind: a padded stage is filled from a plain scalar operand, but its \
                  source serves {}-wide lines",
-                src.width
+                src.vector_size
             );
             return TransportKind::Straight;
         }
@@ -140,7 +159,7 @@ impl Memory {
         let transport = comptime!(TransportKind::new(
             StoreForm {
                 packing: self.store.packing,
-                width: self.store.vector_size,
+                vector_size: self.store.vector_size,
                 gathered: !self.projection.is_direct(),
                 overlaps: self.projection.composition() != Composition::Disjoint,
                 masks: self.access.overhang.masks(),
@@ -149,7 +168,7 @@ impl Memory {
             },
             StoreForm {
                 packing: src.store.packing,
-                width: src.store.vector_size,
+                vector_size: src.store.vector_size,
                 gathered: !src.projection.is_direct(),
                 overlaps: src.projection.composition() != Composition::Disjoint,
                 masks: src.access.overhang.masks(),
@@ -182,12 +201,12 @@ impl Scan {
              destination (a stage), and a scan writes no destination whose gather overlaps"
         );
         assert!(
-            dst.width == src.width,
+            dst.vector_size == src.vector_size,
             "TransportKind: a plain source is scanned at the destination's width, so a padded \
              stage has to take the straight fill"
         );
         // `storage_extents` rounds the innermost extent up; the scan would miss an unfillable line.
-        fill_extent(space, src.width, dst.width, src.masks);
+        fill_extent(space, src.vector_size, dst.vector_size, src.masks);
         match src.packing {
             Packing::Plain | Packing::Words { .. } => Scan::Element,
             Packing::Packed { field: _ } => Scan::Words,
@@ -218,10 +237,10 @@ mod tests {
         }
     }
 
-    fn plain(width: usize) -> StoreForm {
+    fn plain(vector_size: usize) -> StoreForm {
         StoreForm {
             packing: Packing::Plain,
-            width,
+            vector_size,
             gathered: false,
             overlaps: false,
             masks: false,
@@ -237,12 +256,12 @@ mod tests {
         }
     }
 
-    fn words(width: usize) -> StoreForm {
+    fn words(vector_size: usize) -> StoreForm {
         StoreForm {
             packing: Packing::Packed {
                 field: Field::Quant(QuantValue::Q4F),
             },
-            ..plain(width)
+            ..plain(vector_size)
         }
     }
 

@@ -270,8 +270,8 @@ mod tests {
     /// each of its dimensions.
     fn scales_over(scope: &Scope, scale: &[(Dimension, usize)]) -> CellScalesExpand {
         let sum = Space::new(&[(BATCH, 2), (ROW, 4), (COL, 8)]);
-        let values = Tile::__expand_shared::<f32>(scope, sum.clone(), StageStorage::Strided);
-        let scale = Tile::__expand_shared::<f32>(scope, Space::new(scale), StageStorage::Strided);
+        let values = Tile::__expand_shared::<f32>(scope, sum.clone(), StageStorage::STRIDED);
+        let scale = Tile::__expand_shared::<f32>(scope, Space::new(scale), StageStorage::STRIDED);
         let scaled = values.__expand_mul_method(scope, &scale);
         let dimensions = MatrixDimensions::trailing(&sum);
         CellScalesExpand::new(scope, &scaled.factor, sum, dimensions)

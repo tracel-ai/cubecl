@@ -68,17 +68,26 @@ pub enum Prefetch {
     /// scales kept beside their values, filler planes, a source an engine moves, a depth past 2, a
     /// fill that converts, rewidens, gathers or packs its source or masks its stage, a
     /// decoding fill whose scales are not held as words, a stage whose per-unit share is unknown,
-    /// and loads past [`fits`](Prefetch::fits).
+    /// and loads past [`fits_registers`](Prefetch::fits_registers).
     InRegisters,
 }
 
 impl Prefetch {
     /// Loads one of `units` units takes of a stage of `elements` values read `width` at a time.
+    ///
+    /// # Assumptions
+    ///
+    /// - `units` is a known count, above zero.
+    ///
+    /// # Panics
+    ///
+    /// - Where `units` is zero, which deals the lines to no known count of units.
     pub fn turns(elements: usize, units: usize, width: usize) -> usize {
         Level::copied_by_cube(units)
             .copy_turns(elements.div_ceil(width))
             .expect(
-                "Prefetch::turns: a register prefetch deals its lines to a known count of units",
+                "Prefetch::turns: a register prefetch should deal its lines to a known count of \
+                 units",
             )
     }
 
@@ -97,7 +106,16 @@ impl Prefetch {
 
     /// Whether a register prefetch holding `registers` 32-bit registers a unit, over both
     /// operands, is accepted.
-    pub fn fits(registers: usize) -> bool {
+    ///
+    /// # Assumptions
+    ///
+    /// - `registers` counts the lines a unit fetches, not the addresses it keeps across the
+    ///   contraction.
+    ///
+    /// # Guarantees
+    ///
+    /// - Accepts at most a quarter of the 256 registers a unit addresses.
+    pub fn fits_registers(registers: usize) -> bool {
         registers <= MOST_FETCHED_REGISTERS
     }
 }
@@ -551,5 +569,38 @@ mod shared {
             &mut steady_body,
         );
         steady
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit of 128 takes two turns over 1024 values read 4 at a time.
+    #[test]
+    fn a_unit_takes_its_share_of_the_lines() {
+        assert_eq!(Prefetch::turns(1024, 128, 4), 2);
+    }
+
+    /// A count of units the walk does not know deals no turns.
+    #[test]
+    #[should_panic(expected = "known count of units")]
+    fn turns_need_a_known_count_of_units() {
+        Prefetch::turns(1024, 0, 4);
+    }
+
+    /// A straight fill holds its loads whole; a decoding fill holds their words and a scale word
+    /// per landed line.
+    #[test]
+    fn a_fill_holds_its_loads_in_registers() {
+        assert_eq!(Prefetch::straight_registers(2, 8, 16), 8);
+        assert_eq!(Prefetch::decoded_registers(2, 8, 4, 4), 2 * (1 + 2));
+    }
+
+    /// A prefetch is accepted up to its register budget, and refused past it.
+    #[test]
+    fn a_prefetch_fits_up_to_its_budget() {
+        assert!(Prefetch::fits_registers(MOST_FETCHED_REGISTERS));
+        assert!(!Prefetch::fits_registers(MOST_FETCHED_REGISTERS + 1));
     }
 }

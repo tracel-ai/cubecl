@@ -414,6 +414,12 @@ impl Tile {
         })
     }
 
+    /// The order this tile's window lays its dimensions down in: its Space's, as the source holds
+    /// them, for every tile.
+    pub(crate) fn stage_order(&self) -> comptime_type!(StageOrder) {
+        comptime!(StageOrder::AsSource)
+    }
+
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
     pub fn is_shared(&self) -> comptime_type!(bool) {
         match &self.kind {
@@ -946,7 +952,7 @@ impl Tile {
         Memory::smem_owned::<Served>(
             &self.place.space,
             1usize,
-            comptime!(StageStorage::Strided),
+            comptime!(StageStorage::STRIDED),
             units,
             comptime!(Delivery::TMA_STAGE_ALIGNMENT),
             comptime!(StageOwner::CUBE),
@@ -2059,7 +2065,7 @@ mod tests {
 
     /// A tile of shared memory over `space`, which varies along each of its dimensions.
     fn shared(scope: &Scope, space: &[(Dimension, usize)]) -> TileExpand {
-        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::Strided)
+        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::STRIDED)
     }
 
     #[test]

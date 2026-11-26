@@ -1590,11 +1590,11 @@ pub fn test_cmma_manual_positions_on_the_host<
 
     let shape = cmma::MatrixShape::from((m, n, k));
     let mma = &client.target_properties().mma;
-    let lanes = mma.const_plane_size as usize;
+    let lanes = mma.const_plane_lane_count as usize;
     for (ident, duplication) in [
-        (MatrixIdent::A, mma.register_duplication_a),
-        (MatrixIdent::B, mma.register_duplication_b),
-        (MatrixIdent::Accumulator, mma.register_duplication_acc),
+        (MatrixIdent::A, mma.register_copy_count_a),
+        (MatrixIdent::B, mma.register_copy_count_b),
+        (MatrixIdent::Accumulator, mma.register_copy_count_acc),
     ] {
         let held = shape.num_elems(ident) * duplication;
         let out = client.create_from_slice(u32::as_bytes(&vec![0; held]));

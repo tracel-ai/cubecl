@@ -43,9 +43,7 @@ impl Memory {
         });
         let shape = self.layout.physical_shape.clone();
         let plen = shape.len().comptime();
-        let total = shape
-            .product(comptime!((0..plen).collect::<Vec<_>>()))
-            .cast::<usize>();
+        let total = self.stage_lines();
         let layout = self.layout.clone();
         let extent = comptime!(fill_extent(space, sw, w, check));
         let src_rank = comptime!(src.projection.physical_rank());

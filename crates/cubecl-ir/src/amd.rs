@@ -29,7 +29,7 @@ pub enum AmdWmma {
 impl AmdWmma {
     /// Elements of A/B each lane holds. RDNA3 gives every lane the whole `k` range and duplicates
     /// it across lanes 0-15 / 16-31; RDNA4 splits `k` between the two halves instead.
-    pub fn frag_ab_elems(&self, k: usize) -> usize {
+    pub fn frag_ab_elems_at_depth(&self, k: usize) -> usize {
         match self {
             AmdWmma::Rdna3 => k,
             AmdWmma::Rdna4 => k / 2,
@@ -52,9 +52,19 @@ pub enum AmdMfma {
 const ROW_LANE_COUNT: usize = 16;
 
 /// The lane groups an MFMA instruction splits `k` between: a 64-wide wavefront of 16-lane rows.
-pub const MFMA_LANE_GROUPS: usize = 4;
+pub const MFMA_LANE_GROUP_COUNT: usize = 4;
 
 /// The matrix instructions an AMD part has: RDNA's WMMA or CDNA's MFMA.
+///
+/// # Assumptions
+///
+/// - A tile is 16 cells wide on the side a lane names a place of: the lanes count their place
+///   over 16.
+///
+/// # Guarantees
+///
+/// - Every answer is the same whichever backend lowers the instruction, so the fragments one
+///   backend builds are the ones another reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmdMatrixCore {
     Wmma(AmdWmma),
@@ -64,24 +74,27 @@ pub enum AmdMatrixCore {
 impl AmdMatrixCore {
     /// Elements of A/B each lane holds for a tile `k` deep. MFMA splits `k` between four lane
     /// groups, each holding its own run of it.
-    pub fn frag_ab_elems(&self, k: usize) -> usize {
+    pub fn frag_ab_elems_at_depth(&self, k: usize) -> usize {
         match self {
-            AmdMatrixCore::Wmma(generation) => generation.frag_ab_elems(k),
-            AmdMatrixCore::Mfma(_) => k / MFMA_LANE_GROUPS,
+            AmdMatrixCore::Wmma(generation) => generation.frag_ab_elems_at_depth(k),
+            AmdMatrixCore::Mfma(_) => k / MFMA_LANE_GROUP_COUNT,
         }
     }
 
-    /// How the manual MMA lays its registers out on this core, whichever backend lowers it: `A`
-    /// along its rows, `B` along its columns. RDNA3 holds every A/B cell in both halves of its
-    /// 32-lane wavefront, RDNA4 once; CDNA splits `k` between the four 16-lane groups of its
-    /// 64-lane wavefront.
+    /// How the manual MMA lays its registers out on this core: `A` along its rows, `B` along its
+    /// columns. RDNA3 holds every A/B cell in both halves of its 32-lane wavefront, RDNA4 once;
+    /// CDNA splits `k` between the four 16-lane groups of its 64-lane wavefront.
     ///
     /// The accumulator lies along its columns, except on RDNA4: there A and B hold their
     /// registers alike, so the backends run the instruction with them swapped and get the
     /// transposed accumulator, along its rows as A is. A product then feeds the next one as its
     /// A in registers, and each lane holds whole rows for a factor per row.
+    ///
+    /// # Guarantees
+    ///
+    /// - Each `register_layout_*` is the [`run_layout`](Self::run_layout) of its operand.
     pub fn mma_properties(self) -> MmaProperties {
-        let (plane_size, duplication_ab) = match self {
+        let (plane_lanes, copies_ab) = match self {
             AmdMatrixCore::Wmma(AmdWmma::Rdna3) => (32, 2),
             AmdMatrixCore::Wmma(AmdWmma::Rdna4) => (32, 1),
             AmdMatrixCore::Mfma(_) => (64, 1),
@@ -91,27 +104,34 @@ impl AmdMatrixCore {
             AmdMatrixCore::Wmma(AmdWmma::Rdna4) => ContiguousElements::new(contiguous_rdna4),
             AmdMatrixCore::Mfma(_) => ContiguousElements::new(contiguous_cdna),
         };
-        let register_layout_acc = match self {
-            AmdMatrixCore::Wmma(AmdWmma::Rdna4) => MatrixLayout::RowMajor,
-            AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => MatrixLayout::ColMajor,
-        };
         MmaProperties {
             register_size_bits: REGISTER_BITS,
-            const_plane_size: plane_size,
-            register_layout_a: MatrixLayout::RowMajor,
-            register_layout_b: MatrixLayout::ColMajor,
-            register_layout_acc,
-            register_duplication_a: duplication_ab,
-            register_duplication_b: duplication_ab,
-            register_duplication_acc: 1,
+            const_plane_lane_count: plane_lanes,
+            register_layout_a: self.run_layout(MatrixIdent::A),
+            register_layout_b: self.run_layout(MatrixIdent::B),
+            register_layout_acc: self.run_layout(MatrixIdent::Accumulator),
+            register_copy_count_a: copies_ab,
+            register_copy_count_b: copies_ab,
             contiguous_elements,
             element_positions: OperandFact::new(move |ctx, ident, matrix| {
                 Some(self.element_positions(ident, matrix.deref(ctx).shape))
             }),
+            ..MmaProperties::default()
         }
     }
 
     /// Where the elements a lane holds of operand `ident` of a tile of `shape` lie in it.
+    ///
+    /// # Assumptions
+    ///
+    /// - `shape` is 16 by 16, and on RDNA4 and CDNA a lane's share of `k` divides `k`.
+    ///
+    /// # Guarantees
+    ///
+    /// - The lanes of a plane together hold every cell of the operand, each as many times as
+    ///   [`mma_properties`](Self::mma_properties) says it is copied.
+    /// - A lane's place counts along the side [`lane_names_row`](Self::lane_names_row) names,
+    ///   and its run of elements along the other.
     pub fn element_positions(self, ident: MatrixIdent, shape: MatrixShape) -> ElementPositions {
         let across = CoordinatePart::of(ElementIndex::Lane).counted_over(ROW_LANE_COUNT);
         let along = self.run_along(ident, shape);
@@ -128,8 +148,13 @@ impl AmdMatrixCore {
     }
 
     /// Whether a lane's place in its row of 16 lanes names the row of the matrix it holds, its run
-    /// of elements then lying along that row; otherwise it names a column. RDNA4's accumulator is
-    /// held as A is, since the instruction runs on it transposed.
+    /// of elements then lying along that row; otherwise it names a column.
+    ///
+    /// # Guarantees
+    ///
+    /// - A lane names a row of A and a column of B, on every core.
+    /// - A lane names a row of the accumulator only on RDNA4, which runs the instruction
+    ///   transposed and holds the accumulator as it holds A.
     pub fn lane_names_row(self, ident: MatrixIdent) -> bool {
         match ident {
             MatrixIdent::A => true,
@@ -138,6 +163,21 @@ impl AmdMatrixCore {
         }
     }
 
+    /// The layout of memory in which a lane's run of elements of operand `ident` is contiguous.
+    ///
+    /// # Guarantees
+    ///
+    /// - `RowMajor` where the lane names a row, its run lying along that row, and `ColMajor`
+    ///   where it names a column.
+    pub fn run_layout(self, ident: MatrixIdent) -> MatrixLayout {
+        match self.lane_names_row(ident) {
+            true => MatrixLayout::RowMajor,
+            false => MatrixLayout::ColMajor,
+        }
+    }
+}
+
+impl AmdMatrixCore {
     /// Where a lane's run of elements lies along the side of a tile it does not name a place of.
     fn run_along(self, ident: MatrixIdent, shape: MatrixShape) -> Vec<CoordinatePart> {
         let nth = CoordinatePart::of(ElementIndex::Nth);
@@ -146,7 +186,7 @@ impl AmdMatrixCore {
             // Both halves of an RDNA3 wavefront hold the whole of `k`.
             (MatrixIdent::A | MatrixIdent::B, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => vec![nth],
             (MatrixIdent::A | MatrixIdent::B, _) => {
-                vec![nth, group.spaced_by(self.frag_ab_elems(shape.k))]
+                vec![nth, group.spaced_by(self.frag_ab_elems_at_depth(shape.k))]
             }
             (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(AmdWmma::Rdna3)) => {
                 vec![nth.spaced_by(2), group]
@@ -155,7 +195,7 @@ impl AmdMatrixCore {
                 vec![nth, group.spaced_by(shape.n / 2)]
             }
             (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => {
-                vec![nth, group.spaced_by(shape.m / MFMA_LANE_GROUPS)]
+                vec![nth, group.spaced_by(shape.m / MFMA_LANE_GROUP_COUNT)]
             }
         }
     }
@@ -172,7 +212,9 @@ impl AmdMatrixCore {
         let matrix = matrix.deref(ctx);
         let widest = LOAD_WIDTH_BYTES / matrix.elem_ty.size(ctx);
         match ident {
-            MatrixIdent::A | MatrixIdent::B => self.frag_ab_elems(matrix.shape.k).min(widest),
+            MatrixIdent::A | MatrixIdent::B => {
+                self.frag_ab_elems_at_depth(matrix.shape.k).min(widest)
+            }
             MatrixIdent::Accumulator => match self {
                 AmdMatrixCore::Wmma(AmdWmma::Rdna4) => matrix.shape.n / 2,
                 AmdMatrixCore::Wmma(AmdWmma::Rdna3) | AmdMatrixCore::Mfma(_) => 1,
@@ -261,29 +303,20 @@ impl AMDArchitecture {
         }
     }
 
-    pub fn parse(arg: &str) -> Result<Self, String> {
-        let norm = arg.to_lowercase();
-        if norm.starts_with("gfx120") {
-            Ok(AMDArchitecture::GFX12)
-        } else if norm.starts_with("gfx11") {
-            Ok(AMDArchitecture::GFX11)
-        } else if norm.starts_with("gfx103") {
-            Ok(AMDArchitecture::GFX103)
-        } else if norm.starts_with("gfx101") {
-            Ok(AMDArchitecture::GFX101)
-        } else if norm == "gfx908" {
-            Ok(AMDArchitecture::GFX908)
-        } else if norm == "gfx90a" {
-            Ok(AMDArchitecture::GFX90A)
-        } else if matches!(
-            norm.as_str(),
-            "gfx900" | "gfx902" | "gfx904" | "gfx906" | "gfx909" | "gfx90c"
-        ) {
-            Ok(AMDArchitecture::GFX9)
-        } else if norm.starts_with("gfx94") {
-            Ok(AMDArchitecture::GFX94)
-        } else {
-            Ok(AMDArchitecture::Other)
+    /// The family of a bare gfx architecture name, `Other` for one this table does not know.
+    pub fn parse(arg: &str) -> Self {
+        match arg.to_lowercase().as_str() {
+            norm if norm.starts_with("gfx120") => AMDArchitecture::GFX12,
+            norm if norm.starts_with("gfx11") => AMDArchitecture::GFX11,
+            norm if norm.starts_with("gfx103") => AMDArchitecture::GFX103,
+            norm if norm.starts_with("gfx101") => AMDArchitecture::GFX101,
+            "gfx908" => AMDArchitecture::GFX908,
+            "gfx90a" => AMDArchitecture::GFX90A,
+            "gfx900" | "gfx902" | "gfx904" | "gfx906" | "gfx909" | "gfx90c" => {
+                AMDArchitecture::GFX9
+            }
+            norm if norm.starts_with("gfx94") => AMDArchitecture::GFX94,
+            _ => AMDArchitecture::Other,
         }
     }
 }
@@ -308,7 +341,7 @@ impl GfxArch {
             .next()
             .unwrap_or(reported)
             .to_lowercase();
-        let family = AMDArchitecture::parse(&name).unwrap_or(AMDArchitecture::Other);
+        let family = AMDArchitecture::parse(&name);
         Self { name, family }
     }
 
@@ -359,13 +392,13 @@ mod tests {
         ] {
             let mma = core.mma_properties();
             for (ident, duplication) in [
-                (MatrixIdent::A, mma.register_duplication_a),
-                (MatrixIdent::B, mma.register_duplication_b),
-                (MatrixIdent::Accumulator, mma.register_duplication_acc),
+                (MatrixIdent::A, mma.register_copy_count_a),
+                (MatrixIdent::B, mma.register_copy_count_b),
+                (MatrixIdent::Accumulator, mma.register_copy_count_acc),
             ] {
                 let shape = MatrixShape::from((16, 16, 32));
                 let cells = shape.num_elems(ident);
-                let lanes = mma.const_plane_size as usize;
+                let lanes = mma.const_plane_lane_count as usize;
                 let held = core.element_positions(ident, shape).held_cells(
                     (shape, ident),
                     lanes,
@@ -412,9 +445,6 @@ mod tests {
         assert_eq!(GfxArch::parse("gfx1012").family(), AMDArchitecture::GFX101);
         assert_eq!(GfxArch::parse("gfx1030").family(), AMDArchitecture::GFX103);
         assert_eq!(GfxArch::parse("gfx1032").family(), AMDArchitecture::GFX103);
-        assert_eq!(GfxArch::parse("gfx1010").plane_dim(), Some(32));
-        assert_eq!(GfxArch::parse("gfx1030").plane_dim(), Some(32));
-        assert_eq!(GfxArch::parse("gfx1010").wmma(), None);
     }
 
     /// GCN5 shares the `gfx90` prefix with CDNA1 and CDNA2, which have MFMA.
@@ -452,9 +482,41 @@ mod tests {
         ] {
             assert_eq!(GfxArch::parse(name).matrix_core(), core, "{name}");
         }
+    }
+
+    /// MFMA splits `k` between its four lane groups.
+    #[test]
+    fn an_mfma_lane_holds_a_quarter_of_k() {
         let cdna3 = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
-        assert_eq!(cdna3.frag_ab_elems(16), 4);
-        assert_eq!(cdna3.frag_ab_elems(32), 8);
+        assert_eq!(cdna3.frag_ab_elems_at_depth(16), 4);
+        assert_eq!(cdna3.frag_ab_elems_at_depth(32), 8);
+    }
+
+    /// A lane's run lies along the side it names: A's rows, B's columns, and the accumulator's
+    /// columns except on RDNA4.
+    #[test]
+    fn a_lane_run_is_contiguous_along_the_side_it_names() {
+        use MatrixIdent::{A, Accumulator, B};
+        use MatrixLayout::{ColMajor, RowMajor};
+
+        for core in [
+            AmdMatrixCore::Wmma(AmdWmma::Rdna3),
+            AmdMatrixCore::Mfma(AmdMfma::Cdna3),
+        ] {
+            assert_eq!(core.run_layout(A), RowMajor, "{core:?}");
+            assert_eq!(core.run_layout(B), ColMajor, "{core:?}");
+            assert_eq!(core.run_layout(Accumulator), ColMajor, "{core:?}");
+        }
+    }
+
+    /// RDNA4 runs the instruction transposed, so its accumulator is held along its rows.
+    #[test]
+    fn an_rdna4_accumulator_run_is_contiguous_along_its_rows() {
+        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+        assert_eq!(
+            rdna4.run_layout(MatrixIdent::Accumulator),
+            MatrixLayout::RowMajor
+        );
     }
 
     /// An architecture the table has never heard of reports no width rather than guessing

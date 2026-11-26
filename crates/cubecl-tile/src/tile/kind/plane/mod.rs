@@ -3,6 +3,7 @@
 //! load ([`load_matrix`]).
 
 pub(crate) mod base;
+pub(crate) mod cells;
 pub(crate) mod cmma;
 pub(crate) mod lines;
 pub(crate) mod load_matrix;
@@ -12,6 +13,7 @@ pub(crate) mod registers;
 pub(crate) mod wgmma;
 
 pub(crate) use base::*;
+pub(crate) use cells::*;
 pub(crate) use cmma::*;
 pub(crate) use lines::*;
 pub(crate) use matrix_grid::*;

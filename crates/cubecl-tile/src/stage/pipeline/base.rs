@@ -381,7 +381,7 @@ impl Stages<OperandPair> {
                 && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && matches!(
                     (lhs_registers, rhs_registers),
-                    (Some(l), Some(r)) if Prefetch::fits(l + r)
+                    (Some(l), Some(r)) if Prefetch::fits_registers(l + r)
                 )
         )
     }

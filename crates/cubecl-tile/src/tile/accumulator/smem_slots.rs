@@ -55,7 +55,7 @@ impl Tile {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
         let values = Shared::<[A]>::new_slice(comptime!(form.cells() * width * writers));
@@ -95,7 +95,7 @@ impl<A: Numeric> SmemSlotsAccumulation<A> {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
         let slot = comptime!(form.cells() * width);

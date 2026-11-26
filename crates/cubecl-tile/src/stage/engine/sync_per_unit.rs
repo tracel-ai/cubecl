@@ -8,6 +8,7 @@ use cubecl::prelude::*;
 
 use cubecl_std::tensor::layout::CoordsDyn;
 
+use crate::stage::transport::base::store_line;
 use crate::stage::transport::padded::read_stage_line;
 use crate::*;
 
@@ -35,9 +36,10 @@ impl Memory {
         #[comptime] padding: Option<Padding>,
     ) {
         for line in Walk::copy(&fill, total) {
-            let i = line.coord(Level::COPIED);
-            d[layout.line_offset(i)] =
+            let i = line.copied_line();
+            let value =
                 read_stage_line::<I2, WP2, SW>(s, &layout.line_coords(i), comptime!(padding));
+            store_line::<I2, WP2>(d, layout, i, value);
         }
     }
 }

@@ -577,12 +577,12 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
-            let plane_dim = scope.state().target_properties.mma.const_plane_size as usize;
+            let plane_dim = scope.state().target_properties.mma.const_plane_lane_count as usize;
             let duplication = match ident {
-                MatrixIdent::A => scope.state().target_properties.mma.register_duplication_a,
-                MatrixIdent::B => scope.state().target_properties.mma.register_duplication_b,
+                MatrixIdent::A => scope.state().target_properties.mma.register_copy_count_a,
+                MatrixIdent::B => scope.state().target_properties.mma.register_copy_count_b,
                 MatrixIdent::Accumulator => {
-                    scope.state().target_properties.mma.register_duplication_acc
+                    scope.state().target_properties.mma.register_copy_count_acc
                 }
             };
             (elems * duplication) / plane_dim

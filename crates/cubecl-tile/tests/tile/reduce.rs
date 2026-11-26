@@ -82,7 +82,7 @@ fn reduce_body<E: Numeric>(
             }
         }
         Read::Smem { depth } => {
-            let mut stages = Stages::smem_single(&walk, input, StageStorage::Strided, depth, None);
+            let mut stages = Stages::smem_single(&walk, input, StageStorage::STRIDED, depth, None);
             stages.pipelined(walk, |slot, region| {
                 let mut out_region = output.at(region);
                 slot.consume(|input_s| {

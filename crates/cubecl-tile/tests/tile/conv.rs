@@ -83,7 +83,7 @@ fn conv_kernel_smem(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         slot.consume(|input, weight| {
@@ -112,7 +112,7 @@ fn conv_kernel_smem_padded(
     let mut stages = Stages::smem_single_at(
         &walk,
         &input,
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         comptime!(Some(width)),
         depth,
         None,
@@ -169,7 +169,7 @@ fn conv_kernel_two_levels_smem(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     let walk = space.over(&outer);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let out_outer = out.at(region);
         slot.consume(|input, weight| {
@@ -2222,7 +2222,7 @@ fn conv_kernel_input_staged(
     let input = input.tile(&space);
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
-    let mut stage = input.stage(level.clone(), StageStorage::Strided);
+    let mut stage = input.stage(level.clone(), StageStorage::STRIDED);
     for region in space.over(&level) {
         stage.copy_from(&input.at(&region));
         sync_cube();

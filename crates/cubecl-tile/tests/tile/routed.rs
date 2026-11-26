@@ -165,7 +165,7 @@ fn routed_staged_matmul_kernel(
         let e = routes[tok.coord(M)] as usize;
         let experts = tok.over(&expert).routed(EXPERT, e);
 
-        let mut stages = Stages::smem_single(&experts, &w, StageStorage::Strided, 1usize, None);
+        let mut stages = Stages::smem_single(&experts, &w, StageStorage::STRIDED, 1usize, None);
         stages.pipelined(experts, |slot, slab| {
             let mut o = out
                 .at(slab)
