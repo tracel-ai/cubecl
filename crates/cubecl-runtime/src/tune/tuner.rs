@@ -404,7 +404,7 @@ impl<K: AutotuneKey> Tuner<K> {
             .iter()
             .map(|a| {
                 AutotuneResult::error(AutotuneError::Skip {
-                    name: a.name.to_string(),
+                    name: a.name().to_string(),
                 })
             })
             .collect();
@@ -427,7 +427,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let plan = tunables.plan(key);
         #[cfg(persistence)]
         if recording.is_open() {
-            let names: Vec<&str> = autotunables.iter().map(|tune| tune.name.as_str()).collect();
+            let names: Vec<&str> = autotunables.iter().map(|tune| tune.name()).collect();
             recording.plan(&plan, &names);
         }
         let bounds = tunables.bounds(key, inputs);
@@ -627,7 +627,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     Ok(profiles) => {
                         let bench = PendingBench {
                             index,
-                            name: op.name.clone(),
+                            name: op.name().to_string(),
                             profiles,
                             launch: start_time.map(|start| start.elapsed()),
                         };
@@ -647,11 +647,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
                             if let Some(start) = start_time {
                                 job.log_context
-                                    .push_tuning_step(op.name.to_string(), start.elapsed());
+                                    .push_tuning_step(op.name().to_string(), start.elapsed());
                             }
 
                             if close_enough {
-                                job.log_context.push_short_circuit(op.name.to_string());
+                                job.log_context.push_short_circuit(op.name().to_string());
                                 break;
                             }
 
@@ -666,7 +666,7 @@ impl<K: AutotuneKey> Tuner<K> {
                         job.results[index] = AutotuneResult::error(err);
                         if let Some(start) = start_time {
                             job.log_context
-                                .push_tuning_step(op.name.to_string(), start.elapsed());
+                                .push_tuning_step(op.name().to_string(), start.elapsed());
                         }
                     }
                 }
@@ -889,7 +889,7 @@ async fn process_request<K: AutotuneKey>(
 }
 
 #[cfg(feature = "autotune-checks")]
-pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
+pub fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
 ) -> Vec<crate::tune::log::CheckResult> {
     if checks_outputs.is_empty() {

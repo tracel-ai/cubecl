@@ -37,7 +37,7 @@ pub struct Handle {
     /// The stream where the data was created.
     pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
-    pub(crate) size: u64,
+    pub size: u64,
     /// The address kernels on other devices bind this memory at, once the
     /// owning client [shared](crate::client::Client::share_with_peers) it.
     pub peer: Option<PeerMemory>,

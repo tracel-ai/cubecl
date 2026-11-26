@@ -96,8 +96,6 @@ macro_rules! local_tuner {
     };
 }
 
-pub use local_tuner;
-
 impl<AK, ID> LocalTuner<AK, ID>
 where
     AK: AutotuneKey + 'static,
@@ -225,7 +223,7 @@ where
         for i in 0..operations.len() {
             let op = operations.fastest(i);
             let result = op.race(inputs.clone());
-            checks_outputs.push((op.name.to_string(), result));
+            checks_outputs.push((op.name().to_string(), result));
         }
         super::check_autotune_outputs(checks_outputs)
     }

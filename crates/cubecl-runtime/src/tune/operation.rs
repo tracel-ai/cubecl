@@ -33,7 +33,7 @@ type TuneDelegate<I, Out> =
 /// [`Tunable::new`](super::Tunable::new); callers don't name this type directly.
 #[derive(new)]
 pub struct TuneFn<I: TuneInputs, Out> {
-    pub(crate) name: String,
+    name: String,
     func: Box<TuneDelegate<I, Out>>,
 }
 
@@ -45,6 +45,11 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
 }
 
 impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
+    /// The name the tunable was declared with.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Run the wrapped function as an autotune race runs a candidate, to
     /// measure it or gather its kernels: what it launches is
     /// [issued for the race](crate::execution::LaunchPurpose::Race), never
@@ -271,7 +276,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
 
     /// All candidate operations in this set, in registration order.
     pub fn autotunables(&self) -> impl Iterator<Item = &TuneFn<F, Output>> {
-        self.tunables.iter().map(|tunable| &tunable.function)
+        self.tunables.iter().map(|tunable| tunable.function())
     }
 
     /// Returns the [autotune plan](TunePlan) for the given set.
@@ -299,7 +304,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
     /// Returns the operation for the given index, matching the order returned by
     /// `autotunables`. Tunables are tried in order, so index 0 should be a good default.
     pub fn fastest(&self, fastest_index: usize) -> &TuneFn<F, Output> {
-        &self.tunables[fastest_index].function
+        self.tunables[fastest_index].function()
     }
 
     /// What the tunable at `index` is [identified](Tunable::identified) by. The index is one
@@ -324,7 +329,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         // Each name is hashed with its own terminator, so `["a", "bc"]` and `["abc"]` differ.
         let mut hasher = StableHasher::new();
         for tune in &self.tunables {
-            tune.function.name.hash(&mut hasher);
+            tune.function().name().hash(&mut hasher);
         }
         hasher.finalize()
     }
@@ -398,7 +403,7 @@ mod tests {
     use crate::server::LaunchError;
 
     fn candidate() -> TuneFn<(), usize> {
-        Tunable::<(), (), usize>::new("candidate", |_: ()| Ok::<_, String>(1)).function
+        TuneFn::new("candidate".to_string(), Box::new(|_: ()| Ok(1)))
     }
 
     #[test]
