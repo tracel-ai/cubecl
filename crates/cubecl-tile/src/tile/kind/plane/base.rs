@@ -49,11 +49,25 @@ impl PlaneTile {
         }
     }
 
-    /// Whether this tile hides which unit holds which of its cells
-    /// ([`Instruction::hides_cell_positions`]), so its sum drains through a scratch.
-    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
+    /// Whether this tile's sum is scaled through a scratch
+    /// ([`Instruction::scales_through_scratch`]): a cmma fragment, the one form a scratch backs.
+    pub(crate) fn scales_through_scratch(&self) -> comptime_type!(bool) {
         let instruction = self.instruction();
-        comptime!(instruction.hides_cell_positions())
+        comptime!(instruction.scales_through_scratch())
+    }
+
+    /// Whether this tile's sum reaches a destination bound `width` values a line written cell by
+    /// cell out of its units' registers, where it would otherwise bounce
+    /// ([`CmmaData::drains_by_cell`]); never for the forms that write their own cells whatever
+    /// the destination.
+    pub(crate) fn drains_by_cell<T: Numeric>(
+        &self,
+        #[comptime] width: usize,
+    ) -> comptime_type!(bool) {
+        match self {
+            PlaneTile::Cmma(d) => d.drains_by_cell::<T>(width),
+            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(false),
+        }
     }
 
     /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
@@ -371,7 +385,7 @@ impl PlaneTile {
     ) {
         match self {
             PlaneTile::Cmma(d) => match &src.kind {
-                TileKind::Memory(m) => d.load_window::<T>(m, row),
+                TileKind::Memory(m) => d.load_window_over::<T>(m, &src.place.space, row),
                 TileKind::PlaneTile(_)
                 | TileKind::PlanePartition(_)
                 | TileKind::TmaGmem(_)
@@ -429,11 +443,13 @@ impl PlaneTile {
         let addressed = mem.store.addressed();
         match self {
             PlaneTile::Cmma(d) => {
-                match comptime!(FragmentDrain::of(&mem.access, addressed, true)) {
+                let by_cell = d.drains_by_cell::<T>(comptime!(mem.store.vector_size));
+                match comptime!(FragmentDrain::of(&mem.access, addressed, true, by_cell)) {
                     FragmentDrain::Intrinsic => d.store_window::<T>(
                         mem,
                         comptime!(MatrixDimensions::edges(space).row_split),
                     ),
+                    FragmentDrain::Cells => d.store_cells::<T, T>(mem, space),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, T>(mem, space),
                 }
             }
@@ -455,11 +471,13 @@ impl PlaneTile {
             PlaneTile::Cmma(d) => {
                 let (m, n) = comptime!(d.shape);
                 let in_place = casts_in_place::<T, Out>(m, n);
-                match comptime!(FragmentDrain::of(&mem.access, addressed, in_place)) {
+                let by_cell = d.drains_by_cell::<T>(comptime!(mem.store.vector_size));
+                match comptime!(FragmentDrain::of(&mem.access, addressed, in_place, by_cell)) {
                     FragmentDrain::Intrinsic => d.store_cast_window::<T, Out>(
                         mem,
                         comptime!(MatrixDimensions::edges(space).row_split),
                     ),
+                    FragmentDrain::Cells => d.store_cells::<T, Out>(mem, space),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, Out>(mem, space),
                 }
             }
@@ -534,10 +552,10 @@ impl PlanePartition {
         }
     }
 
-    /// Whether this grid's tiles hide which unit holds which of their cells, the one form that
-    /// drains through a scratch.
-    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
-        self.frags.index(0usize).hides_cell_positions()
+    /// Whether this grid's sums are scaled through a scratch
+    /// ([`PlaneTile::scales_through_scratch`]).
+    pub(crate) fn scales_through_scratch(&self) -> comptime_type!(bool) {
+        self.frags.index(0usize).scales_through_scratch()
     }
 
     /// The `(mi, ni)` tile (a handle clone); comptime indices only.

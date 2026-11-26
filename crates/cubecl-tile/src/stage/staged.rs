@@ -25,6 +25,46 @@ impl StageElement {
 }
 
 #[cube]
+impl Tile {
+    /// `storage` as a stage of this operand over one region of `level` is laid out, its lines
+    /// served `width` wide where stated and holding `element`, `contracted` the Dimension a
+    /// contraction sums it along: in the order its fragments read
+    /// ([`StageStorage::ordered_for_fragments`]) where it is a plain factor of values in memory,
+    /// staged as they lie, at their own width, through a direct map, and as stated otherwise.
+    fn stage_storage_for(
+        &self,
+        #[comptime] level: &Level,
+        #[comptime] storage: StageStorage,
+        #[comptime] width: Option<usize>,
+        #[comptime] element: StageElement,
+        #[comptime] contracted: Option<Dimension>,
+    ) -> comptime_type!(StageStorage) {
+        let target = comptime::target_properties().comptime();
+        let delivery = self.delivery();
+        let packing = self.packing();
+        let quantized = self.quantized();
+        let projection = self.projection();
+        let memory = self.is_memory();
+        let direct = comptime!(projection.is_direct());
+        comptime!({
+            let as_lies = element == StageElement::Served
+                && packing == Packing::Plain
+                && !quantized
+                && width.is_none()
+                && memory
+                && direct;
+            let space = level.child(&self.place.space);
+            match contracted.filter(|_| as_lies) {
+                Some(contracted) => {
+                    storage.ordered_for_fragments(&space, contracted, delivery, &target.mma)
+                }
+                None => storage,
+            }
+        })
+    }
+}
+
+#[cube]
 impl Memory {
     /// Cooperatively materialize a procedural source into this plain, direct scalar tile.
     /// Every unit its fill's level names ([`Level::copied_by`]) must own this window.
@@ -56,7 +96,10 @@ impl Memory {
     /// served `width` wide where stated, for `owner`: the cube, or each plane a copy of its own,
     /// which only a plain stage of served values is. A reader that names the element it decodes
     /// into, `decoded`, is staged values where it could be staged words
-    /// ([`stage_element_for`](Tile::stage_element_for)).
+    /// ([`stage_element_for`](Tile::stage_element_for)). A factor of a contraction summed along
+    /// `contracted` is laid down in the order its fragments read
+    /// ([`StageStorage::ordered_for_fragments`]).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
         #[comptime] level: &Level,
@@ -64,6 +107,7 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
@@ -80,7 +124,9 @@ impl Memory {
                     element: elem_type_of::<S>(),
                 }
             }
-            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner, decoded),
+            _ => Memory::stage_memory::<S>(
+                operand, level, storage, width, owner, decoded, contracted,
+            ),
         }
     }
 
@@ -92,10 +138,12 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
+        let storage = operand.stage_storage_for(level, storage, width, element, contracted);
         let stage = Memory::stage_memory_as_served::<S>(
             operand, level, storage, width, owner, element, decodes,
         );
@@ -146,7 +194,10 @@ impl Memory {
                             .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
                     }
-                    None => source_width,
+                    None => match storage.order() {
+                        StageOrder::AsSource => source_width,
+                        StageOrder::AlongRun(_) => 1,
+                    },
                 });
                 // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
                 // words a gather reads lands as the compacted window the gather stages.

@@ -5,6 +5,8 @@
 
 use cubecl::prelude::*;
 
+use cubecl_std::tensor::layout::CoordsDyn;
+
 use super::straight::fill_extent;
 use crate::*;
 
@@ -18,6 +20,53 @@ pub(crate) fn store_line<T: Numeric, W: Size>(
     value: Vector<T, W>,
 ) {
     d[layout.line_offset(i)] = value;
+}
+
+/// Each value of the `W`-wide source line at the logical coordinates `line` written at its own
+/// cell of `d`, a stage of one value a line laid out as `layout`: the write a fill makes of a
+/// source line whose values the stage lays apart.
+#[cube]
+pub(crate) fn store_scattered<T: Numeric, D: Size, W: Size>(
+    d: &mut [Vector<T, D>],
+    layout: &BufferLayout,
+    line: &CoordsDyn,
+    value: Vector<T, W>,
+) {
+    #[unroll]
+    for v in 0..W::value() {
+        d[layout.cell_offset(line, W::value(), v)] = Vector::<T, D>::cast_from(value.extract(v));
+    }
+}
+
+/// The comptime offsets each turn of a copy that `fill` deals over `lines` source lines adds to
+/// where its unit's first line lands in a stage laid out as `layout`, where every unit's turns
+/// agree ([`Walk::uniform_turn_offsets`]): one offset a turn where each source line lands as one
+/// stage line, one a value where the fill `scatters` `width`-wide lines' values over their cells.
+#[cube]
+pub(crate) fn uniform_store_offsets(
+    layout: &BufferLayout,
+    #[comptime] fill: &Level,
+    lines: usize,
+    #[comptime] width: usize,
+    #[comptime] scatters: bool,
+) -> comptime_type!(Option<Vec<Vec<usize>>>) {
+    let constants = layout.constants();
+    let lines = lines.constant();
+    comptime!(constants.and_then(|layout| {
+        Walk::uniform_turn_offsets(
+            fill,
+            lines.map(|lines| lines as usize),
+            |line| match scatters {
+                true => {
+                    let source = layout.source_line(line, width);
+                    (0..width)
+                        .map(|v| layout.cell_offset(&source, width, v))
+                        .collect()
+                }
+                false => Some(vec![layout.line_offset(line)]),
+            },
+        )
+    }))
 }
 
 /// One side of a fill, as far as choosing a transport goes.
@@ -124,9 +173,10 @@ impl TransportKind {
             && dst.addressed
             && src.addressed
         {
-            // A padded stage assembles each destination line from scalar source cells.
+            // A padded stage assembles each destination line from scalar source cells, and a
+            // stage of one value a line scatters each source line's values.
             assert!(
-                dst.vector_size == src.vector_size || src.vector_size == 1,
+                dst.vector_size == src.vector_size || src.vector_size == 1 || dst.vector_size == 1,
                 "TransportKind: a padded stage is filled from a plain scalar operand, but its \
                  source serves {}-wide lines",
                 src.vector_size
@@ -277,6 +327,19 @@ mod tests {
     #[test]
     fn a_padded_stage_is_still_straight() {
         assert_eq!(kind(plain(4), plain(1), &access()), TransportKind::Straight);
+    }
+
+    /// A stage of one value a line takes each wider source line whole and scatters its values.
+    #[test]
+    fn a_one_value_stage_of_a_wider_source_is_filled_straight() {
+        assert_eq!(kind(plain(1), plain(4), &access()), TransportKind::Straight);
+    }
+
+    /// A copy engine moves each source line whole to one stage line, so it scatters nothing.
+    #[test]
+    #[should_panic(expected = "memory to memory moves whole source lines")]
+    fn an_async_copy_refuses_a_scattered_stage() {
+        kind(plain(1), asynchronous(plain(4)), &access());
     }
 
     #[test]

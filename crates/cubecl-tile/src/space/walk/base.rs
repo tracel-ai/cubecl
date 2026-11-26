@@ -555,6 +555,53 @@ impl Walk {
             .is_some_and(|turns| turns <= Walk::MOST_WRITTEN_TURNS)
     }
 
+    /// What each turn of a copy of `lines` lines that `level` deals adds, at expansion, to the
+    /// first value `at` gives the unit's first line: for turn `t`, one value per value `at` gives
+    /// its line, the same for every unit that takes the turn. `None` where `level` writes no turns
+    /// out, `at` gives no value for a line, or two units' turns differ.
+    ///
+    /// # Guarantees
+    ///
+    /// - Where it is `Some`, `at(u + t·n)[v]` is `at(u)[0]` plus its turn `t`'s value `v` for
+    ///   every unit `u` of the `n` the level deals lines to whose turn `t` lies below `lines`.
+    pub(crate) fn uniform_turn_offsets(
+        level: &Level,
+        lines: Option<usize>,
+        at: impl Fn(usize) -> Option<Vec<usize>>,
+    ) -> Option<Vec<Vec<usize>>> {
+        let (_, Some(units), 0) = level.copied_units() else {
+            return None;
+        };
+        let lines = lines.filter(|&lines| Walk::copy_turns_written(level, Some(lines)))?;
+        (0..lines.div_ceil(units))
+            .map(|turn| Walk::turn_offset(units, lines, turn, &at))
+            .collect()
+    }
+
+    /// The values turn `turn` adds for every one of `units` units over `lines`, where they agree
+    /// ([`uniform_turn_offsets`](Walk::uniform_turn_offsets)).
+    fn turn_offset(
+        units: usize,
+        lines: usize,
+        turn: usize,
+        at: &impl Fn(usize) -> Option<Vec<usize>>,
+    ) -> Option<Vec<usize>> {
+        let mut agreed: Option<Vec<usize>> = None;
+        for unit in (0..units).take_while(|unit| unit + turn * units < lines) {
+            let first = *at(unit)?.first()?;
+            let offsets: Option<Vec<usize>> = at(unit + turn * units)?
+                .into_iter()
+                .map(|value| value.checked_sub(first))
+                .collect();
+            let offsets = offsets?;
+            if agreed.as_ref().is_some_and(|agreed| *agreed != offsets) {
+                return None;
+            }
+            agreed = Some(offsets);
+        }
+        agreed
+    }
+
     /// The position of the one dimension `level`'s units take in turns ([`Count::InTurns`]): such a
     /// level cuts that dimension alone.
     fn turns_at(space: &Space, level: &Level) -> usize {
@@ -683,6 +730,23 @@ mod tests {
     fn a_ragged_deal_is_bounded_by_its_whole_and_its_last_turn() {
         assert_eq!(bounds(200, Some(64)), Some((3, 4)));
         assert_eq!(bounds(1, Some(64)), Some((0, 1)));
+    }
+
+    /// A turn's offset is a comptime constant only where every unit that takes it agrees on it:
+    /// a line's offset growing with the line by a constant step does, a ragged last turn too; one
+    /// growing faster does not, and neither does a copy dealt to units of unknown count.
+    #[test]
+    fn turn_offset_uniform_only_when_every_unit_agrees() {
+        let level = Level::copied_by(ComputeScope::Cube, Some(4));
+        let strided = |line: usize| Some(vec![line * 3, line * 3 + 1]);
+        assert_eq!(
+            Walk::uniform_turn_offsets(&level, Some(10), strided),
+            Some(vec![vec![0, 1], vec![12, 13], vec![24, 25]])
+        );
+        let squared = |line: usize| Some(vec![line * line]);
+        assert_eq!(Walk::uniform_turn_offsets(&level, Some(8), squared), None);
+        let unknown = Level::copied_by(ComputeScope::Cube, None);
+        assert_eq!(Walk::uniform_turn_offsets(&unknown, Some(8), strided), None);
     }
 
     /// A copy whose every unit takes a known few turns writes them out.

@@ -25,10 +25,17 @@ pub struct ProductStep {
 
 /// What computing a [`ProductStep`] spends that a host sizes a launch by.
 ///
+/// # Assumptions
+///
+/// - A sum that bounces no cell is drained into destinations bound one value a line, as a unit
+///   writing the cells it holds writes them.
+///
 /// # Guarantees
 ///
-/// - A cell is bounced only where the instruction computing the Step hides which unit holds a
-///   cell of its sum ([`Instruction::hides_cell_positions`]).
+/// - A drained sum's cell is bounced only where the instruction computing the Step hides which
+///   unit holds a cell of its sum on the target ([`Instruction::hides_cell_positions`]), and a
+///   rescaled sum's where the instruction scales it through a scratch
+///   ([`Instruction::scales_through_scratch`]).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct StepCost {
     /// The cell a drained sum is spilled through shared memory in, one call's output; `None`
@@ -73,7 +80,7 @@ impl ProductStep {
     /// it on `device` compiling for `target`, which a host Declines.
     pub fn cost(&self, device: &DeviceProperties, target: &TargetProperties) -> Option<StepCost> {
         self.call(device, target, OpenedBy::Accumulator)
-            .map(StepCost::of)
+            .map(|call| StepCost::drained(call, target))
     }
 
     /// What this Step spends where its sum's rows are scaled between its products
@@ -85,7 +92,7 @@ impl ProductStep {
         target: &TargetProperties,
     ) -> Option<StepCost> {
         self.call(device, target, OpenedBy::RescaledAccumulator)
-            .map(StepCost::of)
+            .map(StepCost::rescaled)
     }
 
     /// What computing `next` spends where it reads this Step's sum as its `A` where the sum lies,
@@ -105,7 +112,7 @@ impl ProductStep {
         };
         ProductStep { lhs: held, ..*next }
             .call(device, target, OpenedBy::Accumulator)
-            .map(StepCost::of)
+            .map(|call| StepCost::drained(call, target))
     }
 
     /// How a stage its operands are staged through lays its cells out, asked for as `stated` and
@@ -168,14 +175,26 @@ impl StepCost {
 }
 
 impl StepCost {
-    /// The cost of a Step computed by `call`: an instruction that hides which unit holds a cell
-    /// ([`Instruction::hides_cell_positions`]) bounces its sum through shared memory a call's
-    /// cell at a time.
-    fn of(call: ShapedInstruction) -> Self {
+    /// The cost of a Step computed by `call` on `target` whose sum is drained: an instruction
+    /// that hides which unit holds a cell there ([`Instruction::hides_cell_positions`]) bounces
+    /// its sum through shared memory a call's cell at a time.
+    fn drained(call: ShapedInstruction, target: &TargetProperties) -> Self {
         Self {
             bounced_cell: call
                 .instruction
-                .hides_cell_positions()
+                .hides_cell_positions(target)
+                .then_some(call.cell()),
+        }
+    }
+
+    /// The cost of a Step computed by `call` whose sum's rows are scaled between its products: an
+    /// instruction that scales its sum through a scratch ([`Instruction::scales_through_scratch`])
+    /// bounces it a call's cell at a time.
+    fn rescaled(call: ShapedInstruction) -> Self {
+        Self {
+            bounced_cell: call
+                .instruction
+                .scales_through_scratch()
                 .then_some(call.cell()),
         }
     }

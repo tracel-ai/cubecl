@@ -3,7 +3,8 @@
 use cubecl::cmma::{MatrixIdent, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
-    DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
+    DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
+    features::ScaledMmaConfig,
 };
 
 use cubecl::quant::scheme::QuantValue;
@@ -55,10 +56,22 @@ impl Instruction {
         }
     }
 
-    /// Whether a sum this instruction contracts hides which unit holds which of its cells: a cmma
-    /// fragment's does, so it reaches a destination that adds, overhangs or casts out of place
-    /// through a scratch, a cell at a time, and the host sizes that scratch.
-    pub fn hides_cell_positions(self) -> bool {
+    /// Whether a sum this instruction contracts, compiled for `target`, hides which unit holds
+    /// which of its cells: a cmma fragment's does where the compiler keeps its positions to itself
+    /// ([`FragmentPositions::Hidden`]), so it reaches a destination that adds, overhangs or casts
+    /// out of place through a scratch, a cell at a time, and the host sizes that scratch. Where
+    /// the compiler states them, each unit writes the cells its registers hold.
+    pub fn hides_cell_positions(self, target: &TargetProperties) -> bool {
+        match self {
+            Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// Whether a sum this instruction contracts is scaled through a scratch, its cells spilled,
+    /// scaled and reloaded: a cmma fragment's is, wherever its positions are stated, since the
+    /// fragment API reads no cell of it in place.
+    pub fn scales_through_scratch(self) -> bool {
         match self {
             Self::Cmma => true,
             Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,

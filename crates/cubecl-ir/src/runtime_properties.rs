@@ -46,6 +46,44 @@ pub struct MmaProperties {
     /// matrix instruction
     #[cfg_attr(feature = "serde", serde(skip))]
     pub element_positions: OperandFact<Option<ElementPositions>>,
+    /// How the compiler's fragment load reads a lane's run of an A or B operand that lies across
+    /// the rows of the memory it loads from.
+    pub strided_run_read: StridedRunRead,
+    /// Whether the compiler states which lane holds which cell of a fragment of the fragment API.
+    pub fragment_positions: FragmentPositions,
+}
+
+/// How a compiler's fragment load reads a lane's run of an A or B operand whose memory steps by a
+/// stride along the run: memory laid out in the other [`MatrixLayout`] than the lane's run.
+///
+/// # Guarantees
+///
+/// - It describes the compiler's own fragment load of the fragment API alone, no other load.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
+pub enum StridedRunRead {
+    /// At the width of a contiguous run: the load gathers the run as fast as it reads one.
+    #[default]
+    Whole,
+    /// One element at a time, so a run laid along the stride is read as many narrow loads.
+    ElementWise,
+}
+
+/// Whether a compiler states which lane holds which cell of a fragment of the fragment API.
+///
+/// # Guarantees
+///
+/// - Where positions are stated, a fragment's registers, read with `Matrix::to_registers`, hold
+///   its cells where [`element_positions`](MmaProperties::element_positions) places a lane's
+///   elements, in that order.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
+pub enum FragmentPositions {
+    /// The compiler hides which lane holds a cell, as `wmma`, rocWMMA, SPIR-V and Metal do.
+    #[default]
+    Hidden,
+    /// A fragment's registers hold their cells where the manual MMA's element positions say.
+    AsElementPositions,
 }
 
 /// What a target says of each operand of its manual matrix instructions, by the operand's role and
@@ -150,6 +188,8 @@ impl Default for MmaProperties {
             register_copy_count_acc: 1,
             contiguous_elements: Default::default(),
             element_positions: Default::default(),
+            strided_run_read: StridedRunRead::default(),
+            fragment_positions: FragmentPositions::default(),
         }
     }
 }

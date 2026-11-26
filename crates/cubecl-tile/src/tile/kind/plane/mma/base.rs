@@ -941,8 +941,9 @@ fn mma_plane_width() -> comptime_type!(u32) {
     intrinsic!(|scope| scope.state().target_properties.mma.const_plane_lane_count)
 }
 
+/// Bind `NA` to the width of a lane's vector of `def`'s accumulator.
 #[cube]
-fn register_acc_size<A: Numeric>(def: &MmaDefinition<A, A, A>) {
+pub(crate) fn register_acc_size<A: Numeric>(def: &MmaDefinition<A, A, A>) {
     let va = def.vector_size(MatrixIdent::Accumulator);
     intrinsic!(|scope| {
         scope.register_size::<NA>(va);
@@ -1450,7 +1451,7 @@ fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) 
 /// at a time, or, where `mem` is bound as wide as a unit's run of cells along a row of a row-major
 /// destination, a run at a time, as a sink that adds whole lines takes them.
 #[cube]
-fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+pub(crate) fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     mem: &mut Memory,
     fragment: &Array<Vector<T, NA>>,
     def: &MmaDefinition<A, B, CD>,

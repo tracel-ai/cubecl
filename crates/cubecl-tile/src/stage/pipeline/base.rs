@@ -273,8 +273,8 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
     pub(crate) fn register_fetched_registers(&self, src: &Tile) -> comptime_type!(Option<usize>) {
         let fill = self.register_fetch(src);
-        let straight = self.fetched_scalars();
-        let width = self.vector_size();
+        let straight = self.fetched_scalars(src);
+        let width = self.fetched_width(src);
         let decoded = self.decoded_fetched_registers(src);
         comptime!(match fill {
             Some(FetchedFill::Straight) => straight.map(|scalars| {
@@ -301,8 +301,8 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Stages::fetch_buffers`.
     fn register_fetched_shape(&self, src: &Tile) -> comptime_type!((usize, usize, usize)) {
         let fill = self.register_fetch(src);
-        let straight = self.fetched_scalars();
-        let straight_width = self.vector_size();
+        let straight = self.fetched_scalars(src);
+        let straight_width = self.fetched_width(src);
         let turns = self.decoded_fetch_turns(src);
         let decoded_width = self.decoded_fetch_width(src);
         let per_load = self.decoded_scales_per_load(src);

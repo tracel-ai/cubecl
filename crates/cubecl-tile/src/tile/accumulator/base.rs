@@ -176,7 +176,7 @@ impl Tile {
             comptime!(OpenedBy::RescaledAccumulator),
         );
         let instruction = sum.sum_instruction();
-        let bounced = comptime!(instruction.hides_cell_positions());
+        let bounced = comptime!(instruction.scales_through_scratch());
         sum.with_scratch(comptime!(if bounced { scratch } else { Scratch::None }))
     }
 
@@ -231,7 +231,11 @@ impl Tile {
                     // the cube's shape.
                     let planes = comptime!(plane_windows(&self.place.space, &self.place.levels));
                     let plane = PLANE_POS.cast::<usize>() * (cells * slots);
-                    let shared = Shared::<[Served]>::new_slice(cells * slots * planes);
+                    // Each slot starts on 16 bytes, which a drain reads a run of cells in.
+                    let shared = Shared::<[Served]>::new_aligned_slice(
+                        cells * slots * planes,
+                        SCRATCH_ALIGNMENT_BYTES,
+                    );
                     // Each fragment carries its own slot, so drain order doesn't matter.
                     let mut frags = Sequence::<PlaneTile>::new();
                     #[unroll]
@@ -752,7 +756,7 @@ impl Tile {
         match &self.kind {
             // The fragment's own edges: the placement's space spans every plane's grid.
             TileKind::PlanePartition(p) => {
-                let cmma = p.hides_cell_positions();
+                let cmma = p.scales_through_scratch();
                 if comptime!(cmma) {
                     casts_in_place::<A, Out>(comptime!(p.rows), comptime!(p.cols))
                 } else {
@@ -789,7 +793,7 @@ impl Tile {
     fn scratch_unopened(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::PlanePartition(p) => {
-                let cmma = p.hides_cell_positions();
+                let cmma = p.scales_through_scratch();
                 comptime!(cmma && p.held == Scratch::None)
             }
             TileKind::Memory(_)
@@ -846,18 +850,36 @@ impl Tile {
     }
 
     /// Whether this sum's fragments must bounce to reach `dest`, cast from `A` to `Out`: what
-    /// decides whether a drain opens a scratch and how it passes over the grid.
+    /// decides whether a drain opens a scratch and how it passes over the grid. Only a cmma
+    /// fragment bounces, and not where its units write its cells out of their registers.
     fn bounces_into<A: Numeric, Out: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
         let in_place = self.casts_in_place_to::<A, Out>();
-        dest.fragments_bounce(in_place)
+        let by_cell = self.drains_by_cell_into::<A>(dest);
+        let scratch = self.scales_through_scratch();
+        let bounces = dest.fragments_bounce(in_place, by_cell);
+        comptime!(scratch && bounces)
     }
 
-    /// Whether this plane-resident sum hides which unit holds which of its cells
-    /// ([`Instruction::hides_cell_positions`]); a memory tile hides nothing.
-    fn hides_cell_positions(&self) -> comptime_type!(bool) {
+    /// Whether this plane-resident sum, held at `A`, reaches `dest` written cell by cell out of
+    /// its units' registers where it would otherwise bounce ([`PlaneTile::drains_by_cell`]).
+    fn drains_by_cell_into<A: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
+        let width = dest.vector_size();
         match &self.kind {
-            TileKind::PlanePartition(p) => p.hides_cell_positions(),
-            TileKind::PlaneTile(t) => t.hides_cell_positions(),
+            TileKind::PlanePartition(p) => p.at(0usize, 0usize).drains_by_cell::<A>(width),
+            TileKind::PlaneTile(t) => t.drains_by_cell::<A>(width),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether this plane-resident sum is held where a scratch backs it
+    /// ([`Instruction::scales_through_scratch`]); a memory tile is not.
+    fn scales_through_scratch(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlanePartition(p) => p.scales_through_scratch(),
+            TileKind::PlaneTile(t) => t.scales_through_scratch(),
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
@@ -874,8 +896,7 @@ impl Tile {
         #[comptime] chunks: usize,
     ) {
         let bounces = self.bounces_into::<A, Out>(dest);
-        let hides = self.hides_cell_positions();
-        let one_tile = comptime!(DrainPass::for_one_tile(hides && bounces));
+        let one_tile = comptime!(DrainPass::for_one_tile(bounces));
         match &self.kind {
             TileKind::PlanePartition(p) => drain_planned::<A, Out>(
                 self,
@@ -1008,6 +1029,9 @@ fn plane_call_on<EA: Numeric>(
         })
     })
 }
+
+/// Bytes a scratch's slots start on: the widest load a drain reads a run of its cells in.
+const SCRATCH_ALIGNMENT_BYTES: usize = 16;
 
 /// A whole drain is the one turn of its one chunk.
 const WHOLE_DRAIN_TURN: usize = 0;

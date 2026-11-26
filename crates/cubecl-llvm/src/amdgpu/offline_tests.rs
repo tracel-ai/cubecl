@@ -4,8 +4,8 @@ use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_manual_product_kernel,
     cdna_quantized_product_kernel, cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel,
     fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    staged_fragment_product_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -109,6 +109,38 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
         let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
     }
+}
+
+/// A `B` fragment whose lanes' runs of `k` are contiguous in shared memory loads each run as
+/// 16-byte reads, not element by element.
+#[test]
+fn a_k_contiguous_b_fragment_loads_in_b128() {
+    let asm = asm_of(staged_fragment_product_kernel(), "gfx1151");
+    assert!(asm.contains("ds_load_b128"), "the runs load whole:\n{asm}");
+    assert!(
+        !asm.contains("ds_load_u16_d16"),
+        "no run loads element by element:\n{asm}"
+    );
+}
+
+/// A sum read out of its fragment's registers adds each cell into shared memory with one atomic
+/// add, never through a scratch it is first stored to.
+#[test]
+fn a_fragment_adds_into_shared_memory_without_scratch() {
+    let asm = asm_of(staged_fragment_product_kernel(), "gfx1151");
+    assert_eq!(
+        asm.matches("ds_add_f32").count(),
+        8,
+        "each of a lane's eight cells adds once:\n{asm}"
+    );
+    let product = asm.find("v_wmma").expect("the product is one WMMA");
+    let first_add = asm
+        .find("ds_add_f32")
+        .expect("the sum adds into shared memory");
+    assert!(
+        !asm[product..first_add].contains("ds_store") && !asm.contains("scratch_"),
+        "no cell is stored between the product and its add:\n{asm}"
+    );
 }
 
 /// RDNA4 multiplies `e4m3` (`fp8`) and `e5m2` (`bf8`) operands into `f32`, each side its own

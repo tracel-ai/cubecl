@@ -485,7 +485,7 @@ impl FactorExpand {
             ..spec.clone()
         };
         FactorExpand {
-            scales: vec![stage_one::expand(scope, self.beside(), spec)],
+            scales: vec![stage_one::expand(scope, self.beside(), spec, None)],
             ..self.clone()
         }
     }

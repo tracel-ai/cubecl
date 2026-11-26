@@ -17,7 +17,8 @@ use cubecl_core::ir::{
     CoordinatePart, ElemType, ElementIndex,
     amd::{AmdMatrixCore, AmdMfma, AmdWmma},
     dialect::matrix::{
-        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, StMatrixOp, StoreOp,
+        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RegistersOp,
+        StMatrixOp, StoreOp,
     },
     features::MmaConfig,
     types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
@@ -32,6 +33,15 @@ use cubecl_core::ir::{
 pub struct MatrixRelayoutUnsupported {
     pub from: MatrixIdent,
     pub to: MatrixIdent,
+}
+
+#[derive(Debug, Error)]
+#[error(
+    "a fragment's lane holds {held} cells, but the registers it is copied into hold {registers}"
+)]
+pub struct RegisterCountMismatch {
+    pub held: usize,
+    pub registers: usize,
 }
 
 #[derive(Debug, Error)]
@@ -843,6 +853,44 @@ pub(crate) fn cast(
         .collect();
     let result = regather(ctx, rw, cast, out_step, spread);
     store_fragment(ctx, rw, output, result);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+/// The cells a lane holds of a fragment copied into its registers, element `i` of the lane's
+/// [`element_positions`](AmdMatrixCore::element_positions) at register cell `i`: the fragment's
+/// slot `i * step`, past a padded accumulator's unused halves.
+pub(crate) fn registers(
+    op: &RegistersOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let matrix = op.matrix(ctx);
+    let registers = op.registers(ctx);
+
+    let ty = matrix_of(ctx, operands_info, matrix);
+    let (elems, step) = fragment_layout(ctx, &ty);
+    let (registers_ty, _) = registers_as_vector(ctx, operands_info, registers);
+    let lanes = registers_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|vector| vector.num_elements() as usize);
+    if lanes != Some(elems) {
+        let mismatch = RegisterCountMismatch {
+            held: elems,
+            registers: lanes.unwrap_or(0),
+        };
+        return input_err!(op.loc(ctx), mismatch);
+    }
+
+    let frag_ty = fragment_ty(ctx, &ty);
+    let value = load_fragment(ctx, rw, matrix, frag_ty);
+    let slots = (0..elems).map(|i| (i * step) as i32).collect();
+    let dense = regather(ctx, rw, value, step, slots);
+    store_fragment(ctx, rw, registers, dense);
 
     rw.erase_operation(ctx, old_op);
     Ok(())
