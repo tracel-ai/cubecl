@@ -11,8 +11,9 @@ use crate::{e2m1, ue8m0};
 ///
 /// Scales come at one or two levels, a [`finest`](Self::finest) one and a
 /// [`coarser`](Self::coarser) one over it, which [`per_block`](Self::per_block) and
-/// [`per_tensor`](Self::per_tensor) set in that order. A value's scale is the product of the
-/// scales of the blocks it is in, one block a level:
+/// [`coarser_per_block`](Self::coarser_per_block) set ([`per_tensor`](Self::per_tensor) sets
+/// either). A value's scale is the product of the scales of the blocks it is in, one block a
+/// level:
 ///
 /// ```
 /// # use cubecl_common::quant::scheme::{BlockExtent, BlockSize, QuantScheme, ScaleDtype};
@@ -32,7 +33,14 @@ use crate::{e2m1, ue8m0};
 /// QuantScheme::default().per_block(row, ScaleDtype::F32);
 ///
 /// // Two levels: ue8m0 block scales under one f32 scale per row.
-/// QuantScheme::mxfp4_row_factored();
+/// QuantScheme::default()
+///     .per_block([32], ScaleDtype::UE8M0)
+///     .coarser_per_block(row, ScaleDtype::F32);
+///
+/// // Two levels: one f32 scale per two blocks of 16 along the last axis.
+/// QuantScheme::default()
+///     .per_block([16], ScaleDtype::UE4M3)
+///     .coarser_per_block([2], ScaleDtype::F32);
 /// ```
 ///
 /// A two-level scheme exists so block scales can live in a narrow type: the coarser scale absorbs
@@ -54,8 +62,9 @@ pub struct QuantScheme {
     pub mode: QuantMode,
     /// The level whose scales lie beside the values, one per block of its size.
     pub finest: BlockScale,
-    /// A level over the finest one, where the scheme has one: each of its blocks covers whole
-    /// blocks of the finest level.
+    /// A level over the finest one, where the scheme has one. Its block counts blocks of the
+    /// finest level, not values: a scale of the coarser level covers whole blocks of the finest
+    /// one, and its grid is the finest grid cut again ([`scale_grids`](Self::scale_grids)).
     ///
     /// One optional level rather than a list only because no format has a third yet, and this
     /// keeps the scheme, which every quantized dtype carries, at the size two levels take. A third
@@ -99,7 +108,8 @@ impl QuantScheme {
     }
 
     /// Set one scale for the whole tensor, stored as `dtype`: the coarser level over a finest level
-    /// of blocks, and otherwise the finest level itself.
+    /// of blocks, and otherwise the finest level itself. So the order counts:
+    /// `per_tensor(..).per_block(..)` replaces the tensor's scale by the blocks'.
     pub fn per_tensor(mut self, dtype: ScaleDtype) -> Self {
         let level = BlockScale {
             size: BlockSize::TENSOR,
@@ -124,6 +134,28 @@ impl QuantScheme {
             dtype,
         };
         self
+    }
+
+    /// Set the coarser level: one scale per block of `size` blocks of the finest level, stored as
+    /// `dtype`.
+    ///
+    /// # Panics
+    ///
+    /// As [`BlockSize::new`], for a block given as its counts.
+    pub fn coarser_per_block(mut self, size: impl Into<BlockSize>, dtype: ScaleDtype) -> Self {
+        self.coarser = Some(BlockScale {
+            size: size.into(),
+            dtype,
+        });
+        self
+    }
+
+    /// The shape of each level's grid of scales over a tensor of `shape`, the finest first: one
+    /// scale per block, the last block of an axis possibly in part.
+    pub fn scale_grids(&self, shape: &[usize]) -> impl Iterator<Item = Vec<usize>> + use<> {
+        let finest = self.finest.size.num_blocks(shape);
+        let coarser = self.coarser.map(|coarser| coarser.size.num_blocks(&finest));
+        core::iter::once(finest).chain(coarser)
     }
 
     /// The scale levels, the finest first: as many scale tensors ride along with the values.
@@ -224,13 +256,6 @@ impl QuantScheme {
 
 impl ScaleDtype {
     /// The largest finite value representable by the dtype.
-    ///
-    /// A two-level scheme picks its per-tensor scale so that the largest block scale lands here,
-    /// which is what keeps the block scales inside the range their type can express. That recipe
-    /// only holds for a block dtype narrower than the scale it divides: dividing by
-    /// [`ScaleDtype::F32`]'s or [`ScaleDtype::UE8M0`]'s maximum drives the per-tensor scale
-    /// subnormal and the renormalized block scales to infinity. A two-level scheme has nothing to
-    /// gain from those params anyway, since their block scales already reach the full range.
     pub fn max_representable(&self) -> f32 {
         match self {
             ScaleDtype::F32 => f32::MAX,
@@ -240,6 +265,22 @@ impl ScaleDtype {
             // Spelled out because `e4m3` sits behind the `fp8` feature and this function is not
             // gated. The tests check it against that type when it is on.
             ScaleDtype::UE4M3 => 448.0,
+        }
+    }
+
+    /// Where a two-level scheme puts the largest finest-level scale of a coarser block, when the
+    /// finest level is stored as this dtype: the coarser scale is that largest one divided by
+    /// this value, and every finest scale under it is stored relative to it.
+    ///
+    /// A dtype narrower than f32's range puts it at its top, which leaves the most room below for
+    /// the smaller ones. A dtype whose range reaches f32's puts it at one, so the coarser scale is
+    /// the largest one itself: at its top, the coarser scale would go subnormal and the others
+    /// would overflow. For [`ScaleDtype::UE8M0`] that also makes each stored scale a power of two
+    /// at most one, the offset of its block below the largest.
+    pub fn largest_under_coarser(&self) -> f32 {
+        match self {
+            ScaleDtype::F16 | ScaleDtype::UE4M3 => self.max_representable(),
+            ScaleDtype::F32 | ScaleDtype::BF16 | ScaleDtype::UE8M0 => 1.0,
         }
     }
 
@@ -668,6 +709,7 @@ impl QuantScheme {
 mod tests {
     use super::super::BlockExtent;
     use super::*;
+    use alloc::vec;
 
     fn row() -> BlockSize {
         BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE)
@@ -742,6 +784,46 @@ mod tests {
             scheme.coarser,
             Some(level(BlockSize::TENSOR, ScaleDtype::F32))
         );
+    }
+
+    #[test]
+    fn coarser_blocks_set_the_coarser_level_under_the_finest() {
+        let scheme = QuantScheme::default()
+            .per_block([32], ScaleDtype::UE8M0)
+            .coarser_per_block(row(), ScaleDtype::F32);
+        assert_eq!(scheme.finest, level([32], ScaleDtype::UE8M0));
+        assert_eq!(scheme.coarser, Some(level(row(), ScaleDtype::F32)));
+    }
+
+    /// Blocks of 16 over `[4, 64]` lay a `[4, 4]` grid; two of them along the last axis share a
+    /// coarser scale, two cells of a row, not two values.
+    #[test]
+    fn a_coarser_level_counts_blocks_of_the_finest() {
+        let scheme = QuantScheme::default()
+            .per_block([16], ScaleDtype::UE4M3)
+            .coarser_per_block([2], ScaleDtype::F32);
+        let grids: Vec<Vec<usize>> = scheme.scale_grids(&[4, 64]).collect();
+        assert_eq!(grids, [vec![4, 4], vec![4, 2]]);
+    }
+
+    #[test]
+    fn a_coarser_scale_for_each_row_covers_its_blocks() {
+        let grids: Vec<Vec<usize>> = QuantScheme::mxfp4_row_factored()
+            .scale_grids(&[3, 100])
+            .collect();
+        assert_eq!(grids, [vec![3, 4], vec![3, 1]]);
+    }
+
+    #[test]
+    fn a_narrow_block_dtype_lands_its_largest_scale_at_its_top() {
+        assert_eq!(ScaleDtype::UE4M3.largest_under_coarser(), 448.0);
+    }
+
+    /// At its top, the coarser scale would go subnormal: `ue8m0` lands at one, the coarser scale
+    /// being the largest block scale itself.
+    #[test]
+    fn a_block_dtype_reaching_f32s_range_lands_its_largest_scale_at_one() {
+        assert_eq!(ScaleDtype::UE8M0.largest_under_coarser(), 1.0);
     }
 
     #[test]

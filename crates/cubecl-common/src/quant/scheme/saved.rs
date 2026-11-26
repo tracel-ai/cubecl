@@ -130,6 +130,7 @@ mod tests {
             QuantScheme::default(),
             QuantScheme::nvfp4(),
             QuantScheme::fp8_per_row(),
+            QuantScheme::mxfp4_row_factored(),
         ] {
             let json = serde_json::to_value(scheme).unwrap();
             assert_eq!(serde_json::from_value::<QuantScheme>(json).unwrap(), scheme);
