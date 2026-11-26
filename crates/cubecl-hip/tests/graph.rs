@@ -484,7 +484,7 @@ fn hip_graph_reads_imported_host_memory() {
 }
 
 /// A graph reads memory another stream imported, over more launches than the release queue
-/// holds, and lets go of it once the graph and the handle drop.
+/// holds, keeps it while only the graph reads it, and lets go of it once the graph drops too.
 #[test]
 fn hip_graph_reads_an_import_of_another_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -517,16 +517,23 @@ fn hip_graph_reads_an_import_of_another_stream() {
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
-    drop((graph, input));
-    cubecl_environment::future::block_on(client.sync()).unwrap();
     let mut importer = client.clone();
     // SAFETY: nothing else runs on the importing thread's stream, which has ended.
     unsafe { importer.set_stream(importing) };
     // The release waits behind the stream that imported, so only its own cleanup retires it.
-    for _ in 0..2 {
-        cubecl_environment::future::block_on(importer.sync()).unwrap();
-        importer.memory_cleanup().unwrap();
-    }
+    let release = || {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        for _ in 0..2 {
+            cubecl_environment::future::block_on(importer.sync()).unwrap();
+            importer.memory_cleanup().unwrap();
+        }
+    };
+    drop(input);
+    release();
+    assert!(Arc::get_mut(&mut memory).is_none());
+
+    drop(graph);
+    release();
     assert!(Arc::get_mut(&mut memory).is_some());
 }
 
