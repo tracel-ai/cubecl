@@ -146,6 +146,10 @@ pub enum Decline {
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
     /// dimensions: a table holds one axis per key.
     IndexTableRank { keys: usize, rank: usize },
+    /// [`Bound::atomic`](crate::Bound::atomic) or [`Bound::tensor`](crate::Bound::tensor) on a
+    /// [`Bound`](crate::Bound) that carries a table: only a [`TileTensor`](crate::TileTensor) is
+    /// read through one.
+    IndexedBoundTensor,
     /// [`indexed`](crate::TileTensorLaunch::indexed) on a tensor map or a paged operand, placing a
     /// coordinate along a dimension a stored tile spans or the storage tiling splits, or a run of a
     /// gathered or storage-tiled operand: an entry moves a window along one axis of a buffer.
@@ -457,6 +461,11 @@ impl Display for Decline {
                 f,
                 "TileTensorLaunch::indexed: the table has {rank} axes and {keys} keys; it holds \
                  one axis per key"
+            ),
+            Decline::IndexedBoundTensor => write!(
+                f,
+                "Bound: an operand carrying an index table is only a TileTensor, not a bare tensor \
+                 argument or an atomic output"
             ),
             Decline::IndexOfAStatedLayout => write!(
                 f,

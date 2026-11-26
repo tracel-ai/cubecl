@@ -421,6 +421,11 @@ impl TileTensorLaunch {
         Self::of(ValuesLaunch::Tensor { tensor, width }, element, spec)
     }
 
+    /// The comptime spec the operand compiles with.
+    pub(crate) fn spec(&self) -> &TileSpec {
+        &self.spec
+    }
+
     /// A tensor map landing through `layout`, holding the element its descriptor moves, as `spec`
     /// reads it, under no scales.
     pub(crate) fn of_tensor_map(

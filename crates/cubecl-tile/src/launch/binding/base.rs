@@ -10,8 +10,9 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
-    Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
+    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Indexing, Launcher,
+    LineMisfit, Packing, Projection, Space, Storage, StoragePartitioning, TileSpec,
+    TileTensorLaunch, VectorTile,
 };
 
 /// Typestate marker: the operand's dimensions are not yet stated.
@@ -203,6 +204,7 @@ impl<'a> Arg<'a, Labelled> {
         });
         let bound = Bound {
             tensor,
+            indexed: None,
             vector_size: self.data.width,
             spec: derived.spec,
         };
@@ -376,6 +378,8 @@ pub(crate) struct Derived {
 /// served width.
 pub struct Bound {
     tensor: Option<(TensorArg, ElemType)>,
+    /// The launch argument once a table is attached; it holds the tensor, which `tensor` then lacks.
+    indexed: Option<TileTensorLaunch>,
     /// Served width (values per line); a packed binding is narrower by the packing factor.
     pub vector_size: usize,
     pub spec: TileSpec,
@@ -384,6 +388,9 @@ pub struct Bound {
 impl Bound {
     /// The operand as the kernel's [`TileTensor`](crate::TileTensor) launch argument.
     pub fn arg(self) -> TileTensorLaunch {
+        if let Some(launch) = self.indexed {
+            return launch;
+        }
         let width = self.bound_width();
         let (tensor, element) = self
             .tensor
@@ -391,8 +398,35 @@ impl Bound {
         TileTensorLaunch::new(tensor, element, width, self.spec)
     }
 
+    /// This operand read through `table` under `indexing`, as
+    /// [`TileTensorLaunch::indexed`] states it, so a destination that serves the operand serves
+    /// the indexed one. [`spec`](Self::spec) is then the spec the indexed launch compiles with.
+    ///
+    /// # Errors
+    ///
+    /// As [`TileTensorLaunch::indexed`].
+    ///
+    /// # Panics
+    ///
+    /// Where a table already places this operand.
+    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
+        let vector_size = self.vector_size;
+        let launch = self.arg().indexed(table, indexing)?;
+        Ok(Bound {
+            tensor: None,
+            spec: launch.spec().clone(),
+            indexed: Some(launch),
+            vector_size,
+        })
+    }
+
     /// The tensor argument itself; panics for an operand built over geometry alone.
     pub fn tensor(self) -> TensorArg {
+        assert!(
+            self.indexed.is_none(),
+            "Bound::tensor: {}",
+            Decline::IndexedBoundTensor
+        );
         self.tensor
             .expect("Bound::tensor: this operand was built over geometry alone and has no tensor")
             .0
