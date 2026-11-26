@@ -567,10 +567,12 @@ mod dynamic {
         /// corresponding scale.
         ///
         /// Panics when the bindings and the scheme's levels disagree in count, since a missing
-        /// level would be dropped from the reconstruction, and for an global level this reader
-        /// cannot serve. See [`quant::check_scale_bindings`].
+        /// level would be dropped from the reconstruction, and for a coarser level other than one
+        /// f32 scale for the whole tensor, which this reader holds as one value. See
+        /// [`quant::check_scale_bindings`] and [`quant::check_global_levels`].
         pub fn new_quantized(values: Self, scales: ScaleBindings<C>, scheme: QuantScheme) -> Self {
             quant::check_scale_bindings(&scheme, scales.len());
+            quant::check_global_levels(&scheme);
             quant::check_table_bindings(&scheme, scales.table.is_some());
             Self::Quantized {
                 values: Box::new(values),

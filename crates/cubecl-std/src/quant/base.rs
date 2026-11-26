@@ -15,21 +15,26 @@ pub trait RunWithQuantType {
 /// missing level is dropped from the reconstruction and every value comes back short by that
 /// factor, an extra one is a caller quantizing differently than the scheme it passed.
 ///
-/// The global level is further constrained by what this reader serves: it binds as f32 rather than
-/// being read as f32 bytes. It has one scale for the whole tensor, so a narrower type saves
-/// nothing and only reintroduces rounding error. f32 is required only because every coarser level
-/// in use is f32; another dtype is its binding read as that dtype, as the finest level's is.
+/// A coarser level binds as f32 rather than being read as f32 bytes. f32 is required only because
+/// every coarser level in use is f32; another dtype is its binding read as that dtype, as the
+/// finest level's is.
 pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
     let levels = scheme.levels().count();
     assert!(
         bindings == levels,
         "a scheme with {levels} scale level(s) takes as many scale bindings, but {bindings} were provided",
     );
-    check_global_levels(scheme);
+    for coarser in scheme.levels().skip(1) {
+        assert!(
+            coarser.dtype == ScaleDtype::F32,
+            "a coarser scale binds as f32, but the scheme stores it as {:?}",
+            coarser.dtype
+        );
+    }
 }
 
-/// The global-level half of [`check_scale_bindings`], for a consumer holding global scales already
-/// folded into a register rather than as countable bindings.
+/// Panic where a consumer holds the coarser scale in a register, one value for every position,
+/// and the scheme's coarser level is not one f32 scale for the whole tensor.
 ///
 /// # Panics
 ///
