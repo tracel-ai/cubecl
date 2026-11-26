@@ -681,10 +681,11 @@ fn the_ldmatrix_transport_reads_bf16() {
     }
 }
 
-/// A row-major rhs, and an lhs stored `{k, m}` beside it, read by the fragment API: where the
-/// target's fragment load reads a run across its memory's rows one element at a time, each stage
-/// lays its `k` innermost, each source line's values scattered over their cells, filled in slots
-/// and through registers alike, over a box of three blocks a side, one or two blocks deep.
+/// A row-major rhs, and an lhs stored `{k, m}` beside it, read by the fragment API, filled in
+/// slots and through registers alike, over a box of three blocks a side, one or two blocks deep.
+/// Where the Lowering lays stages along the run and the target's fragment load reads a run across
+/// its memory's rows one element at a time, each stage lays its `k` innermost, each source line's
+/// values scattered over their cells; elsewhere each keeps its source's order.
 #[test]
 fn transposed_fill_lands_every_cell() {
     for chunks in [RowChunks::InOrder, RowChunks::Padded] {

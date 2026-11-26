@@ -52,11 +52,19 @@ impl StageOrder {
         }
     }
 
+    /// Whether the Lowering lays a stage along its fragments' run at all. Its fill writes such a
+    /// stage one value a store, each source line's values scattered over their cells, and on
+    /// RDNA4 (gfx1201) those stores cost more than the full-width fragment reads they buy:
+    /// cube-staged `f16` products of 4096 ran 1.2-1.7x slower. Off until the fill writes the
+    /// stage whole lines at a time.
+    const LAYS_ALONG_RUN: bool = false;
+
     /// The order a matrix instruction's fragments read a stage of an operand over `space` in at
     /// full width, the contraction summing it along `contracted`: `contracted` innermost where
-    /// the target's fragment load reads a lane's run of `k` laid across its memory's rows one
-    /// element at a time ([`StridedRunRead::ElementWise`]) and the source lays it otherwise, the
-    /// source's order everywhere else.
+    /// the Lowering lays stages along the run ([`LAYS_ALONG_RUN`](Self::LAYS_ALONG_RUN)), the
+    /// target's fragment load reads a lane's run of `k` laid across its memory's rows one element
+    /// at a time ([`StridedRunRead::ElementWise`]) and the source lays it otherwise, the source's
+    /// order everywhere else.
     ///
     /// # Guarantees
     ///
@@ -68,7 +76,8 @@ impl StageOrder {
             && mma.register_layout_b == MatrixLayout::ColMajor;
         let reads_element_wise = mma.strided_run_read == StridedRunRead::ElementWise;
         let innermost = space.dimension_at(space.rank() - 1);
-        let reordered = reads_element_wise && runs_along_k && innermost != contracted;
+        let reordered =
+            Self::LAYS_ALONG_RUN && reads_element_wise && runs_along_k && innermost != contracted;
         match reordered && space.contains(contracted) {
             true => StageOrder::AlongRun(contracted),
             false => StageOrder::AsSource,
@@ -397,11 +406,13 @@ mod tests {
             .order()
     }
 
+    /// A row-major rhs keeps its source's order even where runs read element by element, until
+    /// the fill writes a stage laid along the run whole lines at a time.
     #[test]
-    fn row_major_rhs_is_staged_along_k_where_runs_read_element_wise() {
+    fn row_major_rhs_stays_as_source_while_no_stage_is_laid_along_the_run() {
         let rhs = Space::new(&[(K, 16), (N, 16)]);
         let order = ordered(&rhs, Delivery::SyncPerUnit, &element_wise());
-        assert_eq!(order, StageOrder::AlongRun(K));
+        assert_eq!(order, StageOrder::AsSource);
     }
 
     /// An operand already laid `k` innermost, a row-major lhs, keeps its source's order.
@@ -464,12 +475,12 @@ mod tests {
     }
 
     /// Where the target reads a strided run element by element, the stage is sized as the
-    /// Lowering lays it: 32 rows of 16 `f16` along `k`, and a 16-byte chunk each.
+    /// Lowering lays it: in the source's order, while no stage is laid along the run.
     #[test]
-    fn an_element_wise_target_sizes_the_reordered_stage() {
+    fn an_element_wise_target_sizes_the_stage_as_the_lowering_lays_it() {
         let (rhs, storage) = wide_rhs();
         let bytes =
             storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &element_wise());
-        assert_eq!(bytes, 32 * (32 + 16));
+        assert_eq!(bytes, storage.bytes(&rhs, 8, 16));
     }
 }
