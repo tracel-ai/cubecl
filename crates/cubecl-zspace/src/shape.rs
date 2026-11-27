@@ -417,7 +417,12 @@ impl Shape {
             } else if s == 0 {
                 // We need to find the index of the 0 dimensions and
                 // replace them with the actual dimension value.
-                let s = self.dims[idx];
+                let Some(&s) = self.dims.get(idx) else {
+                    return Err(MetadataError::OutOfBounds {
+                        dim: idx,
+                        rank: self.dims.len(),
+                    });
+                };
                 new_size *= s;
                 dims.push(s);
             } else if s == -1 {
@@ -1195,6 +1200,33 @@ mod tests {
                 reason: "Cannot infer a valid target shape. Current shape: [2, 4], target dimensions: [-1, 3].".into(),
             })
         );
+    }
+
+    #[test]
+    fn test_shape_reshape_zero_copy_out_of_bounds() {
+        // A rank-1 shape cannot copy dim 1, so this is an error, not a panic.
+        let shape = Shape::new([0]);
+        assert_eq!(
+            shape.reshape([1, 0]),
+            Err(MetadataError::OutOfBounds { dim: 1, rank: 1 })
+        );
+    }
+
+    #[test]
+    fn test_shape_reshape_zero_copies_input_dim() {
+        // The documented ONNX behaviour: 0 means "copy the input dim here".
+        let shape = Shape::new([2, 3, 4, 5]);
+        // dim 2 of the input is 4, and 2*3*4*5 == 1*2*4*15.
+        assert_eq!(shape.reshape([1, 2, 0, 15]).unwrap(), Shape::new([1, 2, 4, 15]));
+    }
+
+    #[test]
+    fn test_shape_reshape_literal_zero_not_expressible() {
+        // Documents the remaining gap: a caller that wants a literal zero-length
+        // dim cannot express it, because 0 is always read as a copy placeholder.
+        // Here the copy silently yields [0, 5] where the caller meant [0, 0].
+        let shape = Shape::new([0, 5]);
+        assert_eq!(shape.reshape([0, 0]).unwrap(), Shape::new([0, 5]));
     }
 
     #[test]
