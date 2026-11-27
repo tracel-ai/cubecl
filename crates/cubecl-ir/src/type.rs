@@ -176,6 +176,9 @@ impl ElemType {
             QuantValue::E4M3 => Self::Float(FloatKind::E4M3),
             QuantValue::E2M1 => Self::Float(FloatKind::E2M1),
             QuantValue::Q8F | QuantValue::Q8S => Self::Int(IntKind::I8),
+            QuantValue::F32 => Self::Float(FloatKind::F32),
+            QuantValue::F16 => Self::Float(FloatKind::F16),
+            QuantValue::BF16 => Self::Float(FloatKind::BF16),
             other => panic!("Unsupported quant value {other:?}"),
         }
     }

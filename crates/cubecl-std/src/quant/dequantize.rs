@@ -142,6 +142,13 @@ pub fn unpack_fields<F: Numeric, NF: Size>(
 /// The mask required for each packed value, taking into account the native packing required for
 /// `e2m1`.
 fn packing_mask(scheme: QuantScheme) -> u32 {
+    assert!(
+        !matches!(
+            scheme.value,
+            QuantValue::F32 | QuantValue::F16 | QuantValue::BF16
+        ),
+        "a float format is stored native, never packed in words"
+    );
     let bits = match scheme.value {
         QuantValue::E2M1 => 8, // Packed conversion
         other => other.size_bits(),
@@ -202,6 +209,9 @@ fn cast_masked_plain<F: Numeric, N: Size>(
             // SIMD backends instead of a compare/select chain.
             let signed_value = (value ^ sign_bit) as i32 - sign_bit as i32;
             Vector::<F, N>::cast_from(signed_value)
+        }
+        QuantValue::F32 | QuantValue::F16 | QuantValue::BF16 => {
+            comptime!(unreachable!("a float format is stored native, never packed in words"))
         }
     }
 }

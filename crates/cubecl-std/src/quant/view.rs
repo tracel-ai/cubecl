@@ -505,6 +505,9 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
             QuantValue::Q8S => run_with_q::<F, i8>,
             QuantValue::E5M2 => run_with_q::<F, e5m2>,
             QuantValue::E4M3 => run_with_q::<F, e4m3>,
+            QuantValue::F32 => run_with_q::<F, f32>,
+            QuantValue::F16 => run_with_q::<F, f16>,
+            QuantValue::BF16 => run_with_q::<F, bf16>,
             QuantValue::Q4F
             | QuantValue::Q4S
             | QuantValue::Q2F

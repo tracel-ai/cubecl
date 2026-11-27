@@ -63,7 +63,12 @@ pub enum Field {
 
 impl From<QuantValue> for Field {
     fn from(value: QuantValue) -> Self {
-        Field::Quant(value)
+        match value {
+            QuantValue::F32 => Field::Float(FloatKind::F32),
+            QuantValue::F16 => Field::Float(FloatKind::F16),
+            QuantValue::BF16 => Field::Float(FloatKind::BF16),
+            number => Field::Quant(number),
+        }
     }
 }
 
@@ -155,7 +160,7 @@ struct MinifloatRange {
 }
 
 impl MinifloatRange {
-    /// `e2m1`'s, `e4m3`'s or `e5m2`'s; `None` for an integer value.
+    /// `e2m1`'s, `e4m3`'s or `e5m2`'s; `None` for an integer or a whole float value.
     fn of_value(value: QuantValue) -> Option<Self> {
         match value {
             QuantValue::E2M1 => Some(Self::new(1, 0, 2)),
@@ -166,7 +171,10 @@ impl MinifloatRange {
             | QuantValue::Q4F
             | QuantValue::Q4S
             | QuantValue::Q2F
-            | QuantValue::Q2S => None,
+            | QuantValue::Q2S
+            | QuantValue::F32
+            | QuantValue::F16
+            | QuantValue::BF16 => None,
         }
     }
 
@@ -351,6 +359,9 @@ impl Field {
             Field::Quant(QuantValue::E2M1) => FieldDecode::Reinterpreted,
             Field::Quant(QuantValue::E4M3) => FieldDecode::Byte(Fp8Format::E4M3),
             Field::Quant(QuantValue::E5M2) => FieldDecode::Byte(Fp8Format::E5M2),
+            Field::Quant(value @ (QuantValue::F32 | QuantValue::F16 | QuantValue::BF16)) => {
+                Field::from(value).decode()
+            }
             Field::Fp8(format) => FieldDecode::Byte(format),
             Field::ConvertedFp8(format) => FieldDecode::ConvertedByte(format),
             Field::Float(kind) => FieldDecode::Bits(kind),

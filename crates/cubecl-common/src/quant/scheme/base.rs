@@ -451,6 +451,12 @@ pub enum QuantValue {
     Q4S,
     /// 2-bit quantization with symmetric range.
     Q2S,
+    /// A 32-bit float, one a stored element: a float operand's format.
+    F32,
+    /// A 16-bit float, one a stored element: a float operand's format.
+    F16,
+    /// A bfloat16, one a stored element: a float operand's format.
+    BF16,
 }
 
 impl QuantValue {
@@ -460,6 +466,8 @@ impl QuantValue {
             QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2 => 8,
             QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 => 4,
             QuantValue::Q2F | QuantValue::Q2S => 2,
+            QuantValue::F32 => 32,
+            QuantValue::F16 | QuantValue::BF16 => 16,
         }
     }
 
@@ -484,21 +492,33 @@ impl QuantValue {
             QuantValue::E4M3 => (-448.0, 448.0),
             QuantValue::E5M2 => (-57344.0, 57344.0),
             QuantValue::E2M1 => (e2m1::MIN.to_f32(), e2m1::MAX.to_f32()),
+            QuantValue::F32 => (f32::MIN, f32::MAX),
+            QuantValue::F16 => (half::f16::MIN.to_f32(), half::f16::MAX.to_f32()),
+            QuantValue::BF16 => (half::bf16::MIN.to_f32(), half::bf16::MAX.to_f32()),
         }
     }
 
-    /// If the values are minifloat codes, stored as sign and magnitude, rather than integers.
+    /// If each value is a float read from its sign, exponent and mantissa bits, a minifloat or an
+    /// IEEE float, rather than an integer.
     pub fn is_float(&self) -> bool {
         match self {
-            Self::E4M3 | Self::E5M2 | Self::E2M1 => true,
+            Self::E4M3 | Self::E5M2 | Self::E2M1 | Self::F32 | Self::F16 | Self::BF16 => true,
             Self::Q8F | Self::Q8S | Self::Q4F | Self::Q4S | Self::Q2F | Self::Q2S => false,
         }
     }
 
-    /// If the range of values is symmetric around zero.
+    /// If the values are integers whose range leaves out the most negative value their bits hold.
     pub fn is_symmetric(&self) -> bool {
         match self {
-            Self::Q8F | Self::Q4F | Self::Q2F | Self::E4M3 | Self::E5M2 | Self::E2M1 => false,
+            Self::Q8F
+            | Self::Q4F
+            | Self::Q2F
+            | Self::E4M3
+            | Self::E5M2
+            | Self::E2M1
+            | Self::F32
+            | Self::F16
+            | Self::BF16 => false,
             Self::Q8S | Self::Q4S | Self::Q2S => true,
         }
     }
@@ -598,6 +618,9 @@ codes!(QuantValue {
     Q8S => 6,
     Q4S => 7,
     Q2S => 8,
+    F32 => 9,
+    F16 => 10,
+    BF16 => 11,
 });
 
 codes!(QuantMode {
@@ -1098,6 +1121,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_float_format_stores_one_float_an_element() {
+        for (value, bits) in [
+            (QuantValue::F32, 32),
+            (QuantValue::F16, 16),
+            (QuantValue::BF16, 16),
+        ] {
+            let scheme = QuantScheme::default()
+                .with_value(value)
+                .with_store(QuantStore::Native);
+            assert_eq!(scheme.size_bits_value(), bits, "{value:?}");
+            assert_eq!(scheme.num_quants(), 1, "{value:?}");
+            assert!(value.is_float() && !value.is_symmetric(), "{value:?}");
+        }
+        assert_eq!(QuantValue::F16.range(), (-65504.0, 65504.0));
+    }
+
     /// Every scheme a code holds packs into one that reads back as itself: every value, store (at
     /// both ends of the axis), mode and dtype, and levels of every extent and rest, alone and
     /// together. The variants come from the code tables, which the build holds to every variant.
@@ -1174,7 +1214,6 @@ mod tests {
             .to_code()
             .unwrap();
         let refused = [
-            ("value 9", (canonical & !0xF) | 9),
             ("value 15", (canonical & !0xF) | 15),
             ("store 3", canonical | (3 << 4)),
             ("mode 2", canonical | (2 << 12)),

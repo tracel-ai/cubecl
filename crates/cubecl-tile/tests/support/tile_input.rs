@@ -361,7 +361,12 @@ fn integer_valued(value: QuantValue) -> bool {
         | QuantValue::Q4S
         | QuantValue::Q2F
         | QuantValue::Q2S => true,
-        QuantValue::E5M2 | QuantValue::E4M3 | QuantValue::E2M1 => false,
+        QuantValue::E5M2
+        | QuantValue::E4M3
+        | QuantValue::E2M1
+        | QuantValue::F32
+        | QuantValue::F16
+        | QuantValue::BF16 => false,
     }
 }
 
