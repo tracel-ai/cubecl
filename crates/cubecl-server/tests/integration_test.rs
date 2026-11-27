@@ -4194,14 +4194,14 @@ fn a_prune_keeps_what_the_work_loaded() {
     );
 }
 
-/// A prune asked to keep only the used answers keeps those a tune stored,
+/// A prune asked to keep only the used tunes keeps those a tune stored,
 /// removes the rest of their table, and leaves whole a table this build
-/// never used: the tune itself records the answers it stores as the work's.
+/// never used: the tuner itself records each tune it stores as the work's.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
-fn a_prune_keeping_the_used_answers_removes_the_rest_of_their_table() {
-    use cubecl_environment::environment::{AnswerPruning, EnvironmentId, PruneOptions};
+fn a_prune_keeping_the_used_tunes_removes_the_rest_of_their_table() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions, TunePruning};
     use cubecl_environment::persistence::{Database, Origin};
     use cubecl_server::prune::Prune;
 
@@ -4213,7 +4213,7 @@ fn a_prune_keeping_the_used_answers_removes_the_rest_of_their_table() {
         addition_shapes(),
     ));
     let (handles, _) = addition_inputs(&client, &set);
-    ProcessTuner::new("pruned-answers").tune(&set, &client, &handles);
+    ProcessTuner::new("pruned-tunes").tune(&set, &client, &handles);
     let database = Database::open_active().unwrap();
     let autotune = || -> Vec<String> {
         database
@@ -4222,23 +4222,23 @@ fn a_prune_keeping_the_used_answers_removes_the_rest_of_their_table() {
             .filter(|namespace| namespace.starts_with("autotune/"))
             .collect()
     };
-    let [answers] = autotune().try_into().unwrap();
-    let tuned = autotune_rows(&database, &answers);
-    let unused = b"an answer to an older candidate list";
-    database.insert(&answers, unused, b"value", Origin::Local);
-    let elsewhere = format!("{answers}-on-other-hardware");
+    let [tunes] = autotune().try_into().unwrap();
+    let tuned = autotune_rows(&database, &tunes);
+    let unused = b"a tune to an older candidate list";
+    database.insert(&tunes, unused, b"value", Origin::Local);
+    let elsewhere = format!("{tunes}-on-other-hardware");
     database.insert(&elsewhere, b"key", b"value", Origin::Local);
 
     let pruned = EnvironmentId::active()
-        .prune(PruneOptions::new().answers(AnswerPruning::KeepUsed))
+        .prune(PruneOptions::new().tunes(TunePruning::KeepUsed))
         .unwrap();
 
     assert_eq!(
-        (pruned.answers.kept, pruned.answers.removed),
+        (pruned.tunes.kept, pruned.tunes.removed),
         (tuned, 1),
-        "the tuned answers stay and the unused one goes"
+        "the stored tunes stay and the unused one goes"
     );
-    assert!(database.get(&answers, unused).is_none());
+    assert!(database.get(&tunes, unused).is_none());
     assert!(
         database.get(&elsewhere, b"key").is_some(),
         "a table this build never used stays whole"

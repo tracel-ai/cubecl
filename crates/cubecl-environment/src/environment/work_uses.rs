@@ -21,9 +21,9 @@ use alloc::vec::Vec;
 use serde::Serialize;
 
 #[cfg(any(native_cache, browser_cache))]
-mod answer_pruner;
+mod tune_pruner;
 #[cfg(any(native_cache, browser_cache))]
-use answer_pruner::AnswerPruner;
+use tune_pruner::TunePruner;
 
 #[cfg(all(test, native_cache))]
 mod medium_tests;
@@ -207,8 +207,8 @@ impl RecordedUses {
     }
 
     /// Remove from `database`, in each autotune table this build's work used,
-    /// the answers it did not use, with the records other builds left of
-    /// that table, and tally the answers.
+    /// the tunes it did not use, with the records other builds left of
+    /// that table, and tally the tunes.
     ///
     /// # Guarantees
     ///
@@ -216,18 +216,18 @@ impl RecordedUses {
     ///   of it: another hardware's, another cubecl version's, a tuner's this
     ///   build never ran.
     /// - When this build recorded no use of any table, nothing is removed.
-    /// - No row is decoded: an answer is told by its key as its table's store
+    /// - No row is decoded: a tune is told by its key as its table's store
     ///   encoded it.
-    pub fn prune_unused_answers(&self, database: &Database) -> PruneTally {
-        AnswerPruner::new(self).prune_used_tables(database)
+    pub fn prune_unused_tunes(&self, database: &Database) -> PruneTally {
+        TunePruner::new(self).prune_used_tables(database)
     }
 
-    /// Remove from `database` every autotune answer this build's work did
-    /// not use, in every table, and count the answers left: what a save of
-    /// the used answers leaves in its copy.
+    /// Remove from `database` every tune this build's work did
+    /// not use, in every table, and count the tunes left: what a save of
+    /// the used tunes leaves in its copy.
     #[cfg(native_cache)]
-    pub(crate) fn keep_only_used_answers(&self, database: &Database) -> u64 {
-        AnswerPruner::new(self).keep_only_used(database)
+    pub(crate) fn keep_only_used_tunes(&self, database: &Database) -> u64 {
+        TunePruner::new(self).keep_only_used(database)
     }
 
     /// Delete from `database` the records other builds left of `content`:
@@ -408,7 +408,7 @@ mod tests {
         let version = env!("CARGO_PKG_VERSION");
         for namespace in [
             alloc::format!("used/{version}/{BUILD}"),
-            alloc::format!("used/{version}/{BUILD}/answers"),
+            alloc::format!("used/{version}/{BUILD}/tunes"),
             alloc::format!("used/{version}/{BUILD}/entries"),
         ] {
             assert_eq!(UseRecord::of(&namespace, BUILD), None, "{namespace}");

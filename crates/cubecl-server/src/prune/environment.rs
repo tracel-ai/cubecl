@@ -3,8 +3,8 @@
 use super::Prune;
 use super::kernels::KernelPruner;
 use cubecl_environment::environment::{
-    AnswerPruning, BuildStamp, EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned,
-    RecordedUses, UsedContent,
+    BuildStamp, EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned, RecordedUses,
+    TunePruning, UsedContent,
 };
 use cubecl_environment::persistence::{Access, Database};
 use cubecl_environment::records::Records;
@@ -16,21 +16,21 @@ impl Prune for EnvironmentId {
         let uses = RecordedUses::read(&database, build);
         let kernels = KernelPruner::new(build).prune(&database, &uses);
         uses.purge_other_builds(&database, &UsedContent::Kernels);
-        let answers = pruned_answers(&database, &uses, options.answers);
+        let tunes = pruned_tunes(&database, &uses, options.tunes);
         let records = Records::new(&database).retain(options.records);
         Ok(Pruned {
             kernels,
-            answers,
+            tunes,
             records,
         })
     }
 }
 
-/// Remove from `database` the answers `answers` says go, by what `uses`
+/// Remove from `database` the tunes `tunes` says go, by what `uses`
 /// records of this build's work, and tally them.
-fn pruned_answers(database: &Database, uses: &RecordedUses, answers: AnswerPruning) -> PruneTally {
-    match answers {
-        AnswerPruning::KeepAll => PruneTally::default(),
-        AnswerPruning::KeepUsed => uses.prune_unused_answers(database),
+fn pruned_tunes(database: &Database, uses: &RecordedUses, tunes: TunePruning) -> PruneTally {
+    match tunes {
+        TunePruning::KeepAll => PruneTally::default(),
+        TunePruning::KeepUsed => uses.prune_unused_tunes(database),
     }
 }

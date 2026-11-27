@@ -7,7 +7,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use serial_test::serial;
 
-/// A save of the used answers that would hold none fails, rather than
+/// A save of the used tunes that would hold none fails, rather than
 /// handing back a bundle that brings nothing.
 #[test]
 #[serial]
@@ -21,7 +21,7 @@ fn a_save_of_the_used_answers_fails_when_the_work_used_none() {
     table.insert("key".to_string(), 1).unwrap();
     activate(crate::environment::DEFAULT);
 
-    let saved = id.save(SaveOptions::new().content(SavedContent::UsedAnswers));
+    let saved = id.save(SaveOptions::new().content(SavedContent::UsedTunes));
 
-    assert!(matches!(saved, Err(EnvironmentError::NoAnswersUsed { .. })));
+    assert!(matches!(saved, Err(EnvironmentError::NoTunesUsed { .. })));
 }

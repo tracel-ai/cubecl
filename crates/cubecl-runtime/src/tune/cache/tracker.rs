@@ -67,13 +67,13 @@ pub struct TuneTracker<K> {
     table: TuneTable,
 }
 
-/// The table a [`TuneTracker`] persists its answers to, and the record of the answers this
-/// build's work used from it.
+/// The table a [`TuneTracker`] persists its tunes to, and the record of the tunes this build's
+/// work used from it.
 #[cfg(persistence)]
 #[derive(Debug)]
 pub struct PersistedTable<K> {
-    /// The table's answers, read lazily.
-    pub answers: Store<PersistentCacheKey<K>, PersistentCacheValue>,
+    /// The table's tunes, read lazily.
+    pub tunes: Store<PersistentCacheKey<K>, PersistentCacheValue>,
     /// The table's entries this build's work used: those it loaded and those it stored.
     pub uses: WorkUses<PersistentCacheKey<K>>,
 }
@@ -260,11 +260,11 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             key: key.clone(),
             checksum: checksum.into(),
         };
-        let Some(value) = persisted.answers.remove(&stored) else {
+        let Some(value) = persisted.tunes.remove(&stored) else {
             return TuneAnswer::Miss;
         };
         if value.decided_index >= len {
-            persisted.answers.purge_key(&stored);
+            persisted.tunes.purge_key(&stored);
             return TuneAnswer::Miss;
         }
         persisted.uses.record(&stored);
@@ -293,7 +293,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         let entry = PersistentCacheKey { key, checksum };
         // Recorded before the table takes the entry, which then needs no clone.
         persisted.uses.record(&entry);
-        let Err(err) = persisted.answers.insert(entry, value) else {
+        let Err(err) = persisted.tunes.insert(entry, value) else {
             return true;
         };
         log_store_error(err);
@@ -337,7 +337,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         let persisted = (!disabled).then(|| {
             TABLE_LAYOUT_VERSION.drop_earlier();
             PersistedTable {
-                answers: lazy(namespace),
+                tunes: lazy(namespace),
                 uses: WorkUses::from_store(lazy(uses)),
             }
         });

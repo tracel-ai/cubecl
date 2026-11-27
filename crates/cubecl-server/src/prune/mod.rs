@@ -2,7 +2,7 @@
 //!
 //! A tune races every candidate it measures, at the shape it tunes for, and
 //! each candidate compiles kernels for that shape; the work then launches the
-//! pick's kernels, for every shape it runs. What decides a kernel's fate is
+//! pick's kernels, for every shape it runs. What decides whether a kernel stays is
 //! therefore not the tune but the work: the
 //! [loader](crate::compiler::KernelLoader) records each kernel the work
 //! launches among the work's uses
@@ -12,10 +12,10 @@
 //! compiled kernels, every kernel another build compiled with the records of
 //! what its work launched, and the build records the caller does not keep.
 //!
-//! The autotune answers stay unless the caller asks
-//! ([`AnswerPruning::KeepUsed`](cubecl_environment::environment::AnswerPruning::KeepUsed))
+//! The tunes stay unless the caller asks
+//! ([`TunePruning::KeepUsed`](cubecl_environment::environment::TunePruning::KeepUsed))
 //! for those this build's work did not use to go. Each tuner records the
-//! answers the work loads or stores among the work's uses, per table: such a
+//! tunes the work loads or stores among the work's uses, per table: such a
 //! prune keeps those, and removes the rest of each table this build used,
 //! with other builds' records of it. A table this build never used stays
 //! whole.

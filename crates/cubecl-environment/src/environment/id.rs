@@ -55,10 +55,10 @@ pub enum EnvironmentError {
         /// The environment's name.
         name: String,
     },
-    /// A save of the autotune answers the work used would hold none: the
+    /// A save of the tunes the work used would hold none: the
     /// work used none in the environment, its tuners persist nothing, or the
-    /// answers it used are gone.
-    NoAnswersUsed {
+    /// tunes it used are gone.
+    NoTunesUsed {
         /// The environment's name.
         name: String,
     },
@@ -85,10 +85,9 @@ impl core::fmt::Display for EnvironmentError {
             Self::SelfFork { name } => {
                 write!(f, "the environment {name} cannot be forked into itself")
             }
-            Self::NoAnswersUsed { name } => write!(
-                f,
-                "the work used no autotune answer of the environment {name}"
-            ),
+            Self::NoTunesUsed { name } => {
+                write!(f, "the work used no tune of the environment {name}")
+            }
             Self::Storage { reason } => write!(f, "the environment storage failed: {reason}"),
         }
     }
@@ -250,8 +249,8 @@ mod storage {
         ///
         /// # Errors
         ///
-        /// - [`NoAnswersUsed`](EnvironmentError::NoAnswersUsed): a save of
-        ///   the [used answers](SavedContent::UsedAnswers) would hold none.
+        /// - [`NoTunesUsed`](EnvironmentError::NoTunesUsed): a save of
+        ///   the [used tunes](SavedContent::UsedTunes) would hold none.
         /// - The environment lives in another process's storage, or the
         ///   storage refused the read.
         pub fn save(&self, options: SaveOptions) -> Result<EnvironmentBundle, EnvironmentError> {
@@ -329,18 +328,18 @@ mod storage {
         fn select(&self, content: &SavedContent, path: &Path) -> Result<(), EnvironmentError> {
             match content {
                 SavedContent::Everything => Ok(()),
-                SavedContent::UsedAnswers => self.keep_only_used_answers(path),
+                SavedContent::UsedTunes => self.keep_only_used_tunes(path),
             }
         }
 
-        /// Leave in the bundle exported to `path` only the autotune answers
+        /// Leave in the bundle exported to `path` only the tunes
         /// this executable's work used in the environment.
-        fn keep_only_used_answers(&self, path: &Path) -> Result<(), EnvironmentError> {
+        fn keep_only_used_tunes(&self, path: &Path) -> Result<(), EnvironmentError> {
             let uses = RecordedUses::read(&self.open(Access::ReadOnly)?, BuildStamp::current());
             let bundle =
                 Database::open_at(path, Access::ReadWrite).map_err(EnvironmentError::storage)?;
-            if uses.keep_only_used_answers(&bundle) == 0 {
-                return Err(EnvironmentError::NoAnswersUsed {
+            if uses.keep_only_used_tunes(&bundle) == 0 {
+                return Err(EnvironmentError::NoTunesUsed {
                     name: self.name.clone(),
                 });
             }

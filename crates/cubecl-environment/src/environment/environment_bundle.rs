@@ -76,15 +76,15 @@ pub enum SavedContent {
     /// Everything it holds.
     #[default]
     Everything,
-    /// The autotune answers the work of the executable saving it used, as
+    /// The tunes the work of the executable saving it used, as
     /// their tables store them, and nothing else: no kernel, no build record,
     /// no record of what the work used.
     ///
     /// Merged into another environment, they are loaded instead of measured
     /// by a build of the same cubecl version on the same hardware, which
-    /// reads the same tables. An answer the environment holds already stays,
+    /// reads the same tables. A tune the environment holds already stays,
     /// and one measured there later replaces a brought one.
-    UsedAnswers,
+    UsedTunes,
 }
 
 #[cfg(native_cache)]
@@ -94,7 +94,7 @@ impl SavedContent {
     pub(crate) fn exported_roots(&self) -> Vec<String> {
         match self {
             Self::Everything => Vec::new(),
-            Self::UsedAnswers => alloc::vec![NamespaceRoot::AUTOTUNE.into()],
+            Self::UsedTunes => alloc::vec![NamespaceRoot::AUTOTUNE.into()],
         }
     }
 }
@@ -220,7 +220,7 @@ mod tests {
         let description = bundle.read_description().unwrap();
 
         assert_eq!(description.name, "fixture");
-        assert_eq!(description.summary.autotune_answers, 1);
+        assert_eq!(description.summary.tunes, 1);
         assert!(bundle.bytes.file().is_some(), "the bytes are still unread");
     }
 
@@ -281,11 +281,11 @@ mod tests {
         ));
     }
 
-    /// A bundle file in `dir` holding one autotune answer.
+    /// A bundle file in `dir` holding one tune.
     fn bundle_file(dir: &tempfile::TempDir) -> PathBuf {
         let path = dir.path().join("fixture.cubecl");
         let database = Database::open_at(&path, Access::ReadWrite).unwrap();
-        database.insert("autotune/0.12.0/matmul", b"key", b"answer", Origin::Local);
+        database.insert("autotune/0.12.0/matmul", b"key", b"tune", Origin::Local);
         manifest().write_to(&database).unwrap();
         database.into_standalone().unwrap();
         path

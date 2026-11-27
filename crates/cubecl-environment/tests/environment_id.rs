@@ -406,19 +406,19 @@ fn bytes_that_are_no_bundle_do_not_read() {
     ));
 }
 
-/// A save of the used answers holds the answers this build's work used,
-/// and nothing else of the environment: no other answer, no kernel, no
+/// A save of the used tunes holds the tunes this build's work used,
+/// and nothing else of the environment: no other tune, no kernel, no
 /// record of the work. Merged elsewhere, they read as they were stored.
 #[test]
 #[serial_test::serial]
-fn a_save_of_the_used_answers_holds_only_them() {
+fn a_save_of_the_used_tunes_holds_only_them() {
     let _root = rooted();
     let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Empty).unwrap();
     plant(&tuned);
     let table = Namespace::scoped("autotune", "hardware/tuner");
-    let mut answers: Store<String, u32> = Store::new(StoreOptions::new().storage(table.clone()));
-    answers.insert("used".to_string(), 1).unwrap();
-    answers.insert("idle".to_string(), 2).unwrap();
+    let mut tunes: Store<String, u32> = Store::new(StoreOptions::new().storage(table.clone()));
+    tunes.insert("used".to_string(), 1).unwrap();
+    tunes.insert("idle".to_string(), 2).unwrap();
     let uses = UsedContent::Entries {
         namespace: table.as_str().into(),
     };
@@ -429,31 +429,31 @@ fn a_save_of_the_used_answers_holds_only_them() {
     environment::activate(environment::DEFAULT);
 
     let saved = tuned
-        .save(SaveOptions::new().content(SavedContent::UsedAnswers))
+        .save(SaveOptions::new().content(SavedContent::UsedTunes))
         .unwrap();
     let carried = EnvironmentId::create("carried", EnvironmentOrigin::Bundle(saved)).unwrap();
 
     carried.activate().unwrap();
-    let mut carried_answers: Store<String, u32> =
+    let mut carried_tunes: Store<String, u32> =
         Store::new(StoreOptions::new().storage(table).cache(CacheOption::Lazy));
     let held = (
         carried.summary().unwrap(),
-        carried_answers.get_mut(&"used".to_string()).copied(),
-        carried_answers.get_mut(&"idle".to_string()).copied(),
+        carried_tunes.get_mut(&"used".to_string()).copied(),
+        carried_tunes.get_mut(&"idle".to_string()).copied(),
     );
     environment::activate(environment::DEFAULT);
-    let only_the_used_answer = EnvironmentSummary {
+    let only_the_used_tune = EnvironmentSummary {
         kernels: 0,
-        autotune_answers: 1,
+        tunes: 1,
         records: 0,
     };
-    assert_eq!(held, (only_the_used_answer, Some(1), None));
+    assert_eq!(held, (only_the_used_tune, Some(1), None));
 }
 
 /// What [`plant`] writes, counted.
 const PLANTED: EnvironmentSummary = EnvironmentSummary {
     kernels: 3,
-    autotune_answers: 2,
+    tunes: 2,
     records: 1,
 };
 

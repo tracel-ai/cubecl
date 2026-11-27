@@ -400,7 +400,7 @@ fn the_summary_totals_every_namespace_by_root() {
     let summary = inspector.summary();
 
     assert_eq!(summary.entries(), 13);
-    assert_eq!(summary.autotune_answers(), 4);
+    assert_eq!(summary.tunes(), 4);
     let roots: Vec<(String, u64)> = summary
         .roots()
         .into_iter()
@@ -797,10 +797,7 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
             .iter()
             .all(|row| row.root().as_str() != "records")
     );
-    assert_eq!(
-        stripped.autotune_answers(),
-        Inspector::new(file).summary().autotune_answers()
-    );
+    assert_eq!(stripped.tunes(), Inspector::new(file).summary().tunes());
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,
         "fixture"
@@ -1308,7 +1305,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             .all(|key| key.tune.is_none())
     );
     assert!(inspector.kernels().kernels.is_empty());
-    assert_eq!(summary.autotune_answers(), 4, "the caches are untouched");
+    assert_eq!(summary.tunes(), 4, "the caches are untouched");
 }
 
 /// Pruning a shipped file in place leaves it shipped: out of WAL, so it

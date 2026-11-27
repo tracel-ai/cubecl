@@ -220,7 +220,7 @@ fn a_stored_answer_leaves_the_answers_to_older_lists() {
 fn tracker_over(table: &str) -> TuneTracker<String> {
     TuneTracker::with_store(
         Some(PersistedTable {
-            answers: answers(table),
+            tunes: answers(table),
             uses: WorkUses::from_store(uses(table)),
         }),
         TuneTable {

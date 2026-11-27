@@ -20,7 +20,7 @@ use cubecl_environment::environment::{EnvironmentError, PruneOptions, Pruned};
 /// - Every variant of a kernel this build compiled and recorded its work
 ///   launching stays.
 /// - When this build recorded no launch, every kernel it compiled stays.
-/// - The autotune answers stay unless `options` asks for those this build's
+/// - The tunes stay unless `options` asks for those this build's
 ///   work did not use to go, and then every table this build did not use
 ///   stays whole.
 /// - Every namespace that is neither a compiler's, an autotune table, a
@@ -28,7 +28,7 @@ use cubecl_environment::environment::{EnvironmentError, PruneOptions, Pruned};
 pub trait Prune {
     /// Remove the kernels this build compiled and its work never launched,
     /// those another build compiled with other builds' records of their
-    /// work, the autotune answers and the build records `options` does not
+    /// work, the tunes and the build records `options` does not
     /// keep. The space they took is reclaimed by the next save, which copies
     /// what is left.
     ///

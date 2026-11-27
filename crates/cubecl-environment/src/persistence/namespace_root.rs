@@ -15,8 +15,8 @@ pub enum NamespaceContent {
     /// each entry names a kernel stored under the compiler's own root, and is
     /// not a kernel itself.
     KernelSources,
-    /// The answers autotune measured, one per key and candidate list.
-    AutotuneAnswers,
+    /// The tunes autotune decided, one per key and candidate list.
+    Tunes,
     /// How the environment was built.
     Records,
     /// Anything else: the throughput measurements, the records of what the
@@ -52,7 +52,7 @@ impl<'a> NamespaceRoot<'a> {
     /// What the namespace's entries are.
     pub fn content(self) -> NamespaceContent {
         match self.0 {
-            Self::AUTOTUNE => NamespaceContent::AutotuneAnswers,
+            Self::AUTOTUNE => NamespaceContent::Tunes,
             crate::records::EVERY_LAYOUT => NamespaceContent::Records,
             root => ArtifactRoot::content_of(root),
         }

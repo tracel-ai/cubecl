@@ -123,7 +123,7 @@ fn keys(database: &Database, namespace: &str) -> Vec<u128> {
     keys
 }
 
-/// In a table this build used, an answer it did not use goes and one it
+/// In a table this build used, a tune it did not use goes and one it
 /// used stays, and the tally counts both.
 #[test]
 fn a_prune_removes_the_unused_answers_of_a_used_table() {
@@ -132,7 +132,7 @@ fn a_prune_removes_the_unused_answers_of_a_used_table() {
     plant(&database, table(&matmul()), 2);
     plant(&database, matmul().namespace(BUILD).as_str(), 1);
 
-    let tally = RecordedUses::read(&database, BUILD).prune_unused_answers(&database);
+    let tally = RecordedUses::read(&database, BUILD).prune_unused_tunes(&database);
 
     assert_eq!(keys(&database, table(&matmul())), [1]);
     assert_eq!((tally.kept, tally.removed), (1, 1));
@@ -146,20 +146,20 @@ fn a_prune_keeps_a_table_the_build_never_used() {
     plant(&database, table(&conv()), 2);
     plant(&database, matmul().namespace(BUILD).as_str(), 1);
 
-    RecordedUses::read(&database, BUILD).prune_unused_answers(&database);
+    RecordedUses::read(&database, BUILD).prune_unused_tunes(&database);
 
     assert_eq!(keys(&database, table(&conv())), [2]);
 }
 
 /// With no use recorded, a prune knows nothing of what the work needs: no
-/// answer goes, and no other build's record of one either.
+/// tune goes, and no other build's record of one either.
 #[test]
 fn a_prune_of_a_build_that_used_no_answer_changes_nothing() {
     let (_directory, database) = database();
     plant(&database, table(&matmul()), 2);
     plant(&database, matmul().namespace(OTHER).as_str(), 2);
 
-    RecordedUses::read(&database, BUILD).prune_unused_answers(&database);
+    RecordedUses::read(&database, BUILD).prune_unused_tunes(&database);
 
     let mut left = database.namespaces();
     left.sort();
@@ -172,7 +172,7 @@ fn a_prune_of_a_build_that_used_no_answer_changes_nothing() {
 }
 
 /// Other builds' records of a table this build pruned go with its unused
-/// answers.
+/// tunes.
 #[test]
 fn a_prune_removes_other_builds_records_of_a_table_it_prunes() {
     let (_directory, database) = database();
@@ -180,7 +180,7 @@ fn a_prune_removes_other_builds_records_of_a_table_it_prunes() {
     plant(&database, matmul().namespace(BUILD).as_str(), 1);
     plant(&database, matmul().namespace(OTHER).as_str(), 1);
 
-    RecordedUses::read(&database, BUILD).prune_unused_answers(&database);
+    RecordedUses::read(&database, BUILD).prune_unused_tunes(&database);
 
     assert!(
         !database
@@ -189,7 +189,7 @@ fn a_prune_removes_other_builds_records_of_a_table_it_prunes() {
     );
 }
 
-/// What a save of the used answers keeps: a table the build never used is
+/// What a save of the used tunes keeps: a table the build never used is
 /// emptied, unlike in a prune.
 #[test]
 fn keeping_only_the_used_answers_empties_a_table_the_build_never_used() {
@@ -198,7 +198,7 @@ fn keeping_only_the_used_answers_empties_a_table_the_build_never_used() {
     plant(&database, table(&conv()), 2);
     plant(&database, matmul().namespace(BUILD).as_str(), 1);
 
-    let kept = RecordedUses::read(&database, BUILD).keep_only_used_answers(&database);
+    let kept = RecordedUses::read(&database, BUILD).keep_only_used_tunes(&database);
 
     assert_eq!(kept, 1);
     assert_eq!(keys(&database, table(&conv())), []);

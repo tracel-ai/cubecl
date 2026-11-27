@@ -7,9 +7,10 @@ use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_environment::environment::{BuildStamp, PruneTally, RecordedUses, UsedContent};
 use cubecl_environment::persistence::Database;
 
-/// What an environment's records say of one compiled artifact.
+/// How the work of this build used the kernel of one compiled artifact, as
+/// the environment's records say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArtifactFate {
+pub enum KernelUse {
     /// Another build compiled it.
     OtherBuild,
     /// This build compiled it, and its work launched other kernels but not
@@ -21,8 +22,8 @@ pub enum ArtifactFate {
     NoLaunchRecorded,
 }
 
-impl ArtifactFate {
-    /// The fate of an artifact, from whether this build compiled it, whether
+impl KernelUse {
+    /// How the work used an artifact's kernel, from whether this build compiled it, whether
     /// this build recorded any kernel its work launched, and whether that
     /// record holds the artifact's kernel.
     pub fn of(built_by_this_build: bool, recorded: bool, launched: bool) -> Self {
@@ -34,8 +35,9 @@ impl ArtifactFate {
         }
     }
 
-    /// Whether a prune removes the artifact: what no run of this build will
-    /// load again. With no launch recorded, nothing says that of any kernel.
+    /// Whether a prune removes an artifact its kernel was used so: what no
+    /// run of this build will load again. With no launch recorded, nothing
+    /// says that of any kernel.
     pub fn removes(self) -> bool {
         match self {
             Self::OtherBuild | Self::RaceOnly => true,
@@ -44,8 +46,8 @@ impl ArtifactFate {
     }
 }
 
-/// Removes from an environment the compiled artifacts whose
-/// [fate](ArtifactFate) is to go.
+/// Removes from an environment the compiled artifacts whose kernel's
+/// [use](KernelUse) says no run of this build loads them again.
 #[derive(Debug)]
 pub struct KernelPruner {
     /// The build this program is.
@@ -65,8 +67,8 @@ impl KernelPruner {
         }
     }
 
-    /// Remove from `database` the artifacts whose fate, by what `uses`
-    /// records of this build's work, is to go, counting by artifact: an
+    /// Remove from `database` the artifacts whose kernel's use, by what `uses`
+    /// records of this build's work, [removes](KernelUse::removes) them, counting by artifact: an
     /// artifact and the entries that map a source to it are one kernel.
     pub fn prune(&mut self, database: &Database, uses: &RecordedUses) -> PruneTally {
         let recorded = uses.recorded(&UsedContent::Kernels);
@@ -82,12 +84,12 @@ impl KernelPruner {
                 let Some(artifact) = KernelCacheKey::from_entry(key, value) else {
                     return;
                 };
-                let fate = ArtifactFate::of(
+                let used = KernelUse::of(
                     artifact.built_by == self.build,
                     recorded,
                     uses.used(&UsedContent::Kernels, &artifact.id),
                 );
-                if fate.removes() {
+                if used.removes() {
                     self.doomed
                         .push((artifact, key.to_vec(), (key.len() + value.len()) as u64));
                 } else {
@@ -113,10 +115,7 @@ mod tests {
 
     #[test]
     fn another_builds_artifact_is_another_builds_even_when_launched() {
-        assert_eq!(
-            ArtifactFate::of(false, true, true),
-            ArtifactFate::OtherBuild
-        );
+        assert_eq!(KernelUse::of(false, true, true), KernelUse::OtherBuild);
     }
 
     /// An environment in which this build's work launched nothing says
@@ -124,34 +123,31 @@ mod tests {
     #[test]
     fn with_no_launch_recorded_nothing_is_said_of_this_builds_artifact() {
         assert_eq!(
-            ArtifactFate::of(true, false, false),
-            ArtifactFate::NoLaunchRecorded
+            KernelUse::of(true, false, false),
+            KernelUse::NoLaunchRecorded
         );
     }
 
     #[test]
     fn an_artifact_of_a_kernel_the_work_launched_is_the_works() {
-        assert_eq!(
-            ArtifactFate::of(true, true, true),
-            ArtifactFate::WorkLaunched
-        );
+        assert_eq!(KernelUse::of(true, true, true), KernelUse::WorkLaunched);
     }
 
     #[test]
     fn an_artifact_of_a_kernel_the_work_never_launched_is_a_races() {
-        assert_eq!(ArtifactFate::of(true, true, false), ArtifactFate::RaceOnly);
+        assert_eq!(KernelUse::of(true, true, false), KernelUse::RaceOnly);
     }
 
     /// Only another build's artifacts and those only a race launched go.
     #[test]
     fn only_other_builds_and_race_only_artifacts_go() {
         let removed = [
-            ArtifactFate::OtherBuild,
-            ArtifactFate::RaceOnly,
-            ArtifactFate::WorkLaunched,
-            ArtifactFate::NoLaunchRecorded,
+            KernelUse::OtherBuild,
+            KernelUse::RaceOnly,
+            KernelUse::WorkLaunched,
+            KernelUse::NoLaunchRecorded,
         ]
-        .map(ArtifactFate::removes);
+        .map(KernelUse::removes);
 
         assert_eq!(removed, [true, true, false, false]);
     }

@@ -14,11 +14,11 @@ pub struct EnvironmentSummary {
     /// that maps a source to a kernel names a kernel counted already, and is
     /// not counted.
     pub kernels: u64,
-    /// The autotune answers, one per key and candidate list a tuner stored
-    /// the fastest candidate for. An environment keeps every answer until a
+    /// The tunes, one per key and candidate list a tuner stored
+    /// the fastest candidate for. An environment keeps every tune until a
     /// prune asked to keep only the used ones, so one to a list no tuner runs
     /// any more still counts.
-    pub autotune_answers: u64,
+    pub tunes: u64,
     /// The build records, each one entry.
     pub records: u64,
 }
@@ -32,7 +32,7 @@ impl EnvironmentSummary {
         for namespace in namespaces {
             let count = match NamespaceRoot::new(&namespace.namespace).content() {
                 NamespaceContent::Kernels => &mut summary.kernels,
-                NamespaceContent::AutotuneAnswers => &mut summary.autotune_answers,
+                NamespaceContent::Tunes => &mut summary.tunes,
                 NamespaceContent::Records => &mut summary.records,
                 NamespaceContent::KernelSources | NamespaceContent::Other => continue,
             };
@@ -76,7 +76,7 @@ mod tests {
             summary,
             EnvironmentSummary {
                 kernels: 1 + 2 + 3 + 4 + 5,
-                autotune_answers: 5 + 1,
+                tunes: 5 + 1,
                 records: 3 + 4,
             }
         );
