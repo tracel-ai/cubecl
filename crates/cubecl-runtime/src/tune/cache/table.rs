@@ -17,7 +17,7 @@ use crate::tune::AutotuneResult;
 /// Version 2 stores `decided_index` and `threshold_fraction` where version 1 stored
 /// `fastest_index` and `threshold`: a table of version 1 is dropped rather than misread.
 #[cfg(persistence)]
-pub static TABLE_NAMING_VERSION: NamespaceVersion =
+pub static TABLE_LAYOUT_VERSION: NamespaceVersion =
     NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 2);
 
 /// The table entry an answer is stored under.
@@ -99,6 +99,6 @@ impl TuneTableName<'_> {
     ///   of the environment parses.
     pub fn namespace(&self) -> Namespace {
         let Self { hardware, tuner } = self;
-        TABLE_NAMING_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))
+        TABLE_LAYOUT_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))
     }
 }

@@ -3,9 +3,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Display;
 
-use crate::tune::set::group::TuneGroup;
-use crate::tune::set::membership::GroupMembership;
-use crate::tune::set::tune_fn::TuneFn;
+use crate::tune::measure::tune_fn::TuneFn;
+use crate::tune::plan::group::TuneGroup;
+use crate::tune::plan::membership::GroupMembership;
 use crate::tune::{AutotuneError, TuneInputs};
 
 /// A single candidate for autotune: a named function plus the [groups](TuneGroup) it belongs to.

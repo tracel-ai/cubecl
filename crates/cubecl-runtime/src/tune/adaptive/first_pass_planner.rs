@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::tune::Patience;
     use crate::tune::plan::batch::BatchEntry;
-    use crate::tune::set::group::GroupId;
+    use crate::tune::plan::group::GroupId;
 
     /// A batch of `len` candidates of one ordered group with `patience`.
     fn batch(len: usize, patience: Option<Patience>) -> Batch {

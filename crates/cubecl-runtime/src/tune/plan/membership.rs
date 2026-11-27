@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use crate::tune::set::group::{PriorityFunc, TuneGroup};
+use crate::tune::plan::group::{PriorityFunc, TuneGroup};
 
 /// A [tunable](crate::tune::Tunable)'s place in one of its [groups](TuneGroup): the group, and the
 /// priority the tunable joins it with.

@@ -10,11 +10,11 @@ use crate::server::ServerError;
 use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::drive::committer::{LaunchedBench, QueuedBench, ResolvedBench, TuneCommitter};
 use crate::tune::drive::tune_benchmark::tune_benchmark;
-use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{
     AutotuneCheckable, AutotuneKeyable, AutotuneResult, TunableSet, TuneDeviceAccess, TuneInputs,
 };

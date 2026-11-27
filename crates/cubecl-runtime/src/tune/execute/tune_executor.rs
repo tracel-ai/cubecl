@@ -200,7 +200,7 @@ fn run_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
 where
     <I as TuneInputs>::At<'a>: Clone,
 {
-    execute_in_plan_order(operations, &operations.plan_run_order(key), inputs).unwrap_or_else(
+    execute_in_plan_order(operations, &operations.order_candidates(key), inputs).unwrap_or_else(
         |failures| panic!("Some autotune candidate for {key} should launch.\n{failures:?}"),
     )
 }
@@ -259,7 +259,7 @@ fn execute_decided<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
     let spare = spare.unwrap_or_else(|| {
         panic!("The candidate decided for {key} should serve every call of it.\n{rejection}")
     });
-    let order = operations.plan_run_order(key);
+    let order = operations.order_candidates(key);
     let others = order.iter().copied().filter(|&index| index != decided);
     first_served(others, |index| {
         operations.function_at(index).execute(spare.clone())
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(
             execute_in_plan_order(
                 &operations,
-                &operations.plan_run_order(&FakeAutotuneKey),
+                &operations.order_candidates(&FakeAutotuneKey),
                 ()
             )
             .ok(),
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(
             execute_in_plan_order(
                 &operations,
-                &operations.plan_run_order(&FakeAutotuneKey),
+                &operations.order_candidates(&FakeAutotuneKey),
                 ()
             )
             .ok(),
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(
             execute_in_plan_order(
                 &operations,
-                &operations.plan_run_order(&FakeAutotuneKey),
+                &operations.order_candidates(&FakeAutotuneKey),
                 ()
             )
             .ok(),
@@ -362,7 +362,7 @@ mod tests {
         let nothing = set().with(fails("fails"));
 
         let failures =
-            execute_in_plan_order(&nothing, &nothing.plan_run_order(&FakeAutotuneKey), ());
+            execute_in_plan_order(&nothing, &nothing.order_candidates(&FakeAutotuneKey), ());
 
         assert!(failures.is_err_and(|failures| failures.len() == 1));
     }

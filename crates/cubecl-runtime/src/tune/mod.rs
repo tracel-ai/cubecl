@@ -41,6 +41,7 @@ mod log;
 mod measure;
 mod plan;
 mod set;
+mod tune_inputs;
 
 pub use crate::local_tuner;
 pub use crate::throughput::ResourceBound;
@@ -69,7 +70,7 @@ pub use key::keyable::AutotuneKeyable;
 pub use log::context::AutotuneDecision;
 pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
 pub use measure::outcome::{AutotuneOutcome, AutotuneResult};
-pub use set::group::{OrderedSettings, Patience, TuneGroup};
+pub use plan::group::{OrderedSettings, Patience, TuneGroup};
 pub use set::tunable::Tunable;
 pub use set::tunable_set::TunableSet;
-pub use set::tune_inputs::TuneInputs;
+pub use tune_inputs::TuneInputs;

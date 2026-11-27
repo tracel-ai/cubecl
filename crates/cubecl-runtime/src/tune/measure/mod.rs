@@ -5,3 +5,4 @@ pub mod candidate_gathering;
 pub mod candidate_sampler;
 pub mod outcome;
 pub mod sample_time;
+pub mod tune_fn;

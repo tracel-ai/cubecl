@@ -4,12 +4,12 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use cubecl_common::hash::StableHash;
 
-use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
 use crate::tune::hook::clone_input_generator::CloneInputGenerator;
 use crate::tune::hook::hook_binder::HookBinder;
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer};
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::candidate_orderer::{CandidateOrderer, names_hash};
-use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{
     AutotuneKeyable, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,
     Tunable, TuneDeviceAccess, TuneInputs,
@@ -165,9 +165,9 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self.candidates.plan(key)
     }
 
-    /// [`CandidateOrderer::plan_run_order`].
-    pub(crate) fn plan_run_order(&self, key: &K) -> Arc<[usize]> {
-        self.candidates.plan_run_order(key)
+    /// [`CandidateOrderer::order_candidates`].
+    pub(crate) fn order_candidates(&self, key: &K) -> Arc<[usize]> {
+        self.candidates.order_candidates(key)
     }
 
     /// The function of the candidate at `index`, an index the tuner answered for this set.

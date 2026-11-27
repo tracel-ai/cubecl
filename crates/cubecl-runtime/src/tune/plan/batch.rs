@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 use cubecl_environment::collections::HashMap;
 
+use crate::tune::plan::group::{GroupId, Patience};
 use crate::tune::plan::planner::PlannedTunable;
-use crate::tune::set::group::{GroupId, Patience};
 
 /// One batch of a [`TunePlanner`](crate::tune::plan::planner::TunePlanner)'s plan: the tunables
 /// to benchmark, and the [`Patience`] of each group that brought one in.

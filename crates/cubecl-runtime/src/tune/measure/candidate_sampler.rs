@@ -7,8 +7,8 @@ use cubecl_environment::sync::{AtomicBool, Ordering};
 
 use crate::client::{Client, ProfileWindow};
 use crate::server::{ProfileError, ServerError};
-use crate::tune::hook::binding::BoundEvictor;
-use crate::tune::set::tune_fn::TuneFn;
+use crate::tune::hook::hook_binder::BoundEvictor;
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::{AutotuneError, TuneDeviceAccess, TuneInputs};
 
 /// Runs a tune's candidates on one device, the way its [`TuneDeviceAccess`] holds the device:

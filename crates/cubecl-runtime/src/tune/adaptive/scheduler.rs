@@ -11,12 +11,12 @@ use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::adaptive::candidate_tracker::{CandidateState, CandidateTracker};
 use crate::tune::adaptive::first_pass_planner::{CompileWindows, FirstPassPlanner};
-use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer, enter_stage};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::measure::outcome::best_scored;
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneCheckable, AutotuneError, AutotuneResult, TuneInputs, TuneStage};
 
 /// The outcome of benchmarking one batch of the plan.

@@ -4,7 +4,7 @@ use core::time::Duration;
 use cubecl_environment::collections::HashMap;
 
 use crate::tune::plan::batch::Batch;
-use crate::tune::set::group::GroupId;
+use crate::tune::plan::group::GroupId;
 
 mod group_tracker;
 

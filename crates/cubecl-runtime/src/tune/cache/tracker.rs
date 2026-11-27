@@ -12,14 +12,14 @@ use crate::execution::TuneRegistration;
 use crate::tune::AutotuneKeyable;
 #[cfg(persistence)]
 use crate::tune::cache::table::{
-    PersistentCacheKey, PersistentCacheValue, TABLE_NAMING_VERSION, TuneTable, TuneTableName,
+    PersistentCacheKey, PersistentCacheValue, TABLE_LAYOUT_VERSION, TuneTable, TuneTableName,
 };
 #[cfg(persistence)]
 use alloc::string::String;
 
 /// What a [`TuneTracker`] knows of one key.
 #[derive(Debug)]
-pub enum CacheEntry {
+pub enum TrackedKey {
     Done {
         decided_index: usize,
     },
@@ -36,7 +36,7 @@ pub enum CacheEntry {
     },
 }
 
-impl CacheEntry {
+impl TrackedKey {
     /// Where the gathered key's tune was registered, if it was gathered and registered.
     fn into_registration(self) -> Option<TuneRegistration> {
         match self {
@@ -52,7 +52,7 @@ impl CacheEntry {
 pub struct TuneTracker<K> {
     /// The single in-memory home of tuning state, keyed for the per-launch lookup (Keyed Usage):
     /// tuned picks and in-flight tunes. Cleared when the environment switches.
-    answers: HashMap<K, CacheEntry>,
+    answers: HashMap<K, TrackedKey>,
     /// The cards a tune found lost (Membership Usage). Kept across environment switches: a card
     /// stays lost.
     lost: HashSet<ServiceId>,
@@ -120,12 +120,12 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         }
 
         match self.answers.get(key) {
-            Some(CacheEntry::Done { decided_index }) => TuneAnswer::Hit {
+            Some(TrackedKey::Done { decided_index }) => TuneAnswer::Hit {
                 decided_index: *decided_index,
             },
-            Some(CacheEntry::Pending) => TuneAnswer::Pending,
+            Some(TrackedKey::Pending) => TuneAnswer::Pending,
             // Nothing was decided: a tune of the key is still owed.
-            Some(CacheEntry::Compiled { .. }) | None => TuneAnswer::Miss,
+            Some(TrackedKey::Compiled { .. }) | None => TuneAnswer::Miss,
         }
     }
 
@@ -152,14 +152,14 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// the override that gathered it registered it.
     pub fn track_pending(&mut self, key: K) -> Option<TuneRegistration> {
         self.answers
-            .insert(key, CacheEntry::Pending)
-            .and_then(CacheEntry::into_registration)
+            .insert(key, TrackedKey::Pending)
+            .and_then(TrackedKey::into_registration)
     }
 
     /// Drop the [tracked](Self::track_pending) tune of `key` that stopped before it settled, so
     /// the next caller tunes the key. A settled key is left settled.
     pub fn untrack_pending(&mut self, key: &K) {
-        if let Some(CacheEntry::Pending) = self.answers.get(key) {
+        if let Some(TrackedKey::Pending) = self.answers.get(key) {
             self.answers.remove(key);
         }
     }
@@ -173,11 +173,11 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         service: ServiceId,
         register: impl FnOnce() -> Option<TuneRegistration>,
     ) {
-        let compiled = || CacheEntry::Compiled {
+        let compiled = || TrackedKey::Compiled {
             registration: register(),
             services: HashSet::new(),
         };
-        if let CacheEntry::Compiled { services, .. } =
+        if let TrackedKey::Compiled { services, .. } =
             self.answers.entry(key).or_insert_with(compiled)
         {
             services.insert(service);
@@ -192,7 +192,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 
     /// Track `decided_index` as the pick of `key`, in memory, and answer it.
     pub fn track_answer(&mut self, key: K, decided_index: usize) -> TuneAnswer {
-        self.answers.insert(key, CacheEntry::Done { decided_index });
+        self.answers.insert(key, TrackedKey::Done { decided_index });
         TuneAnswer::Hit { decided_index }
     }
 }
@@ -258,7 +258,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         let gathered = self
             .answers
             .remove(key)
-            .and_then(CacheEntry::into_registration);
+            .and_then(TrackedKey::into_registration);
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
@@ -285,7 +285,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
             self.answers.get(key),
-            Some(CacheEntry::Compiled { services, .. }) if services.contains(&service)
+            Some(TrackedKey::Compiled { services, .. }) if services.contains(&service)
         )
     }
 }
@@ -308,7 +308,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             generation: cubecl_environment::environment::generation(),
         };
         let store = (!disabled).then(|| {
-            TABLE_NAMING_VERSION.drop_earlier();
+            TABLE_LAYOUT_VERSION.drop_earlier();
             Store::new(
                 StoreOptions::new()
                     .storage(namespace)

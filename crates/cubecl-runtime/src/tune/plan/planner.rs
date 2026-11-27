@@ -8,8 +8,8 @@ use cubecl_environment::collections::{HashMap, HashSet};
 #[cfg(persistence)]
 use crate::tune::cache::record::{Placement, PlannedCandidate};
 use crate::tune::plan::batch::Batch;
-use crate::tune::set::group::{GroupId, Patience, TuneGroup};
-use crate::tune::{Tunable, TuneInputs};
+use crate::tune::plan::group::{GroupId, Patience, TuneGroup};
+use crate::tune::plan::membership::GroupMembership;
 
 /// Plans which tunables a tune benchmarks, and in what order: a batch at a time, each the round
 /// of the highest group priority and member level left.
@@ -87,38 +87,37 @@ impl<K> PricedMembership<'_, K> {
 }
 
 impl TunePlanner {
-    /// The plan of `tunables` for `key`.
+    /// The plan for `key` of the tunables whose groups `memberships` lists, one slice each, in
+    /// registration order.
     ///
     /// Each of the caller's priority functions is asked once and its answer carried: an ordered
     /// group's level is its best member's priority, which is known only once every member is
     /// priced.
-    pub fn new<K, F: TuneInputs, Out: 'static, Id>(
+    pub fn new<'m, K: 'm>(
         key: &K,
-        tunables: &[Tunable<K, F, Out, Id>],
+        memberships: impl Iterator<Item = &'m [GroupMembership<K>]>,
     ) -> Self {
-        let priced: Vec<PricedMembership<'_, K>> = tunables
+        let memberships: Vec<_> = memberships.collect();
+        let priced: Vec<PricedMembership<'_, K>> = memberships
             .iter()
             .enumerate()
-            .flat_map(|(index, tunable)| {
-                tunable
-                    .groups()
-                    .iter()
-                    .map(move |membership| PricedMembership {
-                        index,
-                        group: membership.group(),
-                        group_priority: membership.group().priority(key),
-                        priority: membership.priority(key),
-                    })
+            .flat_map(|(index, groups)| {
+                groups.iter().map(move |membership| PricedMembership {
+                    index,
+                    group: membership.group(),
+                    group_priority: membership.group().priority(key),
+                    priority: membership.priority(key),
+                })
             })
             .collect();
 
         Self {
-            count: tunables.len(),
+            count: memberships.len(),
             groups: group_plans(&priced),
-            ungrouped: tunables
+            ungrouped: memberships
                 .iter()
                 .enumerate()
-                .filter(|(_, tunable)| tunable.groups().is_empty())
+                .filter(|(_, groups)| groups.is_empty())
                 .map(|(index, _)| index)
                 .collect(),
             returned: HashSet::new(),
@@ -127,7 +126,7 @@ impl TunePlanner {
                 .filter_map(|priced| Some((priced.group.id(), priced.group.patience()?)))
                 .collect(),
             #[cfg(persistence)]
-            placements: placements(&priced, tunables.len()),
+            placements: placements(&priced, memberships.len()),
         }
     }
 
@@ -321,8 +320,16 @@ mod tests {
 
     use super::*;
     use crate::tune::plan::batch::BatchEntry;
-    use crate::tune::{AutotuneKeyable, OrderedSettings};
+    use crate::tune::{AutotuneKeyable, OrderedSettings, Tunable, TuneInputs};
     use alloc::string::String;
+
+    /// The plan of `tunables` for `key`.
+    fn plan_of<K, F: TuneInputs, Out: 'static, Id>(
+        key: &K,
+        tunables: &[Tunable<K, F, Out, Id>],
+    ) -> TunePlanner {
+        TunePlanner::new(key, tunables.iter().map(Tunable::groups))
+    }
     use alloc::vec;
 
     fn indices(batch: &Batch) -> Vec<usize> {
@@ -354,7 +361,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         // tunable0 is in no group, so it trails the batch rather than leading it.
         assert_eq!(indices(&plan.plan_next()), vec![2, 0]);
@@ -380,7 +387,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group2, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2, 0]);
         assert_eq!(indices(&plan.plan_next()), vec![1]);
@@ -403,7 +410,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 3);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         assert_eq!(indices(&plan.plan_next()), vec![3, 0]);
         assert_eq!(indices(&plan.plan_next()), vec![1]);
@@ -425,7 +432,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2, 0]);
         assert_eq!(indices(&plan.plan_next()), vec![3]);
@@ -444,7 +451,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2),
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2),
         ];
-        TunePlanner::new(&FakeAutotuneKey, &tunables)
+        plan_of(&FakeAutotuneKey, &tunables)
     }
 
     #[cfg(persistence)]
@@ -501,7 +508,7 @@ mod tests {
         let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1]);
 
         assert_eq!(indices(&plan.plan_next()), vec![0, 1]);
         assert!(plan.plan_next().is_empty());
@@ -525,7 +532,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         let mut all_returned: Vec<usize> = Vec::new();
         loop {
@@ -554,7 +561,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 3);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2]);
         assert_eq!(indices(&plan.plan_next()), vec![1]);
@@ -577,7 +584,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2]);
         assert!(plan.plan_next().is_empty());
@@ -598,7 +605,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![1, 0]);
         assert_eq!(indices(&plan.plan_next()), vec![2]);
@@ -619,7 +626,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1]);
 
         let mut all_returned: Vec<usize> = Vec::new();
         loop {
@@ -657,7 +664,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group_lo, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1]);
 
         // First call: group_hi yields tunable0.
         assert_eq!(indices(&plan.plan_next()), vec![0]);
@@ -686,7 +693,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
         assert_eq!(indices(&plan.plan_next()), vec![1, 3, 4, 0]);
         assert!(plan.plan_next().is_empty());
@@ -719,7 +726,7 @@ mod tests {
             .group(&ordered, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
         let batch = plan.plan_next();
         let entry = |index, groups: &[GroupId], priority| BatchEntry {
             index,
@@ -751,7 +758,7 @@ mod tests {
             .group(&ordered, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable]);
+        let mut plan = plan_of(&key, &[tunable]);
 
         assert_eq!(
             plan.plan_next().entries,
@@ -779,7 +786,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&fallback, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![1, 0]);
         assert_eq!(indices(&plan.plan_next()), vec![2]);
@@ -801,7 +808,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 5);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2, 1, 0]);
         assert!(plan.plan_next().is_empty());
@@ -825,7 +832,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&cutoff, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2]);
 
         assert_eq!(indices(&plan.plan_next()), vec![0, 1]);
         assert_eq!(indices(&plan.plan_next()), vec![2]);
@@ -851,7 +858,7 @@ mod tests {
             Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&cutoff, |_| 2);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
         assert_eq!(indices(&plan.plan_next()), vec![2]);
         assert_eq!(indices(&plan.plan_next()), vec![0, 3, 1]);
@@ -873,7 +880,7 @@ mod tests {
             .group(&lo, |_| 1);
 
         let key = FakeAutotuneKey;
-        let mut plan = TunePlanner::new(&key, &[tunable0, tunable1]);
+        let mut plan = plan_of(&key, &[tunable0, tunable1]);
 
         assert_eq!(indices(&plan.plan_next()), vec![0]);
         assert_eq!(indices(&plan.plan_next()), vec![1]);
@@ -908,15 +915,15 @@ mod tests {
         };
 
         assert_eq!(
-            indices(&TunePlanner::new(&SizeKey(9), &tunables()).plan_next()),
+            indices(&plan_of(&SizeKey(9), &tunables()).plan_next()),
             vec![0, 2, 1]
         );
         assert_eq!(
-            indices(&TunePlanner::new(&SizeKey(1), &tunables()).plan_next()),
+            indices(&plan_of(&SizeKey(1), &tunables()).plan_next()),
             vec![1, 2, 0]
         );
         assert_eq!(
-            indices(&TunePlanner::new(&SizeKey(5), &tunables()).plan_next()),
+            indices(&plan_of(&SizeKey(5), &tunables()).plan_next()),
             vec![0, 1, 2]
         );
     }
@@ -934,7 +941,7 @@ mod tests {
             })
             .collect();
         tunables.push(Tunable::new("ungrouped", fake_kernel));
-        TunePlanner::new(&FakeAutotuneKey, &tunables)
+        plan_of(&FakeAutotuneKey, &tunables)
     }
 
     /// What [`TunePlanner::plan_top`] hands over, each candidate serving unless `declines` names it.
@@ -978,7 +985,7 @@ mod tests {
                     .group(&fallback, |_| 1),
             ]
         };
-        let plan = || TunePlanner::new(&FakeAutotuneKey, &tunables());
+        let plan = || plan_of(&FakeAutotuneKey, &tunables());
 
         assert_eq!(queued(plan(), 4, &[]), vec![0]);
         assert_eq!(queued(plan(), 4, &[0]), vec![0, 1, 2]);

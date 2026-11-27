@@ -2,9 +2,9 @@ use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::config::RuntimeConfig;
 
-use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer, enter_stage};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
-use crate::tune::set::tune_fn::TuneFn;
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs, TuneStage};
 
 /// The warmups the fixed-count pass runs before it samples a candidate.

@@ -2,6 +2,7 @@
 
 pub mod committer;
 pub mod driver;
+pub mod pending_unmarker;
 #[cfg(persistence)]
 pub mod persister;
 pub mod settler;

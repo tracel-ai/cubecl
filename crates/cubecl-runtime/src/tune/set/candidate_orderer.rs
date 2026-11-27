@@ -5,8 +5,8 @@ use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 
+use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneKeyable, Tunable, TuneInputs};
 
 /// Orders the candidates of a [`TunableSet`](crate::tune::TunableSet) for each key.
@@ -51,12 +51,12 @@ impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidateOrderer<K, F,
 
     /// The plan of the candidates for `key`.
     pub fn plan(&self, key: &K) -> TunePlanner {
-        TunePlanner::new(key, &self.tunables)
+        TunePlanner::new(key, self.tunables.iter().map(Tunable::groups))
     }
 
     /// The candidates of `key` in the order an untuned key runs them: its plan's
     /// [order](TunePlanner::order).
-    pub fn plan_run_order(&self, key: &K) -> Arc<[usize]> {
+    pub fn order_candidates(&self, key: &K) -> Arc<[usize]> {
         if let Some(order) = self.run_orders.lock().get(key) {
             return order.clone();
         }
@@ -108,9 +108,9 @@ mod tests {
         planner.add(tunable("second", 1).group(&group, |_| 2));
         let key = String::from("key");
 
-        let first = planner.plan_run_order(&key);
+        let first = planner.order_candidates(&key);
         let planned = asked.load(Ordering::Relaxed);
-        let again = planner.plan_run_order(&key);
+        let again = planner.order_candidates(&key);
 
         assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
         assert_eq!(asked.load(Ordering::Relaxed), planned);
@@ -123,11 +123,11 @@ mod tests {
         planner.add(tunable("first", 0));
         planner.add(tunable("second", 1));
         let key = String::from("key");
-        assert_eq!(&*planner.plan_run_order(&key), &[0, 1]);
+        assert_eq!(&*planner.order_candidates(&key), &[0, 1]);
 
         planner.add(tunable("added", 2).group(&group, |_| 1));
 
-        assert_eq!(planner.plan_run_order(&key)[0], 2);
+        assert_eq!(planner.order_candidates(&key)[0], 2);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use cubecl_environment::sync::Mutex;
 use crate::config::Logger;
 use crate::execution::{TuneOutcome, TuneRegistration};
 use crate::tune::cache::tracker::{TuneAnswer, TuneTracker};
-use crate::tune::execute::pending_unmarker::PendingUnmarker;
+use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::{AutotuneKeyable, AutotuneResult};
 
