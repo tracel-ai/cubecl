@@ -219,13 +219,50 @@ fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
     let core = ctx.matrix_core();
     match (matrix.ident, core) {
         (MatrixIdent::A | MatrixIdent::B, _) => (core.frag_ab_elems(matrix.shape.k), 1),
-        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(generation)) => {
-            let half = matches!(elem_type(ctx, matrix.elem_ty), F16 | BF16);
-            let padded = half && pads_half_accumulator(generation);
-            (ACCUMULATOR_REGISTERS, if padded { 2 } else { 1 })
-        }
+        (MatrixIdent::Accumulator, AmdMatrixCore::Wmma(_)) => (
+            ACCUMULATOR_REGISTERS,
+            accumulator_step(core, elem_type(ctx, matrix.elem_ty)),
+        ),
         (MatrixIdent::Accumulator, AmdMatrixCore::Mfma(_)) => (mfma::ACCUMULATOR_REGISTERS, 1),
     }
+}
+
+/// The slots between two sums of `elem` in the accumulator the matrix instruction of `core`
+/// takes: 2 where RDNA3 holds each 16-bit sum in the low half of a 32-bit register, else 1.
+fn accumulator_step(core: AmdMatrixCore, elem: ElemType) -> usize {
+    let padded = matches!(core, AmdMatrixCore::Wmma(generation) if pads_half_accumulator(generation))
+        && matches!(elem, F16 | BF16);
+    1 + usize::from(padded)
+}
+
+/// The `elems` values of `dense` moved to every `step`-th slot of a vector `step` times as long.
+fn spread_slots(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    dense: Value,
+    elems: usize,
+    step: usize,
+) -> Value {
+    if step == 1 {
+        return dense;
+    }
+    let mask = (0..elems * step).map(|i| (i / step) as i32).collect();
+    shuffle(ctx, rw, dense, mask)
+}
+
+/// The `elems` values at every `step`-th slot of `spread`, packed together.
+fn gather_slots(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    spread: Value,
+    elems: usize,
+    step: usize,
+) -> Value {
+    if step == 1 {
+        return spread;
+    }
+    let mask = (0..elems).map(|i| (i * step) as i32).collect();
+    shuffle(ctx, rw, spread, mask)
 }
 
 pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
@@ -774,31 +811,9 @@ pub(crate) fn cast(
         "a cast keeps the element count and changes only their width"
     );
 
-    let dense = if in_step == 1 {
-        value
-    } else {
-        shuffle(
-            ctx,
-            rw,
-            value,
-            (0..elems).map(|i| (i * in_step) as i32).collect(),
-        )
-    };
-
+    let dense = gather_slots(ctx, rw, value, elems, in_step);
     let cast = convert_lanes(ctx, rw, dense, out_ty.elem_ty);
-
-    let result = if out_step == 1 {
-        cast
-    } else {
-        shuffle(
-            ctx,
-            rw,
-            cast,
-            (0..elems * out_step)
-                .map(|i| (i / out_step) as i32)
-                .collect(),
-        )
-    };
+    let result = spread_slots(ctx, rw, cast, elems, out_step);
     store_fragment(ctx, rw, output, result);
 
     rw.erase_operation(ctx, old_op);
@@ -832,14 +847,28 @@ pub(crate) fn mma_manual(
     let b_val = registers_value(ctx, rw, b, b_ty);
     let c_val = registers_value(ctx, rw, c, cd_ty);
 
+    // The registers hold their sums packed; the instruction may take them spaced out, as a
+    // fragment holds them.
+    let sums = cd_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .expect("registers are held as a vector")
+        .num_elements() as usize;
+    let step = accumulator_step(ctx.matrix_core(), elem_type(ctx, cd_elem));
+    let sum_ty = cube_type_to_llvm(ctx, cd_elem);
+    let fragment_ty =
+        LlvmVectorType::get(ctx, sum_ty, (sums * step) as u32, VectorTypeKind::Fixed).into();
+    let c_val = spread_slots(ctx, rw, c_val, sums, step);
+
     let shape = op.shape(ctx).0;
-    let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), cd_ty) else {
+    let Some(result) = form.emit(ctx, rw, shape, (a_val, b_val, c_val), fragment_ty) else {
         let unsupported = MatrixShapeUnsupported {
             shape,
             instruction_k: form.instruction_k(),
         };
         return input_err!(op.loc(ctx), unsupported);
     };
+    let result = gather_slots(ctx, rw, result, sums, step);
     store_fragment(ctx, rw, d, result);
 
     rw.erase_operation(ctx, old_op);
