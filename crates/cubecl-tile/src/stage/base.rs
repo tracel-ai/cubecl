@@ -35,10 +35,13 @@ pub enum StageStorage {
 pub enum StageOrder {
     /// The order of the stage's Space, as the source holds it: its last dimension innermost.
     AsSource,
-    /// The order of the stage's Space with this Dimension, the one a contraction sums the operand
+    /// The order of the stage's Space with `dimension`, the one a contraction sums the operand
     /// along, moved innermost, one value a line: the run of `k` a fragment's lane holds lies
-    /// contiguous whatever the source's order.
-    AlongRun(Dimension),
+    /// contiguous whatever the source's order. Its fill reads blocks of consecutive source lines
+    /// along `dimension`, transposes each in registers, and writes each of its columns with one
+    /// store of at most `run` values, the widest store that divides the stage's rows
+    /// ([`stored_run`](Self::stored_run)).
+    AlongRun { dimension: Dimension, run: usize },
 }
 
 impl StageOrder {
@@ -48,39 +51,56 @@ impl StageOrder {
     pub(crate) fn line_width(self, source_width: usize) -> usize {
         match self {
             StageOrder::AsSource => source_width,
-            StageOrder::AlongRun(_) => 1,
+            StageOrder::AlongRun { .. } => 1,
         }
     }
 
-    /// Whether the Lowering lays a stage along its fragments' run at all. Its fill writes such a
-    /// stage one value a store, each source line's values scattered over their cells, and on
-    /// RDNA4 (gfx1201) those stores cost more than the full-width fragment reads they buy:
-    /// cube-staged `f16` products of 4096 ran 1.2-1.7x slower. Off until the fill writes the
-    /// stage whole lines at a time.
-    const LAYS_ALONG_RUN: bool = false;
+    /// The bytes one store of a fill that transposes into a stage laid along a run writes, widest
+    /// first: a chunk ([`RowChunks::CHUNK_BYTES`]), then half and a quarter of one.
+    const STORED_RUN_BYTES: [usize; 3] = [16, 8, 4];
+
+    /// The values of `elem_bits` bits one store of the transposing fill writes along a run whose
+    /// rows are `edge` values long: the widest store that holds at least two values and divides
+    /// the row, so no store crosses a row or its padding. `None` where none does: the fill would
+    /// store single values, and the stage keeps its source's order.
+    pub(crate) fn stored_run(elem_bits: usize, edge: usize) -> Option<usize> {
+        Self::STORED_RUN_BYTES
+            .into_iter()
+            .map(|bytes| bytes * 8 / elem_bits)
+            .find(|&run| run >= 2 && edge >= run && edge.is_multiple_of(run))
+    }
 
     /// The order a matrix instruction's fragments read a stage of an operand over `space` in at
-    /// full width, the contraction summing it along `contracted`: `contracted` innermost where
-    /// the Lowering lays stages along the run ([`LAYS_ALONG_RUN`](Self::LAYS_ALONG_RUN)), the
-    /// target's fragment load reads a lane's run of `k` laid across its memory's rows one element
-    /// at a time ([`StridedRunRead::ElementWise`]) and the source lays it otherwise, the source's
-    /// order everywhere else.
+    /// full width, the contraction summing it along `contracted`, its values `elem_bits` bits and
+    /// its rows along `contracted` `edge` values long: `contracted` innermost where the target's
+    /// fragment load reads a lane's run of `k` laid across its memory's rows one element at a
+    /// time ([`StridedRunRead::ElementWise`]), the source lays it otherwise and the fill can store
+    /// such a stage at least two values at a time ([`stored_run`](Self::stored_run)); the
+    /// source's order everywhere else.
     ///
     /// # Guarantees
     ///
     /// - [`AlongRun`](Self::AlongRun) only where both of the target's fragments hold their runs
     ///   along `k` (an `A` along its rows, a `B` along its columns), so the order serves either
     ///   side of the contraction.
-    pub(crate) fn for_fragments(space: &Space, contracted: Dimension, mma: &MmaProperties) -> Self {
+    pub(crate) fn for_fragments(
+        space: &Space,
+        contracted: Dimension,
+        mma: &MmaProperties,
+        elem_bits: usize,
+        edge: usize,
+    ) -> Self {
         let runs_along_k = mma.register_layout_a == MatrixLayout::RowMajor
             && mma.register_layout_b == MatrixLayout::ColMajor;
         let reads_element_wise = mma.strided_run_read == StridedRunRead::ElementWise;
         let innermost = space.dimension_at(space.rank() - 1);
-        let reordered =
-            Self::LAYS_ALONG_RUN && reads_element_wise && runs_along_k && innermost != contracted;
-        match reordered && space.contains(contracted) {
-            true => StageOrder::AlongRun(contracted),
-            false => StageOrder::AsSource,
+        let reordered = reads_element_wise && runs_along_k && innermost != contracted;
+        match Self::stored_run(elem_bits, edge) {
+            Some(run) if reordered && space.contains(contracted) => StageOrder::AlongRun {
+                dimension: contracted,
+                run,
+            },
+            _ => StageOrder::AsSource,
         }
     }
 }
@@ -287,29 +307,32 @@ impl StageStorage {
     ) -> usize {
         let laid = self
             .clone()
-            .ordered_for_fragments(space, contracted, delivery, mma);
+            .ordered_for_fragments(space, contracted, elem_bits, delivery, mma);
         let width = laid.order().line_width(vector_size);
         laid.bytes(space, width, elem_bits)
     }
 
     /// This storage as the Lowering lays a stage of an operand over `space` out for the fragments
-    /// of a matrix instruction to read, the contraction summing it along `contracted` and its
-    /// lines moved in by `delivery`: a tiled stage of unswizzled rows filled by the units' own
-    /// loads and stores, in the order its fragments read at full width
-    /// ([`StageOrder::for_fragments`]); any other as it is. A copy engine moves each source line
-    /// whole and a swizzle permutes the chunks of the source's rows, so neither lays a stage in
-    /// another order. The one decision the Lowering lays such a stage by and a host sizes it by
+    /// of a matrix instruction to read, the contraction summing it along `contracted`, its values
+    /// `elem_bits` bits and its lines moved in by `delivery`: a tiled stage of unswizzled rows
+    /// filled by the units' own loads and stores, in the order its fragments read at full width
+    /// ([`StageOrder::for_fragments`]), its rows padded where that order is not the source's;
+    /// any other as it is. A copy engine moves each source line whole and a swizzle permutes the
+    /// chunks of the source's rows, so neither lays a stage in another order. The one decision
+    /// the Lowering lays such a stage by and a host sizes it by
     /// ([`bytes_read_by_fragments`](Self::bytes_read_by_fragments)).
     ///
     /// # Guarantees
     ///
-    /// - The storage keeps its kind, its block and its row chunks: only a tiled stage's order
-    ///   changes, from the source's, and only on a target whose fragment load reads a run laid
-    ///   across its memory's rows one element at a time.
+    /// - The storage keeps its kind and its block. Only a tiled stage's order changes, from the
+    ///   source's, and only on a target whose fragment load reads a run laid across its memory's
+    ///   rows one element at a time; such a stage's rows become
+    ///   [`Padded`](RowChunks::Padded), its other row chunks stay.
     pub fn ordered_for_fragments(
         self,
         space: &Space,
         contracted: Dimension,
+        elem_bits: usize,
         delivery: Delivery,
         mma: &MmaProperties,
     ) -> Self {
@@ -319,10 +342,26 @@ impl StageStorage {
                 chunks,
                 order: StageOrder::AsSource,
             } if chunks != RowChunks::Swizzled && delivery == Delivery::SyncPerUnit => {
+                let edge = match space.contains(contracted) {
+                    true => block
+                        .iter()
+                        .find(|&&(dimension, _)| dimension == contracted)
+                        .map_or(space.extent(contracted), |&(_, edge)| {
+                            edge.min(space.extent(contracted))
+                        }),
+                    false => 0,
+                };
+                let order = StageOrder::for_fragments(space, contracted, mma, elem_bits, edge);
+                // A fragment's lanes read neighbouring rows of the run a row apart, and so do the
+                // fill's stores: rows of a whole number of bank passes would put them on one bank.
+                let chunks = match order {
+                    StageOrder::AlongRun { .. } => RowChunks::Padded,
+                    StageOrder::AsSource => chunks,
+                };
                 Self::Tiled {
                     block,
                     chunks,
-                    order: StageOrder::for_fragments(space, contracted, mma),
+                    order,
                 }
             }
             other => other,
@@ -402,16 +441,71 @@ mod tests {
 
     fn ordered(space: &Space, delivery: Delivery, mma: &MmaProperties) -> StageOrder {
         tiled(RowChunks::Padded)
-            .ordered_for_fragments(space, K, delivery, mma)
+            .ordered_for_fragments(space, K, 16, delivery, mma)
             .order()
     }
 
-    /// A row-major rhs keeps its source's order even where runs read element by element, until
-    /// the fill writes a stage laid along the run whole lines at a time.
+    /// A row-major rhs is staged `k` innermost where runs read element by element, its fill
+    /// storing a whole 16-byte chunk of eight `f16` at a time.
     #[test]
-    fn row_major_rhs_stays_as_source_while_no_stage_is_laid_along_the_run() {
+    fn row_major_rhs_is_staged_along_k_where_runs_read_element_wise() {
         let rhs = Space::new(&[(K, 16), (N, 16)]);
         let order = ordered(&rhs, Delivery::SyncPerUnit, &element_wise());
+        assert_eq!(
+            order,
+            StageOrder::AlongRun {
+                dimension: K,
+                run: 8
+            }
+        );
+    }
+
+    /// A stage laid along the run pads its rows, whatever row chunks it asked for.
+    #[test]
+    fn a_stage_laid_along_the_run_pads_its_rows() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let storage = tiled(RowChunks::InOrder).ordered_for_fragments(
+            &rhs,
+            K,
+            16,
+            Delivery::SyncPerUnit,
+            &element_wise(),
+        );
+        assert!(matches!(
+            storage,
+            StageStorage::Tiled {
+                chunks: RowChunks::Padded,
+                order: StageOrder::AlongRun { .. },
+                ..
+            }
+        ));
+    }
+
+    /// A store writes the widest run of at least two values that divides a row: a chunk where it
+    /// does, then half and a quarter of one.
+    #[test]
+    fn a_store_writes_the_widest_run_that_divides_the_row() {
+        assert_eq!(StageOrder::stored_run(16, 32), Some(8));
+        assert_eq!(StageOrder::stored_run(16, 12), Some(4));
+        assert_eq!(StageOrder::stored_run(16, 6), Some(2));
+        assert_eq!(StageOrder::stored_run(32, 8), Some(4));
+        assert_eq!(StageOrder::stored_run(8, 16), Some(16));
+    }
+
+    /// A row no store of two values or more divides keeps its source's order: its fill would
+    /// write single values.
+    #[test]
+    fn a_row_no_wide_store_divides_stays_as_source() {
+        assert_eq!(StageOrder::stored_run(16, 3), None);
+        let rhs = Space::new(&[(K, 3), (N, 16)]);
+        let storage = StageStorage::Tiled {
+            block: vec![(K, 3), (N, 16)],
+            chunks: RowChunks::Padded,
+            order: StageOrder::AsSource,
+        };
+        let order = storage
+            .ordered_for_fragments(&rhs, K, 16, Delivery::SyncPerUnit, &element_wise())
+            .order();
         assert_eq!(order, StageOrder::AsSource);
     }
 
@@ -447,6 +541,7 @@ mod tests {
         let storage = tiled(RowChunks::Swizzled).ordered_for_fragments(
             &rhs,
             K,
+            16,
             Delivery::SyncPerUnit,
             &element_wise(),
         );
@@ -475,12 +570,12 @@ mod tests {
     }
 
     /// Where the target reads a strided run element by element, the stage is sized as the
-    /// Lowering lays it: in the source's order, while no stage is laid along the run.
+    /// Lowering lays it: 32 rows of 16 `f16` along `k`, and a 16-byte chunk each.
     #[test]
-    fn an_element_wise_target_sizes_the_stage_as_the_lowering_lays_it() {
+    fn an_element_wise_target_sizes_the_reordered_stage() {
         let (rhs, storage) = wide_rhs();
         let bytes =
             storage.bytes_read_by_fragments(&rhs, 8, 16, K, Delivery::SyncPerUnit, &element_wise());
-        assert_eq!(bytes, storage.bytes(&rhs, 8, 16));
+        assert_eq!(bytes, 32 * (32 + 16));
     }
 }

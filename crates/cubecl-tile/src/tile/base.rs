@@ -130,7 +130,7 @@ impl Tile {
         match &self.kind {
             TileKind::Memory(source) => {
                 let decodes = self.decodes();
-                let straight = stage.fetches_straight(source);
+                let straight = stage.fetches_straight(source, comptime!(self.element.size_bits()));
                 comptime!(!decodes && straight)
             }
             TileKind::TmaGmem(_)

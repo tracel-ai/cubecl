@@ -73,7 +73,7 @@ impl Memory {
              but its compacted window is {cells:?}"
         ));
         let d = self.lines_storage_mut::<I2, WP2>();
-        if sw == w {
+        if sw == w && comptime!(layout.order == StageOrder::AsSource) {
             // A partition no compaction stands in for, several of whose dimensions share one of its
             // physical axes, is a source of fewer physical axes than the stage's logical ones:
             // the stage's coordinates name its dimensions, not the source's physical ones.
@@ -119,9 +119,9 @@ impl Memory {
         }
     }
 
-    /// The straight fill of a stage served at another width than its source: a padded stage's
-    /// lines assembled out of a scalar source's cells, or a stage of one value a line scattering
-    /// each wider source line's values over their cells.
+    /// The straight fill of a stage served at another width than its source, or laid along a run:
+    /// a padded stage's lines assembled out of a scalar source's cells, or a stage laid along a
+    /// run filled a transposed block at a time.
     #[allow(clippy::too_many_arguments)]
     fn fill_rewidened<I2: Numeric, WP2: Size>(
         d: &mut [Vector<I2, WP2>],
@@ -138,7 +138,7 @@ impl Memory {
             Some(padding) => Memory::fill_padded::<I2, WP2>(
                 d, src, layout, shape, total, fill, padding, steps, check,
             ),
-            None => Memory::fill_scattered::<I2, WP2>(d, src, layout, total, fill, steps, check),
+            None => Memory::fill_transposed::<I2, WP2>(d, src, layout, fill, steps, check),
         }
     }
 
@@ -182,14 +182,12 @@ impl Memory {
         );
     }
 
-    /// A stage of one value a line filled from its wider source's lines whole, each line's values
-    /// scattered over their cells ([`Memory::scatter_lines`]).
-    #[allow(clippy::too_many_arguments)]
-    fn fill_scattered<I2: Numeric, WP2: Size>(
+    /// A stage laid along a run filled from its source's lines whole, a block of them along the
+    /// run at a time transposed in registers ([`Memory::transpose_lines`]).
+    fn fill_transposed<I2: Numeric, WP2: Size>(
         d: &mut [Vector<I2, WP2>],
         src: &Memory,
         layout: &BufferLayout,
-        total: usize,
         #[comptime] fill: Level,
         #[comptime] steps: Vec<usize>,
         #[comptime] check: bool,
@@ -205,8 +203,7 @@ impl Memory {
             src.window_view_storage::<I2, SW>(comptime!(Guard::Checked)),
             check,
         );
-        let lines = total.divided_by(comptime!(sw).runtime());
-        Memory::scatter_lines::<I2, WP2, SW>(d, &s, layout, lines, fill);
+        Memory::transpose_lines::<I2, WP2, SW>(d, &s, layout, fill);
     }
 }
 

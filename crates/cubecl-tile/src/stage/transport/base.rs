@@ -5,8 +5,6 @@
 
 use cubecl::prelude::*;
 
-use cubecl_std::tensor::layout::CoordsDyn;
-
 use super::straight::fill_extent;
 use crate::*;
 
@@ -22,50 +20,21 @@ pub(crate) fn store_line<T: Numeric, W: Size>(
     d[layout.line_offset(i)] = value;
 }
 
-/// Each value of the `W`-wide source line at the logical coordinates `line` written at its own
-/// cell of `d`, a stage of one value a line laid out as `layout`: the write a fill makes of a
-/// source line whose values the stage lays apart.
-#[cube]
-pub(crate) fn store_scattered<T: Numeric, D: Size, W: Size>(
-    d: &mut [Vector<T, D>],
-    layout: &BufferLayout,
-    line: &CoordsDyn,
-    value: Vector<T, W>,
-) {
-    #[unroll]
-    for v in 0..W::value() {
-        d[layout.cell_offset(line, W::value(), v)] = Vector::<T, D>::cast_from(value.extract(v));
-    }
-}
-
-/// The comptime offsets each turn of a copy that `fill` deals over `lines` source lines adds to
-/// where its unit's first line lands in a stage laid out as `layout`, where every unit's turns
-/// agree ([`Walk::uniform_turn_offsets`]): one offset a turn where each source line lands as one
-/// stage line, one a value where the fill `scatters` `width`-wide lines' values over their cells.
+/// The comptime offset each turn of a copy that `fill` deals over `lines` lines adds to where its
+/// unit's first line lands in a stage laid out as `layout`, where every unit's turns agree
+/// ([`Walk::uniform_turn_offsets`]): one offset a turn, each line landing as one stage line.
 #[cube]
 pub(crate) fn uniform_store_offsets(
     layout: &BufferLayout,
     #[comptime] fill: &Level,
     lines: usize,
-    #[comptime] width: usize,
-    #[comptime] scatters: bool,
 ) -> comptime_type!(Option<Vec<Vec<usize>>>) {
     let constants = layout.constants();
     let lines = lines.constant();
     comptime!(constants.and_then(|layout| {
-        Walk::uniform_turn_offsets(
-            fill,
-            lines.map(|lines| lines as usize),
-            |line| match scatters {
-                true => {
-                    let source = layout.source_line(line, width);
-                    (0..width)
-                        .map(|v| layout.cell_offset(&source, width, v))
-                        .collect()
-                }
-                false => Some(vec![layout.line_offset(line)]),
-            },
-        )
+        Walk::uniform_turn_offsets(fill, lines.map(|lines| lines as usize), |line| {
+            Some(vec![layout.line_offset(line)])
+        })
     }))
 }
 

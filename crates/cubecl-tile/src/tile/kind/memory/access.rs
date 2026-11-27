@@ -33,7 +33,9 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
     pub(crate) fn fetched_scalars(&self, src: &Tile) -> comptime_type!(Option<usize>) {
         match (&self.kind, &src.kind) {
-            (TileKind::Memory(m), TileKind::Memory(s)) => m.fetched_scalars(s),
+            (TileKind::Memory(m), TileKind::Memory(s)) => {
+                m.fetched_scalars(s, comptime!(self.element.size_bits()))
+            }
             _ => comptime!(None),
         }
     }

@@ -123,9 +123,9 @@ impl FragmentRead {
 fn innermost_run(window: &Space, out: &Space, order: StageOrder) -> (bool, Option<Dimension>) {
     match order {
         StageOrder::AsSource => innermost_run_in_space_order(window, out),
-        StageOrder::AlongRun(moved) => {
-            innermost_run_in_space_order(&laid_along(window, moved), out)
-        }
+        StageOrder::AlongRun {
+            dimension: moved, ..
+        } => innermost_run_in_space_order(&laid_along(window, moved), out),
     }
 }
 
@@ -147,7 +147,10 @@ pub(crate) fn laid_fragment_read(
     space: &Space,
     order: StageOrder,
 ) -> Option<(MatrixLayout, usize)> {
-    let StageOrder::AlongRun(moved) = order else {
+    let StageOrder::AlongRun {
+        dimension: moved, ..
+    } = order
+    else {
         return None;
     };
     let layout = match ident {
@@ -439,7 +442,10 @@ mod tests {
     #[test]
     fn fragment_read_takes_the_physical_order() {
         let rhs = Space::new(&[(K, 16), (N, 16)]);
-        let order = StageOrder::AlongRun(K);
+        let order = StageOrder::AlongRun {
+            dimension: K,
+            run: 8,
+        };
         let read = FragmentRead::new(Side::Rhs, &rhs, &out(), order);
         assert_eq!(read.layout, MatrixLayout::ColMajor);
         assert_eq!(innermost_run(&rhs, &out(), order), (false, Some(N)));
@@ -450,10 +456,24 @@ mod tests {
     #[test]
     fn a_fragment_reads_a_window_laid_along_k_as_it_lies() {
         let rhs = Space::new(&[(K, 16), (N, 16)]);
-        let laid = laid_fragment_read(MatrixIdent::B, &rhs, StageOrder::AlongRun(K));
+        let laid = laid_fragment_read(
+            MatrixIdent::B,
+            &rhs,
+            StageOrder::AlongRun {
+                dimension: K,
+                run: 8,
+            },
+        );
         assert_eq!(laid, Some((MatrixLayout::ColMajor, 1)));
         let lhs = Space::new(&[(K, 16), (M, 16)]);
-        let laid = laid_fragment_read(MatrixIdent::A, &lhs, StageOrder::AlongRun(K));
+        let laid = laid_fragment_read(
+            MatrixIdent::A,
+            &lhs,
+            StageOrder::AlongRun {
+                dimension: K,
+                run: 8,
+            },
+        );
         assert_eq!(laid, Some((MatrixLayout::RowMajor, 1)));
         assert_eq!(
             laid_fragment_read(MatrixIdent::B, &rhs, StageOrder::AsSource),

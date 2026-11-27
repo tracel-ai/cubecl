@@ -123,7 +123,7 @@ impl ConstantLayout {
     }
 
     /// The extent of each logical dimension: the product of the physical extents carrying it.
-    fn logical_extents(&self) -> Vec<usize> {
+    pub(crate) fn logical_extents(&self) -> Vec<usize> {
         self.projection
             .dimensions()
             .iter()
@@ -474,7 +474,10 @@ mod tests {
             strides: vec![1, 24],
             projection: Projection::direct(&[k, n]),
             rows: RowArrangement::Padded { lines: 8 },
-            order: StageOrder::AlongRun(k),
+            order: StageOrder::AlongRun {
+                dimension: k,
+                run: 8,
+            },
         }
     }
 

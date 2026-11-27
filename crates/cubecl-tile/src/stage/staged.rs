@@ -38,6 +38,7 @@ impl Tile {
         #[comptime] width: Option<usize>,
         #[comptime] element: StageElement,
         #[comptime] contracted: Option<Dimension>,
+        #[comptime] elem_bits: usize,
     ) -> comptime_type!(StageStorage) {
         let target = comptime::target_properties().comptime();
         let delivery = self.delivery();
@@ -55,9 +56,13 @@ impl Tile {
                 && direct;
             let space = level.child(&self.place.space);
             match contracted.filter(|_| as_lies) {
-                Some(contracted) => {
-                    storage.ordered_for_fragments(&space, contracted, delivery, &target.mma)
-                }
+                Some(contracted) => storage.ordered_for_fragments(
+                    &space,
+                    contracted,
+                    elem_bits,
+                    delivery,
+                    &target.mma,
+                ),
                 None => storage,
             }
         })
@@ -143,7 +148,10 @@ impl Memory {
         let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
-        let storage = operand.stage_storage_for(level, storage, width, element, contracted);
+        let elem = elem_type_of::<S>();
+        let elem_bits = comptime!(elem.size_bits());
+        let storage =
+            operand.stage_storage_for(level, storage, width, element, contracted, elem_bits);
         let stage = Memory::stage_memory_as_served::<S>(
             operand, level, storage, width, owner, element, decodes,
         );

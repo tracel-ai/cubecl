@@ -549,7 +549,7 @@ impl Walk {
 
     /// Whether a copy of `lines` lines that `level` deals writes its turns out: where each unit
     /// takes a known few of them, a known count of lines dealt to a known count of units.
-    fn copy_turns_written(level: &Level, lines: Option<usize>) -> bool {
+    pub(crate) fn copy_turns_written(level: &Level, lines: Option<usize>) -> bool {
         lines
             .and_then(|lines| level.copy_turns(lines))
             .is_some_and(|turns| turns <= Walk::MOST_WRITTEN_TURNS)

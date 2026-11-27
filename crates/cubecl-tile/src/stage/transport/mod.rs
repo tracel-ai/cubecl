@@ -7,6 +7,7 @@ pub(crate) mod quantize;
 pub(crate) mod scaled;
 pub(crate) mod scanned;
 pub(crate) mod straight;
+pub(crate) mod transposed;
 
 pub(crate) use padded::Padding;
 pub(crate) use prefetch::MOST_FETCHED_REGISTERS;

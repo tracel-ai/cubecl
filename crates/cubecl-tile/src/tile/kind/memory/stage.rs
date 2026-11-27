@@ -630,7 +630,7 @@ impl StageForm {
     fn innermost_axis(space: &Space, vector_size: usize, order: StageOrder, axes: usize) -> usize {
         match order {
             StageOrder::AsSource => axes - 1,
-            StageOrder::AlongRun(dimension) => {
+            StageOrder::AlongRun { dimension, .. } => {
                 assert!(
                     vector_size == 1,
                     "StageForm: a stage laid along a run holds one value a line, not {vector_size}"
@@ -741,7 +741,10 @@ mod tests {
         let storage = StageStorage::Tiled {
             block: vec![(k, 16), (n, 16)],
             chunks: RowChunks::Padded,
-            order: StageOrder::AlongRun(k),
+            order: StageOrder::AlongRun {
+                dimension: k,
+                run: 8,
+            },
         };
         let form = StageForm::dense(&space, 1, storage, LineBytes(2));
         // A row of 16 `f16` is 32 bytes, padded by one 16-byte chunk: eight values.
