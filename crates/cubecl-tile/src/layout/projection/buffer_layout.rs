@@ -91,7 +91,7 @@ impl BufferLayout {
         let mut lines = Coords::<u32>::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p + 1 == rank) {
+            if p + 1 == rank {
                 lines.push(extent.at(p).divided_by(comptime!(width as u32).runtime()));
             } else {
                 lines.push(extent.at(p));
@@ -111,7 +111,7 @@ impl BufferLayout {
         let mut cell = CoordsDyn::new();
         #[unroll]
         for p in 0..rank {
-            if comptime!(p + 1 == rank) {
+            if p + 1 == rank {
                 cell.push(
                     line[p]
                         .times(comptime!(width as u32).runtime())

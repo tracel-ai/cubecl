@@ -138,9 +138,9 @@ impl RunBlocks {
 /// steps along the run, then the next source line of a row, then the next `across` steps.
 #[cube]
 fn block_first_line(#[comptime] blocks: RunBlocks, block: usize) -> usize {
-    let inner = comptime!(blocks.inner);
-    let across = comptime!(blocks.across);
-    let step = comptime!(blocks.run * blocks.inner);
+    let inner = blocks.inner;
+    let across = blocks.across;
+    let step = blocks.run * blocks.inner;
     let rest = block / across;
     ((rest / inner) * across + block % across) * step + rest % inner
 }
@@ -156,12 +156,12 @@ fn fetch_block<T: Numeric, W: Size>(
     rows: &mut Array<Vector<T, W>>,
     #[comptime] at: usize,
 ) {
-    let inner = comptime!(blocks.inner);
-    let first = block_first_line(comptime!(blocks.clone()), block);
+    let inner = blocks.inner;
+    let first = block_first_line(blocks.clone(), block);
     #[unroll]
     for r in 0..blocks.run {
-        let line = first + comptime!(r * inner);
-        rows[comptime!(at + r)] = s.read(layout.source_line_coords(line, W::value()));
+        let line = first + r * inner;
+        rows[at + r] = s.read(layout.source_line_coords(line, W::value()));
     }
 }
 
@@ -179,7 +179,7 @@ fn store_block<T: Numeric, R: Size, W: Size>(
     rows: &Array<Vector<T, W>>,
     #[comptime] at: usize,
 ) {
-    let first = block_first_line(comptime!(blocks.clone()), block);
+    let first = block_first_line(blocks.clone(), block);
     let line = layout.source_line_coords(first, W::value());
     let run = R::value();
     let step = layout.line_cell_step(W::value());
@@ -191,9 +191,9 @@ fn store_block<T: Numeric, R: Size, W: Size>(
         let mut column = Vector::<T, R>::empty();
         #[unroll]
         for r in 0..R::value() {
-            column.insert(r, rows[comptime!(at + r)].extract(v));
+            column.insert(r, rows[at + r].extract(v));
         }
-        match comptime!(step) {
+        match step {
             Some(step) => {
                 d[base + comptime!(v * step / run)] = column;
             }
@@ -218,22 +218,20 @@ fn fetch_blocks<T: Numeric, W: Size>(
     #[comptime] fill: &Level,
     rows: &mut Array<Vector<T, W>>,
 ) {
-    let turns = comptime!(
-        blocks
-            .turns(fill)
-            .expect("RunBlocks: a fill fetched block by block should have a known share")
-    );
-    let walk = Walk::copy(fill, comptime!(blocks.count).runtime());
+    let turns = blocks
+        .turns(fill)
+        .expect("RunBlocks: a fill fetched block by block should have a known share");
+    let walk = Walk::copy(fill, blocks.count.runtime());
     #[unroll]
     for t in 0..turns {
         if walk.takes_turn(t) {
             fetch_block::<T, W>(
                 s,
                 layout,
-                comptime!(blocks.clone()),
+                blocks.clone(),
                 walk.copied_line(t),
                 rows,
-                comptime!(t * blocks.run),
+                t * blocks.run,
             );
         }
     }
@@ -253,22 +251,20 @@ fn store_blocks<T: Numeric, R: Size, W: Size>(
     #[comptime] fill: &Level,
     rows: &Array<Vector<T, W>>,
 ) {
-    let turns = comptime!(
-        blocks
-            .turns(fill)
-            .expect("RunBlocks: a fill fetched block by block should have a known share")
-    );
-    let walk = Walk::copy(fill, comptime!(blocks.count).runtime());
+    let turns = blocks
+        .turns(fill)
+        .expect("RunBlocks: a fill fetched block by block should have a known share");
+    let walk = Walk::copy(fill, blocks.count.runtime());
     #[unroll]
     for t in 0..turns {
         if walk.takes_turn(t) {
             store_block::<T, R, W>(
                 d,
                 layout,
-                comptime!(blocks.clone()),
+                blocks.clone(),
                 walk.copied_line(t),
                 rows,
-                comptime!(t * blocks.run),
+                t * blocks.run,
             );
         }
     }
