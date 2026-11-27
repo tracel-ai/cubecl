@@ -427,6 +427,7 @@ fn top_window(
     let mut extent = Coords::<u32>::new();
     let mut residues = Coords::<u32>::new();
     let rank = projection.physical_rank();
+    let digit_starts = Coords::constant(comptime!(vec![0; projection.digit_dimensions().len()]));
 
     #[unroll]
     for pa in 0..rank {
@@ -453,6 +454,7 @@ fn top_window(
         RuntimeMap {
             coefficients,
             residues,
+            digit_starts,
         },
     )
 }

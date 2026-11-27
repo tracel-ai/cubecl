@@ -150,6 +150,8 @@ impl Memory {
         let stage_map = RuntimeMap {
             coefficients: map.coefficients.clone(),
             residues: Coords::constant(comptime!(vec![0; form.projection.physical_rank()])),
+            // A compacted stage reads no digits: `Compaction::new` refuses them.
+            digit_starts: Coords::<u32>::new(),
         };
         let stage_map = if form.projection.is_rational() || form.projection.has_dynamic_scales() {
             stage_map.stored()

@@ -3,7 +3,8 @@
 use cubecl::cmma::{MatrixIdent, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
-    DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
+    DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
+    features::ScaledMmaConfig,
 };
 
 use cubecl::quant::scheme::QuantValue;
@@ -55,10 +56,25 @@ impl Instruction {
         }
     }
 
-    /// Whether a sum this instruction contracts hides which unit holds which of its cells: a cmma
-    /// fragment's does, so it reaches a destination that adds, overhangs or casts out of place
-    /// through a scratch, a cell at a time, and the host sizes that scratch.
-    pub fn hides_cell_positions(self) -> bool {
+    /// Whether a sum this instruction contracts hides which unit holds which of its cells on
+    /// `target`: a cmma fragment's does where the target's compiler keeps its fragments' positions
+    /// to itself ([`FragmentPositions::Hidden`]).
+    ///
+    /// # Guarantees
+    ///
+    /// - `true` exactly for [`Instruction::Cmma`] on a target whose fragment positions are
+    ///   [`FragmentPositions::Hidden`].
+    pub fn hides_cell_positions(self, target: &TargetProperties) -> bool {
+        match self {
+            Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// Whether a sum this instruction contracts is backed by a scratch: a cmma fragment's is, so
+    /// it reaches a destination that adds, overhangs or casts out of place through that scratch,
+    /// a cell at a time, and the host sizes it.
+    pub(crate) fn takes_scratch(self) -> bool {
         match self {
             Self::Cmma => true,
             Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
@@ -898,6 +914,34 @@ pub(crate) mod tests {
     fn an_accumulators_sum_goes_through_cmma() {
         assert_eq!(picked(&metal(), HALF, [8, 8, 8]), Some(Instruction::Cmma));
         assert_eq!(picked(&cuda(), HALF, [16, 16, 16]), Some(Instruction::Cmma));
+    }
+
+    /// A target whose compiler states which lane holds which cell of a fragment.
+    fn stated_positions() -> TargetProperties {
+        let mut target = TargetProperties::default();
+        target.mma.fragment_positions = FragmentPositions::AsElementPositions;
+        target
+    }
+
+    /// A cmma sum hides its cells only on a target whose compiler hides them, and no other form
+    /// hides its cells on any target.
+    #[test]
+    fn a_cmma_fragment_hides_its_cells_only_where_the_target_does() {
+        let hidden = TargetProperties::default();
+        let stated = stated_positions();
+        assert!(Instruction::Cmma.hides_cell_positions(&hidden));
+        assert!(!Instruction::Cmma.hides_cell_positions(&stated));
+        assert!(!mma().hides_cell_positions(&hidden));
+        assert!(!Instruction::Wgmma.hides_cell_positions(&hidden));
+    }
+
+    /// A cmma sum is backed by a scratch even where its target states its cells' positions, so a
+    /// drain that bounces it still has one; the forms whose cells are each unit's own take none.
+    #[test]
+    fn a_cmma_sum_takes_a_scratch_even_where_its_cells_are_stated() {
+        assert!(Instruction::Cmma.takes_scratch());
+        assert!(!mma().takes_scratch());
+        assert!(!Instruction::Wgmma.takes_scratch());
     }
 
     /// What a rescaled sum over `shape` contracts through on `device`.

@@ -17,7 +17,8 @@ use cubecl_core::ir::{
     CoordinatePart, ElemType, ElementIndex,
     amd::{AmdMatrixCore, AmdMfma, AmdWmma},
     dialect::matrix::{
-        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, StMatrixOp, StoreOp,
+        CastOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RegistersOp,
+        StMatrixOp, StoreOp,
     },
     features::MmaConfig,
     types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
@@ -868,6 +869,41 @@ pub(crate) fn cast(
     let cast = convert_lanes(ctx, rw, dense, out_ty.elem_ty);
     let result = spread_slots(ctx, rw, cast, elems, out_step);
     store_fragment(ctx, rw, output, result);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+/// The cells a lane holds of a fragment copied into its registers, element `i` of the lane's
+/// [`element_positions`](AmdMatrixCore::element_positions) at register cell `i`: the fragment's
+/// slot `i * step`, past a padded accumulator's unused halves.
+pub fn registers(
+    op: &RegistersOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let matrix = op.matrix(ctx);
+    let registers = op.registers(ctx);
+
+    let ty = matrix_of(ctx, operands_info, matrix);
+    let (elems, step) = fragment_layout(ctx, &ty);
+    let (registers_ty, _) = registers_as_vector(ctx, operands_info, registers);
+    let held = registers_ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|vector| vector.num_elements() as usize);
+    assert_eq!(
+        held,
+        Some(elems),
+        "the registers a fragment is copied into should hold the {elems} cells its lane holds"
+    );
+
+    let frag_ty = fragment_ty(ctx, &ty);
+    let value = load_fragment(ctx, rw, matrix, frag_ty);
+    let dense = gather_slots(ctx, rw, value, elems, step);
+    store_fragment(ctx, rw, registers, dense);
 
     rw.erase_operation(ctx, old_op);
     Ok(())

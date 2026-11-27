@@ -49,11 +49,11 @@ impl PlaneTile {
         }
     }
 
-    /// Whether this tile hides which unit holds which of its cells
-    /// ([`Instruction::hides_cell_positions`]), so its sum drains through a scratch.
-    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
+    /// Whether this tile's sum is backed by a scratch ([`Instruction::takes_scratch`]), so it
+    /// drains through one.
+    pub fn takes_scratch(&self) -> comptime_type!(bool) {
         let instruction = self.instruction();
-        comptime!(instruction.hides_cell_positions())
+        comptime!(instruction.takes_scratch())
     }
 
     /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
@@ -534,10 +534,9 @@ impl PlanePartition {
         }
     }
 
-    /// Whether this grid's tiles hide which unit holds which of their cells, the one form that
-    /// drains through a scratch.
-    pub(crate) fn hides_cell_positions(&self) -> comptime_type!(bool) {
-        self.frags.index(0usize).hides_cell_positions()
+    /// Whether this grid's tiles are backed by a scratch, the one form that drains through one.
+    pub fn takes_scratch(&self) -> comptime_type!(bool) {
+        self.frags.index(0usize).takes_scratch()
     }
 
     /// The `(mi, ni)` tile (a handle clone); comptime indices only.
