@@ -105,13 +105,26 @@ fn scaled_base(base: Option<usize>, level: i32) -> Option<f64> {
 
 /// `value` rounded up to a power of `base`, capped at `max` then floored at `min`.
 ///
+/// The exponent is counted rather than taken from a logarithm: `ln(2^29) / ln(2)` is a hair over
+/// 29, and its ceiling would round an exact power up to the next one.
 fn anchored(value: usize, base: Option<f64>, max: Option<usize>, min: Option<usize>) -> usize {
     let Some(base) = base else {
         return value;
     };
-    let power = base.powf((value as f64).log(base).ceil()).ceil() as usize;
+    let power = match value {
+        0 => 0,
+        _ => base.powi(exponent_reaching(base, value)).ceil() as usize,
+    };
     let capped = max.map_or(power, |max| power.min(max));
     min.map_or(capped, |min| capped.max(min))
+}
+
+/// The smallest exponent at which a power of `base` reaches `value`.
+fn exponent_reaching(base: f64, value: usize) -> i32 {
+    let target = value as f64;
+    (0..)
+        .find(|exponent| base.powi(*exponent) >= target)
+        .expect("a power of a base above one should reach every value")
 }
 
 #[cfg(test)]
@@ -123,6 +136,13 @@ mod tests {
 
     fn balanced(value: usize) -> usize {
         anchored(value, scaled_base(None, BALANCED), None, None)
+    }
+
+    #[test]
+    fn an_exact_power_is_its_own_anchor() {
+        assert_eq!(balanced(1 << 29), 1 << 29);
+        assert_eq!(balanced(1 << 31), 1 << 31);
+        assert_eq!(balanced(1 << 47), 1 << 47);
     }
 
     #[test]
