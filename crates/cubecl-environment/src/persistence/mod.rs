@@ -9,9 +9,13 @@
 //! Every cache is identified by a [`Namespace`], a `/`-separated string such
 //! as `autotune/0.11.0/layout-v1/cuda_ptx-sm89_NVIDIA-L4_par58/matmul`. All
 //! the namespaces of an environment share one database file and are told apart
-//! by a column rather than by a directory tree. Entries are therefore looked up per key, several processes
-//! can share a root safely through WAL, and shipping a subset of them is a
-//! query away (see [`crate::bundle`]).
+//! by a column rather than by a directory tree. Entries are looked up per key,
+//! and shipping a subset of them is a query away (see [`crate::bundle`]).
+//! Several processes can write to one root where the engine shares a WAL
+//! between them.
+//! Where it doesn't (Windows, network file systems), the first process to open
+//! the file holds it, and the others open it read-only: they read what it
+//! stored but can't add to it.
 
 /// The writable half of persistence: where a namespace's entries live.
 pub mod storage;

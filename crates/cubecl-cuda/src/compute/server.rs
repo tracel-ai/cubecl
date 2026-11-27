@@ -782,8 +782,6 @@ impl CudaServer {
     }
 
     fn unsafe_set_current(&self) {
-        // TODO: Should check if on the same thread before calling it, since now we don't switch
-        // thread except for device memory transfer.
         self.ctx.unsafe_set_current().unwrap();
     }
 
