@@ -934,18 +934,17 @@ impl Client {
         self.do_empty(vec![descriptor]).remove(0).memory
     }
 
-    /// A handle to `range` of `host`, which this device's kernels read in place: nothing is copied
-    /// to the device. Kernels only read it, since the host reads the same bytes with nothing
-    /// ordering the two.
+    /// A handle to `range` of `host`, the [`HostRange`] this device's kernels read in place:
+    /// nothing is copied to the device.
     ///
-    /// Several devices may import the same memory, and one device several ranges of it. Each
-    /// imports it on its own: [sharing](Self::share_with_peers) it and collectives refuse it.
+    /// One device may import several ranges of a memory, and each device imports on its own:
+    /// [sharing](Self::share_with_peers) an import and collectives refuse it.
     ///
     /// A range is contiguous, so a device that reads only its shard of a table imports it alone
     /// when the table is laid out shard by shard, each padded to
-    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT). On a host with several
-    /// sockets, a device reading memory of the other socket crosses the link between them: one
-    /// memory per socket, each device importing the nearest, avoids it.
+    /// [`HOST_MEMORY_ALIGNMENT_BYTES`](crate::storage::HOST_MEMORY_ALIGNMENT_BYTES). On a host
+    /// with several sockets, a device reading memory of the other socket crosses the link between
+    /// them: one memory per socket, each device importing the nearest, avoids it.
     ///
     /// # Assumptions
     ///
@@ -975,28 +974,18 @@ impl Client {
         host: &Arc<Bytes>,
         range: Range<u64>,
     ) -> Result<Handle, ServerError> {
-        let refused = |reason: String| -> ServerError {
-            IoError::HostMemoryRefused {
-                reason: reason.into(),
+        if !self.features().host_memory_import {
+            return Err(IoError::HostMemoryRefused {
+                reason: format!("{} imports no host memory", self.service_id()).into(),
                 backtrace: BackTrace::capture(),
             }
-            .into()
-        };
-        if !self.features().host_memory_import {
-            return Err(refused(format!(
-                "{} imports no host memory",
-                self.service_id()
-            )));
+            .into());
         }
         let host = HostRange::new(host.clone(), range)?;
-
         let stream_id = self.stream_id();
-        let handle = Handle::new(self.service_id(), stream_id, host.len());
-        let memory = handle.memory.clone();
         self.device
-            .submit_blocking(move |server| server.import_host_memory(memory, host, stream_id))
-            .closed_as_error()?;
-        Ok(handle)
+            .submit_blocking(move |server| server.import_host_memory(host, stream_id))
+            .closed_as_error()
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
@@ -2357,9 +2346,7 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
-        // A runtime that imports host memory carries a failed import's read onto its copy.
-        let carried = src_descriptor.handle.memory.descriptor().is_imported()
-            && dst_server.service_id().service == self.service_id().service;
+        let carried = carries_failed_read(&src_descriptor, dst_server);
         let transfer = crate::logging::issue(|| {
             ExecutionKind::Communication(Communication::Transfer {
                 from: self.service_id(),
@@ -2527,6 +2514,15 @@ trait ClosedAsError {
     type Answer;
 
     fn closed_as_error(self) -> Self::Answer;
+}
+
+/// Whether `dst` carries a failed read of `src` onto its copy, rather than the copy panicking: a
+/// read of imported host memory fails where a refused write failed it, and a runtime that
+/// imports host memory taints the buffers a
+/// [`peer_wrote`](crate::server::ServerCommunication::peer_wrote) failed, whichever runtime the
+/// source is of.
+fn carries_failed_read(src: &CopyDescriptor, dst: &Client) -> bool {
+    src.handle.memory.descriptor().is_imported() && dst.features().host_memory_import
 }
 
 /// The error a call on a closed service answers with.

@@ -858,29 +858,26 @@ pub trait Server:
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
 
-    /// Give `memory` `host`, which this device's kernels then read in place, on the given
+    /// A handle to `host`, which this device's kernels then read in place, on the given
     /// [stream](StreamId).
     ///
     /// # Guarantees
     ///
     /// Every implementation keeps `host` until the last work queued on it completes, on any
     /// stream, refuses every launch that may write it
-    /// ([`ensure_writes_permitted`](KernelArguments::ensure_writes_permitted)), and refuses the
-    /// import while a stream records a graph.
+    /// ([`forbidden_writes`](KernelArguments::forbidden_writes)), and refuses the import while a
+    /// stream records a graph.
     ///
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when the device imports no host memory, which is the
-    /// default, a stream records a graph, or the driver refuses it. A runtime that imports records
-    /// the error on the memory, as in
-    /// [`initialize_memory`](Self::initialize_memory).
+    /// default, a stream records a graph, or the driver refuses it.
     fn import_host_memory(
         &mut self,
-        memory: ManagedMemoryHandle,
         host: HostRange,
         stream_id: StreamId,
-    ) -> Result<(), ServerError> {
-        let _ = (memory, stream_id);
+    ) -> Result<Handle, ServerError> {
+        let _ = stream_id;
         Err(IoError::HostMemoryRefused {
             reason: alloc::format!("this runtime imports no host memory ({host:?})").into(),
             backtrace: BackTrace::capture(),
@@ -2151,30 +2148,11 @@ impl KernelArguments {
             })
     }
 
-    /// Whether the kernel writes no buffer the device may not write, such as
-    /// [imported](crate::client::Client::import_host_memory) host memory, per `compiled`, the
-    /// compiler's own answer.
-    ///
-    /// # Errors
-    ///
-    /// [`IoError::HostMemoryRefused`] for a read-only buffer the kernel writes or the compiler
-    /// kept no answer for: the caller's declaration cannot vouch for a kernel it did not compile.
-    pub fn ensure_writes_permitted(
-        &self,
-        compiled: Option<&[BufferIOAttr]>,
-    ) -> Result<(), IoError> {
-        match self.forbidden_writes(compiled).next() {
-            Some(_) => Err(IoError::HostMemoryRefused {
-                reason: "the kernel may write imported host memory, which is read-only".into(),
-                backtrace: BackTrace::capture(),
-            }),
-            None => Ok(()),
-        }
-    }
-
-    /// The read-only buffers the kernel may write, per `compiled`, which
-    /// [`ensure_writes_permitted`](Self::ensure_writes_permitted) refuses: the ones a refused
-    /// launch fails.
+    /// The buffers the device may not write, such as
+    /// [imported](crate::client::Client::import_host_memory) host memory, that the kernel may
+    /// write per `compiled`, the compiler's own answer: a launch with any is refused, and these
+    /// are the ones it fails. A buffer the compiler kept no answer for counts as written, since
+    /// the caller's declaration cannot vouch for a kernel it did not compile.
     pub fn forbidden_writes<'a>(
         &'a self,
         compiled: Option<&'a [BufferIOAttr]>,

@@ -39,7 +39,7 @@ pub trait StorageAllocator: Send {
     ///
     /// Every implementation keeps `host`'s memory pinned until the device's last work on the
     /// handle completes, which can be after its id is [deallocated](Self::deallocate), and pins
-    /// it once for every device of the runtime that imports it.
+    /// it once per runtime per memory, counting each import of it by any device of the runtime.
     ///
     /// # Errors
     ///

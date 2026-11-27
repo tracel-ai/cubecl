@@ -8,7 +8,7 @@ use cubecl_environment::bytes::{AllocationProperty, Bytes};
 /// The alignment of host memory a device imports and of every range imported from it: the largest
 /// page a runtime imports host memory at (Metal's 16 KiB, Vulkan's
 /// `minImportedHostPointerAlignment`), rounded up.
-pub const HOST_MEMORY_ALIGNMENT: usize = 64 * 1024;
+pub const HOST_MEMORY_ALIGNMENT_BYTES: usize = 64 * 1024;
 
 /// A range of host memory that a device may import
 /// ([`Client::import_host_memory`](crate::client::Client::import_host_memory)) and its kernels read
@@ -20,20 +20,20 @@ pub const HOST_MEMORY_ALIGNMENT: usize = 64 * 1024;
 ///
 /// # Guarantees
 ///
-/// The memory is resident, allocated by the host's allocator, and starts at
-/// [`HOST_MEMORY_ALIGNMENT`]; the range is non-empty, inside it, and aligned to
-/// [`HOST_MEMORY_ALIGNMENT`] at both ends.
+/// The memory is resident, allocated by the host's allocator, written by no other owner, and
+/// starts at [`HOST_MEMORY_ALIGNMENT_BYTES`]; the range is non-empty, inside it, and aligned to
+/// [`HOST_MEMORY_ALIGNMENT_BYTES`] at both ends.
 ///
 /// # Examples
 ///
 /// ```
-/// use cubecl_runtime::storage::{HOST_MEMORY_ALIGNMENT, HostRange};
+/// use cubecl_runtime::storage::{HOST_MEMORY_ALIGNMENT_BYTES, HostRange};
 /// use cubecl_environment::bytes::Bytes;
 /// use std::sync::Arc;
 ///
-/// let mut bytes = Bytes::zeroed_aligned(2 * HOST_MEMORY_ALIGNMENT, HOST_MEMORY_ALIGNMENT).unwrap();
+/// let mut bytes = Bytes::zeroed_aligned(2 * HOST_MEMORY_ALIGNMENT_BYTES, HOST_MEMORY_ALIGNMENT_BYTES).unwrap();
 /// bytes[0] = 7;
-/// let chunk = HOST_MEMORY_ALIGNMENT as u64;
+/// let chunk = HOST_MEMORY_ALIGNMENT_BYTES as u64;
 /// let range = HostRange::new(Arc::new(bytes), chunk..2 * chunk).unwrap();
 /// assert_eq!(range.len(), chunk);
 /// ```
@@ -44,7 +44,7 @@ pub struct HostRange {
 }
 
 impl HostRange {
-    /// `range` of `memory`, such as [`Bytes::zeroed_aligned`] at [`HOST_MEMORY_ALIGNMENT`] allocates.
+    /// `range` of `memory`, such as [`Bytes::zeroed_aligned`] at [`HOST_MEMORY_ALIGNMENT_BYTES`] allocates.
     ///
     /// # Errors
     ///
@@ -64,7 +64,7 @@ impl HostRange {
         if memory.may_alias_mutable_storage() {
             return Err(refused("no other owner may write the memory"));
         }
-        let alignment = HOST_MEMORY_ALIGNMENT as u64;
+        let alignment = HOST_MEMORY_ALIGNMENT_BYTES as u64;
         if !(memory.as_ptr() as u64).is_multiple_of(alignment) {
             return Err(refused("the memory must start aligned to 64 KiB"));
         }
@@ -107,22 +107,22 @@ mod tests {
     use core::mem::MaybeUninit;
     use cubecl_environment::bytes::{AccessError, AccessPolicy, AllocationController};
 
-    const CHUNK: u64 = HOST_MEMORY_ALIGNMENT as u64;
+    const CHUNK_BYTES: u64 = HOST_MEMORY_ALIGNMENT_BYTES as u64;
 
     fn aligned(chunks: usize) -> Arc<Bytes> {
-        let size = chunks * HOST_MEMORY_ALIGNMENT;
-        Arc::new(Bytes::zeroed_aligned(size, HOST_MEMORY_ALIGNMENT).unwrap())
+        let size = chunks * HOST_MEMORY_ALIGNMENT_BYTES;
+        Arc::new(Bytes::zeroed_aligned(size, HOST_MEMORY_ALIGNMENT_BYTES).unwrap())
     }
 
     #[test]
     fn an_aligned_range_inside_is_importable() {
-        let range = HostRange::new(aligned(2), CHUNK..2 * CHUNK).unwrap();
-        assert_eq!((range.offset(), range.len()), (CHUNK, CHUNK));
+        let range = HostRange::new(aligned(2), CHUNK_BYTES..2 * CHUNK_BYTES).unwrap();
+        assert_eq!((range.offset(), range.len()), (CHUNK_BYTES, CHUNK_BYTES));
     }
 
     #[test]
     fn a_range_past_the_end_is_refused() {
-        assert!(HostRange::new(aligned(1), 0..2 * CHUNK).is_err());
+        assert!(HostRange::new(aligned(1), 0..2 * CHUNK_BYTES).is_err());
     }
 
     #[test]
@@ -137,21 +137,22 @@ mod tests {
 
     #[test]
     fn memory_off_the_alignment_is_refused() {
-        let memory = Bytes::zeroed_aligned(2 * HOST_MEMORY_ALIGNMENT, HOST_MEMORY_ALIGNMENT)
-            .unwrap()
-            .shared();
-        let unaligned = memory.view(1, HOST_MEMORY_ALIGNMENT + 1).unwrap();
+        let memory =
+            Bytes::zeroed_aligned(2 * HOST_MEMORY_ALIGNMENT_BYTES, HOST_MEMORY_ALIGNMENT_BYTES)
+                .unwrap()
+                .shared();
+        let unaligned = memory.view(1, HOST_MEMORY_ALIGNMENT_BYTES + 1).unwrap();
         let reason = refusal(unaligned);
         assert!(reason.contains("start aligned"), "{reason}");
     }
 
     /// Memory this crate did not allocate, holding no bytes.
-    struct Foreign {
+    struct ForeignAllocationController {
         property: AllocationProperty,
         aliases: bool,
     }
 
-    impl AllocationController for Foreign {
+    impl AllocationController for ForeignAllocationController {
         fn alloc_align(&self) -> usize {
             1
         }
@@ -177,13 +178,13 @@ mod tests {
     }
 
     fn foreign(property: AllocationProperty, aliases: bool) -> Bytes {
-        let controller = Foreign { property, aliases };
+        let controller = ForeignAllocationController { property, aliases };
         // SAFETY: the controller holds no bytes.
         unsafe { Bytes::from_controller(Box::new(controller), 0) }
     }
 
     fn refusal(memory: Bytes) -> String {
-        match HostRange::new(Arc::new(memory), 0..CHUNK) {
+        match HostRange::new(Arc::new(memory), 0..CHUNK_BYTES) {
             Err(IoError::HostMemoryRefused { reason, .. }) => reason.to_string(),
             other => panic!("the memory should be refused, got {other:?}"),
         }

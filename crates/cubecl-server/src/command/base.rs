@@ -351,13 +351,13 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Releases nothing while a stream of the device records: freeing memory, or letting go of an
     /// import, fails a recording on drivers such as HIP.
     pub fn flush_storage(&mut self) {
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return;
         }
         self.streams.current().device_memory().storage().flush();
     }
 
-    /// Give `memory` `host`, which the device's kernels read in place, imported into the current
+    /// A handle to `host`, which the device's kernels read in place, imported into the current
     /// stream's memory.
     ///
     /// # Guarantees
@@ -368,28 +368,24 @@ impl<'a, D: Driver> Command<'a, D> {
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when a stream of the device records a graph, the device
-    /// imports no host memory, or its driver refuses the range. The caller records it on
-    /// `memory`, as for [`initialize_memory`](Self::initialize_memory).
-    pub fn import_host_memory(
-        &mut self,
-        memory: ManagedMemoryHandle,
-        host: &HostRange,
-    ) -> Result<(), IoError> {
+    /// imports no host memory, or its driver refuses the range.
+    pub fn import_host_memory(&mut self, host: &HostRange) -> Result<Handle, IoError> {
         // Pinning fails a recording on drivers such as HIP, and so would the releases it retires.
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return Err(IoError::HostMemoryRefused {
                 reason: "a stream is recording a graph: import before recording".into(),
                 backtrace: BackTrace::capture(),
             });
         }
+        let handle = Handle::new(self.service, self.streams.current, host.len());
         let (stream, failures) = self.streams.current_and_failures();
         let device_memory = stream.device_memory();
         // A reservation is what releases freed imports otherwise, and a loop of imports makes none.
         device_memory.cleanup(Cleanup::Periodic, failures);
         let storage = device_memory.storage().import_host_memory(host)?;
         let reserved = device_memory.adopt_import(storage);
-        self.bind(reserved, memory);
-        Ok(())
+        self.bind(reserved, handle.memory.clone());
+        Ok(handle)
     }
 
     /// The current stream's cursor.
@@ -407,6 +403,11 @@ impl<'a, D: Driver> Command<'a, D> {
         self.allocate(size, handle.memory.clone())?;
 
         Ok(handle)
+    }
+
+    /// Whether a stream of the device records a graph.
+    fn device_records(&mut self) -> bool {
+        self.streams.current().capturing().device().any_recording()
     }
 
     /// Give `reserved`'s storage to `new`, so handles issued against `new`
@@ -762,7 +763,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
 impl<D: Driver> DeviceRelocator for Command<'_, D> {
     fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return RelocationNeed::Recording;
         }
         match scope {
@@ -781,7 +782,7 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
     }
 
     fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return;
         }
         let stream_ids: Vec<_> = match scope {

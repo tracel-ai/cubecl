@@ -92,21 +92,12 @@ impl Server for HipServer {
 
     fn import_host_memory(
         &mut self,
-        memory: ManagedMemoryHandle,
         host: HostRange,
         stream_id: StreamId,
-    ) -> Result<(), ServerError> {
-        let binding = memory.to_binding();
-        let result = match self.command_no_inputs(stream_id) {
-            Ok(mut command) => command
-                .import_host_memory(memory, &host)
-                .map_err(ServerError::from),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = &result {
-            self.streams.fail_unallocated(&binding, error.clone());
-        }
-        result
+    ) -> Result<Handle, ServerError> {
+        Ok(self
+            .command_no_inputs(stream_id)?
+            .import_host_memory(&host)?)
     }
 
     fn initialize_memory(
@@ -256,13 +247,10 @@ impl Server for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
-        if let Err(error) = bindings.ensure_writes_permitted(io) {
-            written.extend(bindings.forbidden_writes(io).cloned());
-            let error = ServerError::from(error);
-            peers.failed(&error);
-            failed_writing(self, stream_id, written, error);
+        let Some(written) = peers.refuse_forbidden_writes(self, stream_id, &bindings, io, written)
+        else {
             return;
-        }
+        };
         // A peer input that carries a failure stops the launch as a failed
         // input of this device would: nothing runs on its stale bytes.
         if let Some(error) = peers.input_failure() {

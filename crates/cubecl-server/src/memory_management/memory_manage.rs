@@ -359,6 +359,10 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
 
     /// Hold `storage`, host memory the storage [imported](StorageAllocator::import_host_memory), as
     /// an allocation of its own, and the handle a [bind](Self::bind) assigns it from.
+    ///
+    /// # Assumptions
+    ///
+    /// `storage` came from an import of this memory's storage, and no slice holds it yet.
     pub fn adopt_import(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
         self.reserver.imported.adopt(storage)
     }

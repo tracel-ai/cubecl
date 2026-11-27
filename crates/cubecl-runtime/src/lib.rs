@@ -10,6 +10,9 @@
 //! contract — memory pools, streams, drivers, the compilation pipeline — lives
 //! in `cubecl-server`, so that user code never depends on it.
 //!
+//! A [`HostRange`](storage::HostRange) is host memory a device imports, which its kernels read
+//! in place.
+//!
 //! # Error handling
 //!
 //! A failure belongs to the memory that work left unwritten and travels the

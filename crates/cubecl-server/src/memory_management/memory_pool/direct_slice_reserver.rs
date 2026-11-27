@@ -95,6 +95,10 @@ impl DirectSliceReserver {
 
     /// Hold `storage`, an allocation the storage made outside any pool, as a slice of its own:
     /// the handle a bind assigns it from. Freed, it goes back to the storage like the pool's own.
+    ///
+    /// # Assumptions
+    ///
+    /// `storage` came from the storage this pool frees into, and no slice holds it yet.
     pub fn adopt(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
         let size = storage.size();
         let index = self.vacant.pop().unwrap_or(self.slices.len());

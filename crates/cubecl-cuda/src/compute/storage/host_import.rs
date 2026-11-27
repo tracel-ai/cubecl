@@ -1,19 +1,19 @@
 use crate::compute::events::{Cuda, driver_error};
 use cubecl_environment::bytes::Bytes;
 use cubecl_server::driver::DriverError;
-use cubecl_server::storage::{HostMemoryApi, HostRegistry};
+use cubecl_server::storage::{HostMemoryApi, HostPins};
 use cudarc::driver::sys::{self, CUresult};
 
 /// The memory CUDA pinned for this process's devices: `cuMemHostRegister` pins a range once.
-static PINNED: HostRegistry = HostRegistry::new();
+static PINS: HostPins = HostPins::new();
 
 fn checked(op: &'static str, status: CUresult) -> Result<(), DriverError> {
     status.result().map_err(|err| driver_error(op, err))
 }
 
 impl HostMemoryApi for Cuda {
-    fn host_registry() -> &'static HostRegistry {
-        &PINNED
+    fn host_pins() -> &'static HostPins {
+        &PINS
     }
 
     unsafe fn host_register(memory: &Bytes) -> Result<(), DriverError> {
@@ -32,8 +32,8 @@ impl HostMemoryApi for Cuda {
 
     fn host_device_ptr(host: *const u8) -> Result<u64, DriverError> {
         let mut ptr: sys::CUdeviceptr = 0;
-        // SAFETY: `host` lies in memory registered with `DEVICEMAP`, so the driver has a device
-        // address for it, written through `ptr`.
+        // SAFETY: `ptr` is a live out-parameter, and the driver only looks `host` up, failing for
+        // memory it has not mapped.
         let status = unsafe { sys::cuMemHostGetDevicePointer_v2(&mut ptr, host as *mut _, 0) };
         checked("cuMemHostGetDevicePointer", status)?;
         Ok(ptr)

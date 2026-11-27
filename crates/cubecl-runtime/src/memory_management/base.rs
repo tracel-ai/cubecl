@@ -127,7 +127,7 @@ pub struct MemoryPoolReport {
 
 impl MemoryPoolReport {
     /// A [`Direct`](MemoryPoolKind::Direct) pool that never held anything.
-    pub fn empty_direct() -> Self {
+    fn empty_direct() -> Self {
         Self {
             kind: MemoryPoolKind::Direct,
             usage: MemoryUsage::default(),

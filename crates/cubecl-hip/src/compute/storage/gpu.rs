@@ -2,7 +2,7 @@ use crate::compute::events::Hip;
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_server::storage::{
-    HostImporter, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
+    HostImports, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
 };
 use std::collections::HashMap;
 
@@ -18,7 +18,7 @@ pub struct GpuStorage {
     allocated: u64,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
-    host_imports: HostImporter<Hip>,
+    host_imports: HostImports<Hip>,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -56,14 +56,19 @@ impl GpuStorage {
 }
 
 impl GpuStorage {
-    /// Storage whose imports `stream`'s work reads. `stream` must outlive the storage.
-    pub(crate) fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
+    /// Storage whose imports `stream`'s work reads.
+    ///
+    /// # Safety
+    ///
+    /// `stream` outlives the storage: the release of every import is recorded on it.
+    pub unsafe fn on_stream(stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             memory: HashMap::new(),
             allocated: 0,
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
-            host_imports: HostImporter::new(stream),
+            // SAFETY: the caller keeps `stream` alive for as long as the storage.
+            host_imports: unsafe { HostImports::on_stream(stream) },
         }
     }
 }
@@ -166,14 +171,7 @@ impl StorageAllocator for GpuStorage {
     }
 
     fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
-        let id = self.host_imports.import(host)?;
-        Ok(StorageHandle::new(
-            id,
-            StorageUtilization {
-                offset_bytes: 0,
-                size_bytes: host.len(),
-            },
-        ))
+        self.host_imports.import(host)
     }
 
     fn deallocate(&mut self, id: StorageId) {

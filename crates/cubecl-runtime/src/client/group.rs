@@ -21,6 +21,14 @@ use thiserror::Error;
 /// the two can hang. A member whose part fails, such as one whose source an earlier failure left
 /// stale, leaves the others waiting in it and runs no later collective over the group. Buffers
 /// move as bytes, so a pitched handle's row padding counts toward its chunks.
+///
+/// # Assumptions
+///
+/// Every buffer handed to a collective of the group, [`all_reduce`](Self::all_reduce),
+/// [`all_gather`](Self::all_gather), [`reduce_scatter`](Self::reduce_scatter),
+/// [`broadcast`](Self::broadcast) or [`all_to_all`](Self::all_to_all), fits it: on its member's
+/// device, of the size the collective takes, and not [imported](Client::import_host_memory) host
+/// memory.
 #[derive(Clone)]
 pub struct ClientGroup {
     clients: Vec<Client>,
@@ -154,42 +162,27 @@ impl ClientGroup {
     /// Every member's `dst` receives every member's `src` reduced by `op`. A member's `src` may be
     /// its `dst`.
     ///
-    /// # Assumptions
-    ///
-    /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host_memory) host memory.
-    ///
     /// # Panics
     ///
-    /// When a buffer breaks the Assumption, before anything is queued.
+    /// When a buffer breaks the [group's Assumption](Self), before anything is queued.
     pub fn all_reduce(&self, buffers: Vec<MemberBuffers>, dtype: ElemType, op: ReduceOperation) {
         self.exchange(Exchange::AllReduce(Reduction { dtype, op }), buffers);
     }
 
     /// Every member's `dst` receives every member's `src`, concatenated in member order.
     ///
-    /// # Assumptions
-    ///
-    /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host_memory) host memory.
-    ///
     /// # Panics
     ///
-    /// When a buffer breaks the Assumption, before anything is queued.
+    /// When a buffer breaks the [group's Assumption](Self), before anything is queued.
     pub fn all_gather(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllGather, buffers);
     }
 
     /// Member `i`'s `dst` receives chunk `i` of every member's `src` reduced by `op`.
     ///
-    /// # Assumptions
-    ///
-    /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host_memory) host memory.
-    ///
     /// # Panics
     ///
-    /// When a buffer breaks the Assumption, before anything is queued.
+    /// When a buffer breaks the [group's Assumption](Self), before anything is queued.
     pub fn reduce_scatter(
         &self,
         buffers: Vec<MemberBuffers>,
@@ -202,14 +195,9 @@ impl ClientGroup {
     /// Every member's `dst` receives `src`, sent by the member whose device holds it. That
     /// member's `dst` may be `src`.
     ///
-    /// # Assumptions
-    ///
-    /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host_memory) host memory.
-    ///
     /// # Panics
     ///
-    /// When a buffer breaks the Assumption, before anything is queued.
+    /// When a buffer breaks the [group's Assumption](Self), before anything is queued.
     pub fn broadcast(&self, src: Handle, dst: Vec<Handle>) {
         let collective = Collective::Broadcast;
         self.expect_parts(collective, dst.len());
@@ -247,14 +235,9 @@ impl ClientGroup {
     /// Member `i`'s `dst` receives chunk `i` of every member's `src`, concatenated in member
     /// order.
     ///
-    /// # Assumptions
-    ///
-    /// Every buffer fits the collective: on its member's device, of the size the collective
-    /// takes, and not [imported](Client::import_host_memory) host memory.
-    ///
     /// # Panics
     ///
-    /// When a buffer breaks the Assumption, before anything is queued.
+    /// When a buffer breaks the [group's Assumption](Self), before anything is queued.
     pub fn all_to_all(&self, buffers: Vec<MemberBuffers>) {
         self.exchange(Exchange::AllToAll, buffers);
     }

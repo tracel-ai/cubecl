@@ -4,14 +4,14 @@ use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 /// Owns zeroed memory allocated at an alignment of its own, freed when it drops.
-pub(crate) struct AlignedAllocationController {
+pub struct AlignedAllocationController {
     ptr: NonNull<u8>,
     layout: Layout,
 }
 
 impl AlignedAllocationController {
     /// `None` when the host cannot allocate `layout`.
-    pub(crate) fn zeroed(layout: Layout) -> Option<Self> {
+    pub fn zeroed(layout: Layout) -> Option<Self> {
         let ptr = match layout.size() {
             // Never allocated, so never freed: an empty allocation only needs an aligned address.
             0 => NonNull::new(layout.align() as *mut u8)?,
@@ -22,7 +22,7 @@ impl AlignedAllocationController {
     }
 
     /// A copy of `data`, its first byte aligned to `align`.
-    pub(crate) fn with_data(data: &[u8], align: usize) -> Result<Self, LayoutError> {
+    pub fn with_data(data: &[u8], align: usize) -> Result<Self, LayoutError> {
         let layout = Layout::from_size_align(data.len(), align)?;
         let controller =
             Self::zeroed(layout).unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout));

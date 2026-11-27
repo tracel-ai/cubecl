@@ -2,14 +2,14 @@ use crate::compute::events::Hip;
 use crate::compute::status::checked;
 use cubecl_environment::bytes::Bytes;
 use cubecl_server::driver::DriverError;
-use cubecl_server::storage::{HostMemoryApi, HostRegistry};
+use cubecl_server::storage::{HostMemoryApi, HostPins};
 
 /// The memory HIP pinned for this process's devices: `hipHostRegister` pins a range once.
-static PINNED: HostRegistry = HostRegistry::new();
+static PINS: HostPins = HostPins::new();
 
 impl HostMemoryApi for Hip {
-    fn host_registry() -> &'static HostRegistry {
-        &PINNED
+    fn host_pins() -> &'static HostPins {
+        &PINS
     }
 
     unsafe fn host_register(memory: &Bytes) -> Result<(), DriverError> {
@@ -29,8 +29,8 @@ impl HostMemoryApi for Hip {
 
     fn host_device_ptr(host: *const u8) -> Result<u64, DriverError> {
         let mut ptr: cubecl_hip_sys::hipDeviceptr_t = std::ptr::null_mut();
-        // SAFETY: `host` lies in memory registered as mapped, so the driver has a device address
-        // for it, written through `ptr`.
+        // SAFETY: `ptr` is a live out-parameter, and the driver only looks `host` up, failing for
+        // memory it has not mapped.
         let status =
             unsafe { cubecl_hip_sys::hipHostGetDevicePointer(&mut ptr, host as *mut _, 0) };
         checked("hipHostGetDevicePointer", status)?;

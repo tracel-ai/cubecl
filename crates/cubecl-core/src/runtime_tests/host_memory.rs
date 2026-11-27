@@ -8,10 +8,10 @@ use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
 use cubecl_runtime::server::{Handle, IoError, ServerError};
-use cubecl_runtime::storage::HOST_MEMORY_ALIGNMENT;
+use cubecl_runtime::storage::HOST_MEMORY_ALIGNMENT_BYTES;
 use std::println;
 
-const WORDS: usize = HOST_MEMORY_ALIGNMENT / 4;
+const WORD_COUNT: usize = HOST_MEMORY_ALIGNMENT_BYTES / 4;
 
 #[cube(launch_unchecked)]
 pub fn kernel_copy_words(input: &[u32], output: &mut [u32]) {
@@ -21,8 +21,8 @@ pub fn kernel_copy_words(input: &[u32], output: &mut [u32]) {
 }
 
 fn host_words(chunks: usize) -> Arc<Bytes> {
-    let size = chunks * HOST_MEMORY_ALIGNMENT;
-    let mut memory = Bytes::zeroed_aligned(size, HOST_MEMORY_ALIGNMENT).unwrap();
+    let size = chunks * HOST_MEMORY_ALIGNMENT_BYTES;
+    let mut memory = Bytes::zeroed_aligned(size, HOST_MEMORY_ALIGNMENT_BYTES).unwrap();
     for (index, word) in memory.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         *word = (index as u32 ^ 0x9e37_79b9).to_le_bytes();
     }
@@ -39,19 +39,21 @@ fn words(bytes: &[u8]) -> Vec<u32> {
 }
 
 fn copy_out(client: &Client, input: Handle) -> Vec<u32> {
-    let output = client.empty(WORDS * 4);
+    let output = client.empty(WORD_COUNT * 4);
     copy(client, input, output.clone());
-    words(&client.read_one_unchecked(output))
+    let read = words(&client.read_one_unchecked(output));
+    assert_eq!(read.len(), WORD_COUNT, "the copy kernel should run");
+    read
 }
 
 fn copy(client: &Client, input: Handle, output: Handle) {
     unsafe {
         kernel_copy_words::launch_unchecked(
             client,
-            CubeCount::Static((WORDS as u32).div_ceil(256), 1, 1),
+            CubeCount::Static((WORD_COUNT as u32).div_ceil(256), 1, 1),
             CubeDim::new_1d(256),
-            BufferArg::from_raw_parts(input, WORDS),
-            BufferArg::from_raw_parts(output, WORDS),
+            BufferArg::from_raw_parts(input, WORD_COUNT),
+            BufferArg::from_raw_parts(output, WORD_COUNT),
         )
     };
 }
@@ -77,15 +79,15 @@ pub fn test_kernel_reads_imported_ranges(client: Client) {
         return;
     }
     let memory = host_words(3);
-    let chunk = HOST_MEMORY_ALIGNMENT as u64;
+    let chunk = HOST_MEMORY_ALIGNMENT_BYTES as u64;
     let first = client.import_host_memory(&memory, 0..chunk).unwrap();
     let third = client
         .import_host_memory(&memory, 2 * chunk..3 * chunk)
         .unwrap();
 
     let expected = words(&memory[..]);
-    assert_eq!(copy_out(&client, first), expected[..WORDS]);
-    assert_eq!(copy_out(&client, third), expected[2 * WORDS..]);
+    assert_eq!(copy_out(&client, first), expected[..WORD_COUNT]);
+    assert_eq!(copy_out(&client, third), expected[2 * WORD_COUNT..]);
 }
 
 /// Queues the release of the imports dropped on `client`'s stream, then lets go of them once done.
@@ -96,10 +98,8 @@ fn release(client: &Client) {
     }
 }
 
-/// Every device of `clients` imports one host memory and reads it at once. One letting go of its
-/// import while another reads leaves the memory pinned for the rest, and once the last lets go,
-/// it is unpinned: the devices hold it no more and it pins again.
-pub fn test_devices_read_one_import(clients: &[Client]) {
+/// The clients of `clients` that import host memory, or `None` when fewer than two do.
+fn importing(clients: &[Client]) -> Option<Vec<Client>> {
     let clients: Vec<Client> = clients
         .iter()
         .filter(|client| client.features().host_memory_import)
@@ -107,29 +107,55 @@ pub fn test_devices_read_one_import(clients: &[Client]) {
         .collect();
     if clients.len() < 2 {
         println!("Fewer than two devices import host memory, skipping");
-        return;
+        return None;
     }
-    let mut memory = host_words(1);
-    let range = 0..HOST_MEMORY_ALIGNMENT as u64;
-    let expected = words(&memory[..]);
-    let mut imports: Vec<Handle> = clients
+    Some(clients)
+}
+
+/// An import of `memory` on every client.
+fn import_on_each(clients: &[Client], memory: &Arc<Bytes>) -> Vec<Handle> {
+    let range = 0..HOST_MEMORY_ALIGNMENT_BYTES as u64;
+    clients
         .iter()
-        .map(|client| client.import_host_memory(&memory, range.clone()).unwrap())
-        .collect();
+        .map(|client| client.import_host_memory(memory, range.clone()).unwrap())
+        .collect()
+}
+
+/// Every device of `clients` imports one host memory and reads it at once.
+pub fn test_devices_read_one_import(clients: &[Client]) {
+    let Some(clients) = importing(clients) else {
+        return;
+    };
+    let memory = host_words(1);
+    let expected = words(&memory[..]);
+    let imports = import_on_each(&clients, &memory);
     let outputs: Vec<Handle> = clients
         .iter()
         .zip(&imports)
         .map(|(client, input)| {
-            let output = client.empty(WORDS * 4);
+            let output = client.empty(WORD_COUNT * 4);
             copy(client, input.clone(), output.clone());
             output
         })
         .collect();
     for (client, output) in clients.iter().zip(outputs) {
-        assert_eq!(words(&client.read_one_unchecked(output)), expected);
+        let read = words(&client.read_one_unchecked(output));
+        assert_eq!(read.len(), WORD_COUNT);
+        assert_eq!(read, expected);
     }
+}
 
-    let reading = clients[1].empty(WORDS * 4);
+/// One device letting go of its import while another reads leaves the memory pinned for the
+/// rest, which go on reading it.
+pub fn test_an_import_another_device_reads_stays_pinned(clients: &[Client]) {
+    let Some(clients) = importing(clients) else {
+        return;
+    };
+    let mut memory = host_words(1);
+    let expected = words(&memory[..]);
+    let mut imports = import_on_each(&clients, &memory);
+
+    let reading = clients[1].empty(WORD_COUNT * 4);
     copy(&clients[1], imports[1].clone(), reading.clone());
     drop(imports.remove(0));
     release(&clients[0]);
@@ -138,11 +164,22 @@ pub fn test_devices_read_one_import(clients: &[Client]) {
     for (client, input) in clients[1..].iter().zip(&imports) {
         assert_eq!(copy_out(client, input.clone()), expected);
     }
+}
 
-    drop(imports);
+/// Once the last device lets go of its import, the memory is unpinned: the devices hold it no
+/// more, and it pins again.
+pub fn test_an_import_every_device_let_go_of_pins_again(clients: &[Client]) {
+    let Some(clients) = importing(clients) else {
+        return;
+    };
+    let mut memory = host_words(1);
+    let expected = words(&memory[..]);
+    drop(import_on_each(&clients, &memory));
     clients.iter().for_each(release);
     assert!(Arc::get_mut(&mut memory).is_some());
-    let again = clients[0].import_host_memory(&memory, range).unwrap();
+    let again = clients[0]
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
+        .unwrap();
     assert_eq!(copy_out(&clients[0], again), expected);
 }
 
@@ -152,7 +189,7 @@ pub fn test_imports_show_in_memory_report(client: Client) {
         return;
     }
     let memory = host_words(2);
-    let chunk = HOST_MEMORY_ALIGNMENT as u64;
+    let chunk = HOST_MEMORY_ALIGNMENT_BYTES as u64;
     let _first = client.import_host_memory(&memory, 0..chunk).unwrap();
     let _second = client
         .import_host_memory(&memory, chunk..2 * chunk)
@@ -172,7 +209,7 @@ pub fn test_cleanup_releases_imported_memory(client: Client) {
     }
     let mut memory = host_words(1);
     let handle = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
     copy_out(&client, handle);
 
@@ -191,7 +228,7 @@ pub fn test_imported_handle_is_not_mutable(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
     assert!(!handle.can_mut());
 }
@@ -203,7 +240,7 @@ pub fn test_imported_memory_is_not_shared(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
     assert!(client.share_with_peers(&handle).is_err());
 }
@@ -215,11 +252,11 @@ pub fn test_write_to_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
     client.write(
         &handle,
-        Bytes::from_bytes_vec(vec![0xff; HOST_MEMORY_ALIGNMENT]),
+        Bytes::from_bytes_vec(vec![0xff; HOST_MEMORY_ALIGNMENT_BYTES]),
     );
     assert!(client.read_one(handle).is_err());
     assert_eq!(words(&memory[..])[0], 0x9e37_79b9);
@@ -232,11 +269,11 @@ pub fn test_copy_of_failed_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let handle = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
     client.write(
         &handle,
-        Bytes::from_bytes_vec(vec![0xff; HOST_MEMORY_ALIGNMENT]),
+        Bytes::from_bytes_vec(vec![0xff; HOST_MEMORY_ALIGNMENT_BYTES]),
     );
     let copy = client.clone().to_client(handle, &client);
     assert!(client.read_one(copy).is_err());
@@ -249,9 +286,9 @@ pub fn test_kernel_output_to_imported_memory_fails(client: Client) {
     }
     let memory = host_words(1);
     let output = client
-        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
         .unwrap();
-    copy(&client, client.empty(WORDS * 4), output.clone());
+    copy(&client, client.empty(WORD_COUNT * 4), output.clone());
     assert!(client.read_one(output).is_err());
     assert_eq!(words(&memory[..])[0], 0x9e37_79b9);
 }
@@ -259,7 +296,7 @@ pub fn test_kernel_output_to_imported_memory_fails(client: Client) {
 /// An import outside the memory, unaligned or empty is refused before it reaches the device.
 pub fn test_import_refuses_bad_ranges(client: Client) {
     let memory = host_words(1);
-    let chunk = HOST_MEMORY_ALIGNMENT as u64;
+    let chunk = HOST_MEMORY_ALIGNMENT_BYTES as u64;
     for range in [0..2 * chunk, 64..chunk, 0..64, chunk..chunk] {
         let result = client.import_host_memory(&memory, range.clone());
         assert!(refused(&result), "{range:?} was not refused: {result:?}");
@@ -273,9 +310,10 @@ pub fn test_import_without_feature_is_refused(client: Client) {
         return;
     }
     let memory = host_words(1);
-    assert!(refused(
-        &client.import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT as u64)
-    ));
+    assert!(refused(&client.import_host_memory(
+        &memory,
+        0..HOST_MEMORY_ALIGNMENT_BYTES as u64
+    )));
 }
 
 #[allow(missing_docs)]
