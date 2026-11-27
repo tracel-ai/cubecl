@@ -1,6 +1,7 @@
 use crate::{prelude::*, shared::to_llvm::ty::padded_field_index};
 use cubecl_core::ir::{
     dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp, StructFieldOp},
+    settings::NarrowBindings,
     types::barrier::BarrierType,
 };
 
@@ -88,6 +89,65 @@ fn widen_gep_index(
     zext.get_result(ctx)
 }
 
+/// The bytes an LLVM value of `ty` takes in memory, where that is a whole number of bytes: none
+/// for `i1`, whose vectors pack eight values to a byte.
+fn whole_bytes(ctx: &Context, ty: TypeHandle) -> Option<u32> {
+    let ty = ty.deref(ctx);
+    if let Some(int) = ty.downcast_ref::<IntegerType>() {
+        return int.width().is_multiple_of(8).then(|| int.width() / 8);
+    }
+    if ty.is::<FP16Type>() || ty.is::<BF16Type>() {
+        return Some(2);
+    }
+    if ty.is::<FP32Type>() {
+        return Some(4);
+    }
+    if ty.is::<FP64Type>() {
+        return Some(8);
+    }
+    let vector = ty.downcast_ref::<LlvmVectorType>()?;
+    Some(whole_bytes(ctx, vector.elem_type())? * vector.num_elements())
+}
+
+/// The shift that turns an index into `elem_ty`, an LLVM type, into a byte offset, where its size
+/// is a power of two bytes, so that its LLVM alloc size is its size.
+fn byte_shift(ctx: &Context, elem_ty: TypeHandle) -> Option<u32> {
+    let bytes = whole_bytes(ctx, elem_ty)?;
+    bytes.is_power_of_two().then(|| bytes.trailing_zeros())
+}
+
+/// Whether `address_space` is a binding the launch marked as [narrow](NarrowBindings).
+fn narrow_binding(ctx: &Context, address_space: AddressSpace) -> bool {
+    let AddressSpace::Global(position) = address_space else {
+        return false;
+    };
+    ctx.try_aux_ty::<NarrowBindings>()
+        .is_some_and(|bindings| bindings.contains_position(position))
+}
+
+/// `index`, a 32-bit element index, as the 64-bit byte offset `zext(index << shift)`.
+///
+/// The shift is `nuw`: the binding is narrow, so every byte offset into it fits 32 bits. The
+/// extension carries no `nneg`, since an offset can reach 2^32 - 1.
+fn byte_offset(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    index: Value,
+    shift: u32,
+) -> Value {
+    let shift = insert_i32_const(ctx, rewriter, shift as i32);
+    let no_unsigned_wrap = IntegerOverflowFlagsAttr {
+        nsw: false,
+        nuw: true,
+    };
+    let bytes = llvm::ShlOp::new_with_overflow_flag(ctx, index, shift, no_unsigned_wrap);
+    rewriter.insert_op(ctx, &bytes);
+    let wide_ty = IntegerType::get(ctx, GEP_INDEX_WIDTH, Signedness::Signless).into();
+    let zext = llvm::ZExtOp::new_with_nneg(ctx, bytes.get_result(ctx), wide_ty, false);
+    rewriter.insert_op(ctx, &zext);
+    zext.get_result(ctx)
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for IndexOp {
     fn rewrite(
@@ -99,26 +159,45 @@ impl ToLLVMDialect for IndexOp {
         let base = self.base(ctx);
         let index = self.index(ctx);
 
-        let elem_ty = {
+        let (elem_ty, address_space) = {
             let result_ty = self.get_result(ctx).get_type(ctx);
-            result_ty
-                .deref(ctx)
+            let result_ty = result_ty.deref(ctx);
+            let ptr = result_ty
                 .downcast_ref::<CubePointerType>()
-                .expect("memory.index result must be a pointer")
-                .inner
+                .expect("memory.index result must be a pointer");
+            (ptr.inner, ptr.address_space)
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
+
+        // A narrow binding is addressed by a 32-bit byte offset from its base, which a target
+        // can keep in scalar registers: AMDGPU loads such an access as `saddr` plus an unsigned
+        // 32-bit offset, where an element index widened before it is scaled takes a 64-bit
+        // address per access.
+        let index_bits = index
+            .get_type(ctx)
+            .deref(ctx)
+            .downcast_ref::<IntegerType>()
+            .map(|int| int.width());
+        let shift = (narrow_binding(ctx, address_space) && index_bits == Some(32))
+            .then(|| byte_shift(ctx, elem_ty))
+            .flatten();
+        let (index, step_ty) = match shift {
+            Some(shift) => (
+                byte_offset(ctx, rewriter, index, shift),
+                IntegerType::get(ctx, 8, Signedness::Signless).into(),
+            ),
+            None => (widen_gep_index(ctx, rewriter, index), elem_ty),
+        };
 
         // An index stays inside the object it indexes (checked modes clamp it first), and it
         // is unsigned, so the offset never wraps below the base. Without these flags LLVM
         // cannot reassociate the address arithmetic or fold constant offsets into the
         // addressing mode of the access.
-        let index = widen_gep_index(ctx, rewriter, index);
         let gep = llvm::GetElementPtrOp::new_with_no_wrap_flags(
             ctx,
             base,
             vec![llvm::GepIndex::Value(index)],
-            elem_ty,
+            step_ty,
             GepNoWrapFlags::INBOUNDS | GepNoWrapFlags::NUW,
         );
         rewriter.insert_op(ctx, &gep);

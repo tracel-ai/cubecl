@@ -39,6 +39,23 @@ pub(crate) fn scale_kernel(address_type: AddressType) -> impl CubeKernel {
     )
 }
 
+/// [`scale_kernel`] at 32-bit addresses, its input marked as a narrow binding and its output not.
+pub(crate) fn narrow_input_scale_kernel() -> impl CubeKernel {
+    let mut settings = KernelSettings::new(
+        *CubeDim::new_1d(64),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    );
+    settings.narrow_bindings.insert_position(0);
+    scale::Scale::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// A buffer struct: two coordinates and two indices, 16 bytes.
 #[derive(CubeType, Clone, Copy)]
 #[repr(C)]
