@@ -12,7 +12,7 @@ use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_cpp::{formatter::format_cpp, shared::signature::source_forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
-    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
+    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording, RegisterSpill,
 };
 use cubecl_server::driver::DriverError;
 use cubecl_server::kernel::{BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation};
@@ -85,6 +85,44 @@ pub struct CudaArtifact {
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
     pub io: Option<Vec<BufferIOAttr>>,
+    /// What the assembler's log reported of the registers `cubin` spills; `None` when it
+    /// reported nothing, and for entries persisted before the field existed.
+    #[serde(default)]
+    pub register_spill: Option<RegisterSpill>,
+}
+
+/// The machine code the driver assembled, and the registers its log reported it spills.
+struct Assembled {
+    cubin: Vec<u8>,
+    register_spill: Option<RegisterSpill>,
+}
+
+/// The registers the assembler's verbose `info` log reports spilling, from its
+/// `N bytes stack frame, N bytes spill stores, N bytes spill loads` line, summed over the
+/// functions it lists. A 32-bit register a spill store moves is 4 bytes. `None` when no line
+/// reports spill stores.
+fn register_spill(info: &str) -> Option<RegisterSpill> {
+    info.lines()
+        .filter_map(|line| {
+            let stores = bytes_before(line, "bytes spill stores")?;
+            let stack = bytes_before(line, "bytes stack frame").unwrap_or(0);
+            Some(RegisterSpill {
+                spilled_registers: u32::try_from(stores.div_ceil(4)).unwrap_or(u32::MAX),
+                scratch_bytes: stack,
+            })
+        })
+        .reduce(|total, spill| RegisterSpill {
+            spilled_registers: total
+                .spilled_registers
+                .saturating_add(spill.spilled_registers),
+            scratch_bytes: total.scratch_bytes.max(spill.scratch_bytes),
+        })
+}
+
+/// The number written right before `label` in `line`.
+fn bytes_before(line: &str, label: &str) -> Option<u64> {
+    let before = &line[..line.find(label)?];
+    before.split_whitespace().next_back()?.parse().ok()
 }
 
 impl ArtifactCompiler for CudaArtifactCompiler {
@@ -178,13 +216,14 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             }
         };
 
-        let cubin = self.assemble(&ptx, id.kernel.debug_info() != DebugInfo::None)?;
+        let assembled = self.assemble(&ptx, id.kernel.debug_info() != DebugInfo::None)?;
         Ok(CudaArtifact {
             entrypoint_name: lowered.entrypoint_name,
             shared_mem_bytes,
             ptx,
-            cubin,
+            cubin: assembled.cubin,
             io,
+            register_spill: assembled.register_spill,
         })
     }
 }
@@ -197,15 +236,25 @@ impl CudaArtifactCompiler {
     ///
     /// The driver call that failed, with the assembler's log when it wrote one: PTX the
     /// assembler rejects, or a kernel past the device's limits.
-    fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Vec<u8>, CompilationError> {
+    fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Assembled, CompilationError> {
         let mut log = vec![0u8; ASSEMBLER_LOG_BYTES];
+        let mut info = vec![0u8; ASSEMBLER_LOG_BYTES];
         let mut options = vec![
             CUjit_option::CU_JIT_ERROR_LOG_BUFFER,
             CUjit_option::CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+            CUjit_option::CU_JIT_INFO_LOG_BUFFER,
+            CUjit_option::CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+            CUjit_option::CU_JIT_LOG_VERBOSE,
         ];
         // The driver reads a size or flag option's value as the number itself, not through a
         // pointer.
-        let mut values = vec![log.as_mut_ptr() as *mut c_void, log.len() as *mut c_void];
+        let mut values = vec![
+            log.as_mut_ptr() as *mut c_void,
+            log.len() as *mut c_void,
+            info.as_mut_ptr() as *mut c_void,
+            info.len() as *mut c_void,
+            std::ptr::without_provenance_mut(1),
+        ];
         if line_info {
             options.push(CUjit_option::CU_JIT_GENERATE_LINE_INFO);
             values.push(std::ptr::without_provenance_mut(1));
@@ -232,7 +281,7 @@ impl CudaArtifactCompiler {
             assembled
         };
 
-        assembled.map_err(|err| match CompilationError::from(err) {
+        let cubin = assembled.map_err(|err| match CompilationError::from(err) {
             CompilationError::Generic { reason, backtrace } => {
                 let log = CStr::from_bytes_until_nul(&log).map_or("", |log| {
                     log.to_str().unwrap_or("the assembler's log is not UTF-8")
@@ -243,6 +292,15 @@ impl CudaArtifactCompiler {
                 }
             }
             poisoned => poisoned,
+        })?;
+        let register_spill = CStr::from_bytes_until_nul(&info)
+            .ok()
+            .and_then(|info| info.to_str().ok())
+            .and_then(register_spill);
+
+        Ok(Assembled {
+            cubin,
+            register_spill,
         })
     }
 
@@ -383,5 +441,30 @@ fn backend_of(lowered: &CompiledKernel<CudaCompiler>) -> CudaBackend {
         Some(CudaRepresentation::Cpp(_)) => CudaBackend::Cpp,
         Some(CudaRepresentation::Llvm(_)) => CudaBackend::Llvm,
         None => CudaBackend::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_spill_stores_count_the_registers_spilled() {
+        let info = "ptxas info    : Function properties for kernel\n    \
+                    1224 bytes stack frame, 1188 bytes spill stores, 1188 bytes spill loads\n\
+                    ptxas info    : Used 255 registers, 380 bytes cmem[0]";
+
+        assert_eq!(
+            register_spill(info),
+            Some(RegisterSpill {
+                spilled_registers: 297,
+                scratch_bytes: 1224,
+            })
+        );
+    }
+
+    #[test]
+    fn a_log_without_spill_stores_reports_nothing() {
+        assert_eq!(register_spill("ptxas info    : Used 32 registers"), None);
     }
 }

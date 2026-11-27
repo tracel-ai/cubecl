@@ -56,6 +56,17 @@ pub struct CompilationConfig {
     /// memory: a batch holds every queued kernel's artifacts until it ends.
     #[serde(default)]
     pub parallelism: Option<usize>,
+    /// Whether a kernel whose compiled code spills registers to scratch memory fails to compile
+    /// with [`CompilationError::RegisterSpill`](crate::compiler::CompilationError::RegisterSpill).
+    /// An autotune then drops the candidate as it drops any that fails to compile, and a launch
+    /// of the kernel fails. Off by default: a kernel with no candidate that fits in registers
+    /// would fail where it now runs slowly. Set by `CUBECL_REFUSE_REGISTER_SPILLS`.
+    ///
+    /// HIP reports spills for both of its backends, from the code object's metadata, and CUDA
+    /// from the assembler's log. wgpu, Metal and the CPU runtime report none, so they never
+    /// refuse a kernel, and neither does CUDA for a kernel its driver assembled when it loaded.
+    #[serde(default)]
+    pub refuse_register_spills: bool,
 }
 
 impl CompilationConfig {
@@ -210,6 +221,23 @@ mod tests {
     #[test]
     fn a_host_without_native_f16_rounds_chains() {
         assert_eq!(F16Evaluation::for_native_f16(false), F16Evaluation::Chain);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn register_spills_are_accepted_by_default() {
+        let config: crate::config::CubeClRuntimeConfig = toml::from_str("").unwrap();
+
+        assert!(!config.compilation.refuse_register_spills);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn register_spills_can_be_refused() {
+        let config: crate::config::CubeClRuntimeConfig =
+            toml::from_str("[compilation]\nrefuse_register_spills = true").unwrap();
+
+        assert!(config.compilation.refuse_register_spills);
     }
 
     #[cfg(feature = "std")]

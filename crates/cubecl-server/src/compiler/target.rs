@@ -6,7 +6,7 @@
 use core::fmt::Debug;
 use core::hash::Hash;
 
-use super::{CompilationError, CompilationRecording};
+use super::{CompilationError, CompilationRecording, RegisterSpill};
 use crate::id::KernelId;
 use crate::kernel::CubeKernel;
 use crate::logging::ServerLogger;
@@ -114,6 +114,14 @@ pub trait CompilationTarget {
     /// that keeps no artifact by source.
     fn stored_for_source(&mut self, source: &str) -> Option<ArtifactOf<Self>> {
         let _ = source;
+        None
+    }
+
+    /// The registers `artifact` spills, as the device's compiler reported them, asked before it
+    /// loads when the configuration refuses spills. `None`, the default, when the compiler
+    /// reported nothing, which never refuses the artifact.
+    fn register_spill(&self, artifact: &ArtifactOf<Self>) -> Option<RegisterSpill> {
+        let _ = artifact;
         None
     }
 

@@ -6,7 +6,8 @@ use crate::compute::artifact::{HipArtifact, HipArtifactCompiler};
 use crate::compute::status::checked;
 use cubecl_core::prelude::*;
 use cubecl_server::compiler::{
-    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, RegisterSpill,
+    StoreNames,
 };
 use cubecl_server::kernel::BufferIOAttr;
 use std::ffi::CString;
@@ -88,6 +89,11 @@ impl CompilationTarget for HipModules {
 
     fn stored_for_source(&mut self, source: &str) -> Option<HipArtifact> {
         self.store.take_by_source(source)
+    }
+
+    /// What the code object's HSA metadata reports, which both backends' code objects carry.
+    fn register_spill(&self, artifact: &HipArtifact) -> Option<RegisterSpill> {
+        cubecl_llvm::amdgpu::code_object::register_spill(&artifact.binary)
     }
 
     fn load(

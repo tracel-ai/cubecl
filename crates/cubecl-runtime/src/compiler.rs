@@ -61,9 +61,50 @@ pub enum CompilationError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+    /// The compiled kernel holds more values than the device has registers for, and its
+    /// compiler moved some of them to scratch memory. Only a server whose configuration
+    /// [refuses register spills](crate::config::compilation::CompilationConfig::refuse_register_spills)
+    /// returns it.
+    #[error(
+        "The kernel `{kernel}` spills {spilled_registers} registers to scratch memory, {scratch_bytes} bytes of it per unit"
+    )]
+    RegisterSpill {
+        /// The kernel that spills.
+        kernel: String,
+        /// See [`RegisterSpill::spilled_registers`].
+        spilled_registers: u32,
+        /// See [`RegisterSpill::scratch_bytes`].
+        scratch_bytes: u64,
+    },
+}
+
+/// The registers a compiled kernel spills, as the device's compiler reported them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RegisterSpill {
+    /// The 32-bit registers the compiler moved to scratch memory, per unit.
+    pub spilled_registers: u32,
+    /// The scratch memory each unit reserves, for spills and local arrays together.
+    pub scratch_bytes: u64,
+}
+
+impl RegisterSpill {
+    /// Whether the compiler moved any register to scratch memory. A kernel whose local arrays
+    /// live in scratch memory while its registers all fit does not spill.
+    pub fn spills(&self) -> bool {
+        self.spilled_registers > 0
+    }
 }
 
 impl CompilationError {
+    /// The error refusing `kernel` for `spill`.
+    pub fn register_spill(kernel: String, spill: RegisterSpill) -> Self {
+        Self::RegisterSpill {
+            kernel,
+            spilled_registers: spill.spilled_registers,
+            scratch_bytes: spill.scratch_bytes,
+        }
+    }
+
     /// Whether the device that emitted the error is poisoned.
     pub fn is_device_poisoned(&self) -> bool {
         matches!(self, Self::DevicePoisoned(_))
@@ -135,4 +176,29 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// What a [`PrecompiledSource`](crate::kernel::PrecompiledSource) has to
     /// name to be accepted by this compiler.
     fn lang_tag(&self) -> &'static str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_arrays_in_scratch_memory_are_no_spill() {
+        let spill = RegisterSpill {
+            spilled_registers: 0,
+            scratch_bytes: 2048,
+        };
+
+        assert!(!spill.spills());
+    }
+
+    #[test]
+    fn a_register_spill_is_a_refusal() {
+        let spill = RegisterSpill {
+            spilled_registers: 297,
+            scratch_bytes: 1188,
+        };
+
+        assert!(CompilationError::register_spill("matmul".into(), spill).is_refusal());
+    }
 }

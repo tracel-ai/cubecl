@@ -111,6 +111,13 @@ directory, and the debug data points to it (see
 **Pass timing** (`time_passes`): log how long each compiler pass takes, at the `info` level. Use
 it to find where kernel compilation time goes.
 
+**Register spills** (`refuse_register_spills`, default `false`): a kernel whose compiled code
+spills registers to scratch memory fails to compile with a register spill error. An autotune drops
+such a candidate, as it drops any candidate that fails to compile. A plain launch of the kernel
+fails, so it stays off by default: a kernel with no candidate that fits its registers would fail
+where it now runs slowly. HIP reports spills for its LLVM and C++ backends, and CUDA from the
+assembler's log. wgpu, Metal and the CPU runtime report none, so they never refuse a kernel.
+
 **Example:**
 
 ```toml
@@ -229,6 +236,8 @@ CubeCL supports several environment variables to override configuration at runti
 - `CUBECL_SPIRV_DEBUG_FORMAT`: Sets `compilation.spirv_debug_format`.
   - `"auto"`, `"op-line"`, `"non-semantic"`
 - `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
+  - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
+- `CUBECL_REFUSE_REGISTER_SPILLS`: Sets `compilation.refuse_register_spills`.
   - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
 - `CUBECL_JIT_SYMBOLS`: The profiler symbol files of the `cpu` runtime (see
   [Profiling Kernels](./profiling.md)).

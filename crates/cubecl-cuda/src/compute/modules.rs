@@ -8,7 +8,8 @@ use cubecl_core::{ir::settings::DebugInfo, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{
-    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, RegisterSpill,
+    StoreNames,
 };
 use cubecl_server::kernel::BufferIOAttr;
 use cudarc::driver::sys::CUfunc_st;
@@ -80,6 +81,10 @@ impl CompilationTarget for CudaModules {
 
     fn stored_for_source(&mut self, source: &str) -> Option<CudaArtifact> {
         self.ptx_store.take_by_source(source)
+    }
+
+    fn register_spill(&self, artifact: &CudaArtifact) -> Option<RegisterSpill> {
+        artifact.register_spill
     }
 
     fn load(
