@@ -367,7 +367,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 /// ```ignore
-/// #[derive(AutotuneKeyable, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// #[derive(AutotuneKey, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 /// pub struct OperationKey {
 ///     #[autotune(name = "Batch Size")]
 ///     batch_size: usize,
@@ -378,7 +378,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 ///     width: usize,
 /// }
 /// ```
-#[proc_macro_derive(AutotuneKeyable, attributes(autotune))]
+#[proc_macro_derive(AutotuneKey, attributes(autotune))]
 pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_autotune_key(input) {

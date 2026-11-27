@@ -11,11 +11,11 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::cache::tracker::TuneTracker;
 use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
-use crate::tune::{AutotuneKeyable, AutotuneResult};
+use crate::tune::{AutotuneKey, AutotuneResult};
 
 /// Settles the key one tune answered: reports the answer, keeps it in memory, settles the tune's
 /// registration, and, where tunes persist, stores and records it.
-pub struct TuneSettler<K: AutotuneKeyable> {
+pub struct TuneSettler<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
     logger: Arc<Mutex<Logger>>,
     /// Where the tune settles once its pick is committed.
@@ -25,7 +25,7 @@ pub struct TuneSettler<K: AutotuneKeyable> {
     persister: crate::tune::drive::persister::TunePersister<K>,
 }
 
-impl<K: AutotuneKeyable> TuneSettler<K> {
+impl<K: AutotuneKey> TuneSettler<K> {
     pub fn new(
         tracker: Arc<Mutex<TuneTracker<K>>>,
         logger: Arc<Mutex<Logger>>,

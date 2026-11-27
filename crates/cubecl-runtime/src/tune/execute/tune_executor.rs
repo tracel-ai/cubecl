@@ -9,18 +9,18 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::execute::set_initializer::SetInitializer;
 use crate::tune::execute::tuner_opener::TunerOpener;
 use crate::tune::{
-    AutotuneCheckable, AutotuneError, AutotuneKeyable, CheckResult, TunableSet, TuneInputs,
+    AutotuneCheckable, AutotuneError, AutotuneKey, CheckResult, TunableSet, TuneInputs,
 };
 
 /// Executes what a [`LocalTuner`](crate::tune::LocalTuner) is asked to: builds its sets, opens its
 /// tuners, and runs the candidate a key's tune elects.
-pub struct TuneExecutor<AK: AutotuneKeyable, ID> {
+pub struct TuneExecutor<AK: AutotuneKey, ID> {
     name: &'static str,
     tuners: Mutex<TunerOpener<AK, ID>>,
     sets: RwLock<SetInitializer<ID>>,
 }
 
-impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
+impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -127,7 +127,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     not(feature = "autotune-checks"),
     allow(unused_variables, clippy::unnecessary_wraps)
 )]
-fn check_candidates<'a, AK: AutotuneKeyable, I: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
+fn check_candidates<'a, AK: AutotuneKey, I: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
     operations: &TunableSet<AK, I, Out, Id>,
     inputs: &<I as TuneInputs>::At<'a>,
     client: &Client,
@@ -191,7 +191,7 @@ where
 /// # Panics
 ///
 /// When no candidate launches: some candidate serves the problem.
-fn run_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn run_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
     inputs: <I as TuneInputs>::At<'a>,
@@ -207,7 +207,7 @@ where
 /// Runs the candidates in `order`, the key's run order, and hands back the first output, or every
 /// candidate's error when none launches. A candidate that fails to launch is skipped, as the
 /// measurement skips it.
-fn execute_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     order: &[usize],
     inputs: <I as TuneInputs>::At<'a>,
@@ -242,7 +242,7 @@ fn first_served<Out>(
 /// Runs `decided`, the candidate the tune decided for `key`, or the next one in the key's run
 /// order that serves `inputs` when it rejects them: a key groups calls, and the decided candidate
 /// may serve only some of them.
-fn execute_decided<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn execute_decided<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
     decided: usize,
@@ -287,7 +287,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for FakeAutotuneKey {}
+    impl AutotuneKey for FakeAutotuneKey {}
 
     fn set() -> TunableSet<FakeAutotuneKey, (), usize> {
         TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())

@@ -20,9 +20,7 @@ use crate::tune::hook::hook_binder::enter_stage;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::measure::candidate_gathering::CandidateGathering;
 use crate::tune::measure::candidate_sampler::CandidateSampler;
-use crate::tune::{
-    AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs, TuneStage,
-};
+use crate::tune::{AutotuneCheckable, AutotuneKey, CheckResult, TunableSet, TuneInputs, TuneStage};
 
 /// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.
 ///
@@ -30,7 +28,7 @@ use crate::tune::{
 ///
 /// - Every tune of one tuner runs the same candidate list: the answers are keyed by the key alone.
 #[derive(Debug)]
-pub struct Tuner<K: AutotuneKeyable> {
+pub struct Tuner<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
     logger: Arc<Mutex<Logger>>,
 }
@@ -39,7 +37,7 @@ pub struct Tuner<K: AutotuneKeyable> {
 /// its tune was registered, or nothing where it only gathers kernels.
 type Opened<K> = Option<(PendingUnmarker<K>, Option<TuneRegistration>)>;
 
-impl<K: AutotuneKeyable> Tuner<K> {
+impl<K: AutotuneKey> Tuner<K> {
     /// A tuner whose unsettled keys are read from the persistent cache when persistence is
     /// available (feature `persistence`: a file natively, OPFS in the browser), in the table every
     /// device of `hardware` shares.
@@ -125,7 +123,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     }
 }
 
-impl<K: AutotuneKeyable> Tuner<K> {
+impl<K: AutotuneKey> Tuner<K> {
     /// Open the tune of `key` under the lock, or answer it without one: from memory, from the
     /// store, or at once for a set of one candidate.
     ///

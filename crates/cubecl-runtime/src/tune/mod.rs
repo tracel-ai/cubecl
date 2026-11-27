@@ -4,7 +4,7 @@
 //! per key.
 //!
 //! ```ignore
-//! #[derive(AutotuneKeyable)]
+//! #[derive(AutotuneKey)]
 //! struct KernelKey { size: u32 }
 //!
 //! fn run_kernel_tuned(device_id: DeviceId, lhs: Tensor, rhs: Tensor) -> Tensor {
@@ -65,7 +65,7 @@ pub use hook::input_generator::InputGenerator;
 pub use hook::key_generator::KeyGenerator;
 pub use hook::stage_enterer::StageEnterer;
 pub use hook::tune_stage::TuneStage;
-pub use key::keyable::AutotuneKeyable;
+pub use key::autotune_key::AutotuneKey;
 #[cfg(std_io)]
 pub use log::context::AutotuneDecision;
 pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};

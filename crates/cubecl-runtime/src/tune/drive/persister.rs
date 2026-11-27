@@ -5,20 +5,18 @@ use cubecl_environment::sync::Mutex;
 
 use crate::tune::cache::record::{Answer, TuneRecorder};
 use crate::tune::cache::tracker::TuneTracker;
-use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue,
-};
+use crate::tune::{AutotuneKey, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue};
 
 /// Persists what one tune answered: its decided candidate in the table, and the record of how it
 /// went.
-pub struct TunePersister<K: AutotuneKeyable> {
+pub struct TunePersister<K: AutotuneKey> {
     checksum: String,
     limit: Option<Duration>,
     bounds: Option<Bounds>,
     recorder: TuneRecorder<K>,
 }
 
-impl<K: AutotuneKeyable> TunePersister<K> {
+impl<K: AutotuneKey> TunePersister<K> {
     /// A persister of the tune of the candidate list `checksum` names, measured against `bounds`
     /// and their `limit`, and recorded by `recorder`.
     pub fn new(

@@ -9,7 +9,7 @@ use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
-use crate::tune::AutotuneKeyable;
+use crate::tune::AutotuneKey;
 #[cfg(persistence)]
 use crate::tune::cache::table::{
     PersistentCacheKey, PersistentCacheValue, TABLE_LAYOUT_VERSION, TuneTable, TuneTableName,
@@ -86,7 +86,7 @@ pub enum TuneAnswer {
     Miss,
 }
 
-impl<K: AutotuneKeyable> TuneTracker<K> {
+impl<K: AutotuneKey> TuneTracker<K> {
     /// A tracker of the answers of the tuner `name` on `hardware`, reading and writing that
     /// table unless the cache is disabled.
     pub fn new(
@@ -199,7 +199,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 }
 
 #[cfg(persistence)]
-impl<K: AutotuneKeyable> TuneTracker<K> {
+impl<K: AutotuneKey> TuneTracker<K> {
     /// A tracker over `persistent_cache`, its answers built for `table`.
     pub fn with_store(
         persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
@@ -281,7 +281,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     }
 }
 
-impl<K: AutotuneKeyable> TuneTracker<K> {
+impl<K: AutotuneKey> TuneTracker<K> {
     /// Whether `key` answers [`Compiled`](TuneAnswer::Compiled) on `service`.
     fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
@@ -292,7 +292,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 }
 
 #[cfg(persistence)]
-impl<K: AutotuneKeyable> TuneTracker<K> {
+impl<K: AutotuneKey> TuneTracker<K> {
     /// A tracker over the table `name` names, reading and writing it unless the cache is
     /// disabled. Opening a table, unless the cache is disabled, drops the tables an earlier layout
     /// wrote in the environment open then: once per process, so an environment switched to later
