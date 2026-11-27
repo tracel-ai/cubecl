@@ -198,7 +198,7 @@ where
     <I as TuneInputs>::At<'a>: Clone,
 {
     execute_in_plan_order(operations, &operations.plan_run_order(key), inputs).unwrap_or_else(
-        |failures| panic!("No autotune candidate for {key} launches.\n{failures:?}"),
+        |failures| panic!("Some autotune candidate for {key} should launch.\n{failures:?}"),
     )
 }
 
@@ -262,7 +262,9 @@ fn execute_elected<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
         operations.function_at(index).execute(spare.clone())
     })
     .unwrap_or_else(|failures| {
-        panic!("No autotune candidate for {key} serves this call.\n{rejection}\n{failures:?}")
+        panic!(
+            "Some autotune candidate for {key} should serve this call.\n{rejection}\n{failures:?}"
+        )
     })
 }
 
@@ -381,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "serves this call")]
+    #[should_panic(expected = "should serve this call")]
     fn a_call_no_candidate_serves_panics() {
         let operations = set().with(fails("elected")).with(fails("other"));
 
