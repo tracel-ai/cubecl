@@ -177,8 +177,8 @@ pub fn try_tensor_vector_size_parallel(
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is divisible by a candidate vector size
-/// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
-/// The second condition ensure that elements within the stride are contiguous.
+/// and that the axes with smaller strides are packed densely into exactly one step of the axis.
+/// The second condition ensures that elements within the stride are contiguous.
 pub fn tensor_vector_size_perpendicular(
     supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
@@ -199,14 +199,24 @@ pub fn try_tensor_vector_sizes_perpendicular(
         .get(axis)
         .ok_or(VectorizationError::AxisOutOfBounds)?;
 
-    let prod_shape_axes_smaller_strides = strides
+    // Matching the product of the inner shapes is not enough: padded rows can reach the same
+    // count, e.g. a pitched [2, 3] with strides [4, 1] under a size-1 axis of stride 6.
+    let mut inner_axes = strides
         .iter()
         .zip(shape.iter())
-        .filter(|(stride, _)| **stride < *axis_stride)
-        .map(|(_, shape)| shape)
-        .product::<usize>();
+        .filter(|&(stride, shape)| stride < axis_stride && *shape != 1)
+        .collect::<alloc::vec::Vec<_>>();
+    inner_axes.sort_unstable();
 
-    if *axis_stride != prod_shape_axes_smaller_strides {
+    let mut contiguous_len = 1;
+    for (stride, shape) in inner_axes {
+        if *stride != contiguous_len {
+            return Err(VectorizationError::StrideMismatch);
+        }
+        contiguous_len *= shape;
+    }
+
+    if *axis_stride != contiguous_len {
         return Err(VectorizationError::StrideMismatch);
     }
 
@@ -299,6 +309,24 @@ mod tests {
     #[test]
     fn parallel_axis_stride_not_one_is_error() {
         let err = try_parallel(&[1, 2, 4], &[1, 9, 4], &[36, 1, 4], 2).unwrap_err();
+        assert!(matches!(err, VectorizationError::StrideMismatch));
+    }
+
+    #[test]
+    fn perpendicular_dense_inner_axes_vectorize() {
+        let v =
+            try_tensor_vector_sizes_perpendicular([1, 2, 4].into_iter(), &[1, 2, 3], &[6, 3, 1], 0)
+                .unwrap();
+        assert_eq!(v, 2);
+    }
+
+    #[test]
+    fn perpendicular_padded_rows_reject_vectorization() {
+        // A pitched [2, 3] (row stride 4) reshaped to [1, 2, 3]: the size-1 axis gets
+        // stride 6, which matches the 2 * 3 inner elements, but they span 7 slots.
+        let err =
+            try_tensor_vector_sizes_perpendicular([1, 2, 4].into_iter(), &[1, 2, 3], &[6, 4, 1], 0)
+                .unwrap_err();
         assert!(matches!(err, VectorizationError::StrideMismatch));
     }
 }
