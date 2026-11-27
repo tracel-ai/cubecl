@@ -36,6 +36,7 @@ impl<'c> CandidateSampler<'c> {
     }
 
     /// The client of the device the candidates run on.
+    #[cfg(any(not(target_family = "wasm"), feature = "autotune-checks"))]
     pub fn client(&self) -> &'c Client {
         self.client
     }
