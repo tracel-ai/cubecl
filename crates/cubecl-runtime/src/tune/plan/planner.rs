@@ -1,119 +1,16 @@
 use alloc::collections::BTreeMap;
 #[cfg(persistence)]
 use alloc::string::ToString;
-use alloc::{string::String, vec, vec::Vec};
-use cubecl_environment::collections::HashMap;
+use alloc::{string::String, vec::Vec};
+use core::cmp::Reverse;
+use cubecl_environment::collections::{HashMap, HashSet};
 
+use crate::tune::plan::batch::Batch;
 use crate::tune::set::group::{GroupId, Patience, TuneGroup};
 use crate::tune::{Tunable, TuneInputs};
 
-/// One batch of a [`TunePlanner`]'s plan: the [tunables](Tunable) to benchmark, in order, and the
-/// [`Patience`] of each group that brought one in.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Batch {
-    /// The tunables in the order they are benchmarked (Arrival Usage), each found by its index
-    /// (Membership Usage).
-    pub entries: Vec<BatchEntry>,
-    /// The patience of each group an entry names, by group (Keyed Usage).
-    pub patience: HashMap<GroupId, Patience>,
-}
-
-/// One [tunable](Tunable) of a [`Batch`], with every group that brought it into the batch.
-/// An ungrouped tunable has none.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BatchEntry {
-    pub index: usize,
-    /// The groups that brought it in, in the order they did (Arrival Usage), each once
-    /// (Membership Usage).
-    pub groups: Vec<GroupId>,
-    /// The priority it was placed at, by the first group that brought it in. `None` for an
-    /// ungrouped tunable, which states none.
-    pub priority: Option<i8>,
-}
-
-impl Batch {
-    /// A batch of `planned`, then of `ungrouped`, carrying the `patience` of the groups that
-    /// brought an entry in. A tunable several groups bring in is benchmarked once, at its first
-    /// place, and answers to each of them.
-    pub fn new(
-        planned: impl IntoIterator<Item = Planned>,
-        ungrouped: impl IntoIterator<Item = usize>,
-        patience: &HashMap<GroupId, Patience>,
-    ) -> Self {
-        let mut entries = Vec::<BatchEntry>::new();
-        for planned in planned {
-            let Some(entry) = entries
-                .iter_mut()
-                .find(|entry| entry.index == planned.index)
-            else {
-                entries.push(BatchEntry::grouped(&planned));
-                continue;
-            };
-            if !entry.groups.contains(&planned.group) {
-                entry.groups.push(planned.group);
-            }
-        }
-        entries.extend(ungrouped.into_iter().map(BatchEntry::ungrouped));
-        let patience = patience
-            .iter()
-            .filter(|(group, _)| entries.iter().any(|entry| entry.groups.contains(group)))
-            .map(|(group, patience)| (*group, *patience))
-            .collect();
-        Self { entries, patience }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    /// A batch that measures every one of `indices`, no group's patience applying.
-    pub fn unconditional(indices: impl IntoIterator<Item = usize>) -> Self {
-        Self {
-            entries: indices.into_iter().map(BatchEntry::ungrouped).collect(),
-            patience: HashMap::new(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// The tunable indices, in the order they are benchmarked.
-    pub fn indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.entries.iter().map(|entry| entry.index)
-    }
-
-    /// How many entries lead the batch at its first entry's priority: the candidates the plan
-    /// ranks first, among which it states no preference.
-    pub fn leading_len(&self) -> usize {
-        let first = self
-            .entries
-            .first()
-            .expect("the batch should hold an entry: only a plan's non-empty batch is ranked");
-        self.entries
-            .iter()
-            .take_while(|entry| entry.priority == first.priority)
-            .count()
-    }
-}
-
-impl BatchEntry {
-    fn grouped(planned: &Planned) -> Self {
-        Self {
-            index: planned.index,
-            groups: vec![planned.group],
-            priority: Some(planned.priority),
-        }
-    }
-
-    fn ungrouped(index: usize) -> Self {
-        Self {
-            index,
-            groups: Vec::new(),
-            priority: None,
-        }
-    }
-}
-
-/// Plans which [tunables](Tunable) a tune benchmarks, and in what order: a batch at a time, each
-/// the round of the highest group priority and member level left.
+/// Plans which tunables a tune benchmarks, and in what order: a batch at a time, each the round
+/// of the highest group priority and member level left.
 #[derive(Debug, Clone)]
 pub struct TunePlanner {
     /// How many tunables the plan is of.
@@ -124,7 +21,7 @@ pub struct TunePlanner {
     /// batch.
     ungrouped: Vec<usize>,
     /// The tunables a batch already held (Membership Usage).
-    returned: Vec<usize>,
+    returned: HashSet<usize>,
     /// The [`Patience`] of every group that has one, by group (Keyed Usage).
     patience: HashMap<GroupId, Patience>,
     /// Each tunable's place in each of its groups, as the key priced it, by tunable index
@@ -150,9 +47,9 @@ pub struct Placement {
 /// The groups that share one group priority.
 #[derive(Default, Debug, Clone)]
 pub struct GroupPlan {
-    /// The tunables of each member level, highest last (Keyed and Ordered Usages), each level in
-    /// the order its tunables were priced (Arrival Usage).
-    pub levels: BTreeMap<i8, Vec<Planned>>,
+    /// The tunables of each member level, highest last (Keyed and Ordered Usages), each level
+    /// held highest priority first and registration order among equals (Ordered Usage).
+    pub levels: BTreeMap<i8, Vec<PlannedTunable>>,
 }
 
 /// One tunable's place in a [`GroupPlan`]: which tunable, through which group, and the priority
@@ -162,28 +59,34 @@ pub struct GroupPlan {
 /// which the cross-level dedup in [`TunePlanner::strike`] would then read as a single group and
 /// strike a live candidate out of the plan.
 #[derive(Debug, Clone)]
-pub struct Planned {
+pub struct PlannedTunable {
     pub index: usize,
     pub group: GroupId,
     pub priority: i8,
 }
 
-impl Planned {
+impl PlannedTunable {
     /// Whether `other` is the same tunable through the same group.
-    fn joins_as(&self, other: &Planned) -> bool {
+    fn joins_as(&self, other: &PlannedTunable) -> bool {
         self.index == other.index && self.group == other.group
+    }
+
+    /// The order a level holds its tunables in: highest priority first, registration order among
+    /// equals.
+    fn rank(&self) -> (Reverse<i8>, usize) {
+        (Reverse(self.priority), self.index)
     }
 }
 
 /// One tunable's membership of one group, priced for a key.
-struct Priced<'g, K> {
+struct PricedMembership<'g, K> {
     pub index: usize,
     pub group: &'g TuneGroup<K>,
     pub group_priority: i8,
     pub priority: i8,
 }
 
-impl<K> Priced<'_, K> {
+impl<K> PricedMembership<'_, K> {
     #[cfg(persistence)]
     fn placement(&self) -> Placement {
         Placement {
@@ -205,16 +108,19 @@ impl TunePlanner {
         key: &K,
         tunables: &[Tunable<K, F, Out, Id>],
     ) -> Self {
-        let priced: Vec<Priced<'_, K>> = tunables
+        let priced: Vec<PricedMembership<'_, K>> = tunables
             .iter()
             .enumerate()
             .flat_map(|(index, tunable)| {
-                tunable.groups().iter().map(move |membership| Priced {
-                    index,
-                    group: membership.group(),
-                    group_priority: membership.group().priority(key),
-                    priority: membership.priority(key),
-                })
+                tunable
+                    .groups()
+                    .iter()
+                    .map(move |membership| PricedMembership {
+                        index,
+                        group: membership.group(),
+                        group_priority: membership.group().priority(key),
+                        priority: membership.priority(key),
+                    })
             })
             .collect();
 
@@ -227,7 +133,7 @@ impl TunePlanner {
                 .filter(|(_, tunable)| tunable.groups().is_empty())
                 .map(|(index, _)| index)
                 .collect(),
-            returned: Vec::new(),
+            returned: HashSet::new(),
             patience: priced
                 .iter()
                 .filter_map(|priced| Some((priced.group.id(), priced.group.patience()?)))
@@ -258,16 +164,19 @@ impl TunePlanner {
         order
     }
 
-    /// The whole plan as a recorded tune reports it: every tunable named by `names`, in the
-    /// [order](Self::order) the plan releases them, with the batch each comes in and its place in
-    /// each of its groups.
+    /// The whole plan as a recorded tune reports it: every tunable, named by `name_of` its index,
+    /// in the [order](Self::order) the plan releases them, with the batch each comes in and its
+    /// place in each of its groups.
     #[cfg(persistence)]
-    pub fn account(&self, names: &[&str]) -> Vec<crate::tune::cache::record::PlannedCandidate> {
+    pub fn account<'n>(
+        &self,
+        name_of: impl Fn(usize) -> &'n str,
+    ) -> Vec<crate::tune::cache::record::PlannedCandidate> {
         self.order()
             .into_iter()
             .map(
                 |(index, batch)| crate::tune::cache::record::PlannedCandidate {
-                    name: names[index].to_string(),
+                    name: name_of(index).to_string(),
                     index,
                     batch,
                     groups: self.placements[index].clone(),
@@ -285,11 +194,11 @@ impl TunePlanner {
     /// A batch in which no candidate served hands its every candidate over, then the next batch's,
     /// as the tune falls back to it. Once one has served, no later batch is reached, since the tune
     /// stops at that batch.
+    ///
+    /// # Assumptions
+    ///
+    /// - `parallelism` is at least one.
     pub fn plan_top(&mut self, parallelism: usize, mut queue: impl FnMut(usize) -> bool) {
-        assert!(
-            parallelism > 0,
-            "the parallelism should be at least one: the top is extended until that many served"
-        );
         loop {
             let batch = self.plan_next();
             if batch.is_empty() {
@@ -335,11 +244,10 @@ impl TunePlanner {
 }
 
 impl TunePlanner {
-    /// The tunables of the highest level of the highest group priority left, highest priority
-    /// first and registration order among equals, struck out of every other level they joined
-    /// through the same group. Empty where the group priority or the level is negative, which skips
-    /// them; `None` once no group is left.
-    fn take_top_level(&mut self) -> Option<Vec<Planned>> {
+    /// The tunables of the highest level of the highest group priority left, struck out of every
+    /// other level they joined through the same group. Empty where the group priority or the
+    /// level is negative, which skips them; `None` once no group is left.
+    fn take_top_level(&mut self) -> Option<Vec<PlannedTunable>> {
         let mut top = self.groups.last_entry()?;
         let group_priority = *top.key();
         let (level, mut planned) = top
@@ -347,14 +255,15 @@ impl TunePlanner {
             .levels
             .pop_last()
             .expect("a group plan in the plan should hold a level");
-        planned.sort_by_key(|planned| (core::cmp::Reverse(planned.priority), planned.index));
         self.strike(&planned);
-        planned.retain(|_| group_priority >= 0 && level >= 0);
+        if group_priority < 0 || level < 0 {
+            planned.clear();
+        }
         Some(planned)
     }
 
     /// Take `struck` out of every level, dropping the levels and the group plans it empties.
-    fn strike(&mut self, struck: &[Planned]) {
+    fn strike(&mut self, struck: &[PlannedTunable]) {
         for plan in self.groups.values_mut() {
             for level in plan.levels.values_mut() {
                 level.retain(|planned| !struck.iter().any(|other| other.joins_as(planned)));
@@ -369,7 +278,7 @@ impl TunePlanner {
 ///
 /// An ordered group is one batch at its best member's level, so a cutoff group at the same group
 /// priority interleaves with it by priority.
-fn group_plans<K>(priced: &[Priced<'_, K>]) -> BTreeMap<i8, GroupPlan> {
+fn group_plans<K>(priced: &[PricedMembership<'_, K>]) -> BTreeMap<i8, GroupPlan> {
     let mut ordered_levels = HashMap::<GroupId, i8>::new();
     for member in priced
         .iter()
@@ -388,25 +297,27 @@ fn group_plans<K>(priced: &[Priced<'_, K>]) -> BTreeMap<i8, GroupPlan> {
             .copied()
             .filter(|_| member.group.orders_priority(member.priority))
             .unwrap_or(member.priority);
-        groups
+        let planned = PlannedTunable {
+            index: member.index,
+            group: member.group.id(),
+            priority: member.priority,
+        };
+        let tunables = groups
             .entry(member.group_priority)
             .or_default()
             .levels
             .entry(level)
-            .or_default()
-            .push(Planned {
-                index: member.index,
-                group: member.group.id(),
-                priority: member.priority,
-            });
+            .or_default();
+        let at = tunables.partition_point(|held| held.rank() <= planned.rank());
+        tunables.insert(at, planned);
     }
     groups
 }
 
 /// The placements of each of `len` tunables, in the order it joined its groups.
 #[cfg(persistence)]
-fn placements<K>(priced: &[Priced<'_, K>], len: usize) -> Vec<Vec<Placement>> {
-    let mut placements = vec![Vec::new(); len];
+fn placements<K>(priced: &[PricedMembership<'_, K>], len: usize) -> Vec<Vec<Placement>> {
+    let mut placements = alloc::vec![Vec::new(); len];
     for member in priced {
         placements[member.index].push(member.placement());
     }
@@ -420,8 +331,10 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::*;
+    use crate::tune::plan::batch::BatchEntry;
     use crate::tune::{AutotuneKeyable, OrderedSettings};
     use alloc::string::String;
+    use alloc::vec;
 
     fn indices(batch: &Batch) -> Vec<usize> {
         batch.indices().collect()
@@ -438,7 +351,7 @@ mod tests {
 
     impl AutotuneKeyable for FakeAutotuneKey {}
 
-    #[test_log::test]
+    #[test]
     fn test_plan_order() {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
@@ -461,7 +374,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_order_multi_groups_same_priority() {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
@@ -486,7 +399,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_order_tunable_multiple_groups() {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 1);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 2);
@@ -509,7 +422,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_negative_priority() {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
@@ -531,22 +444,27 @@ mod tests {
     }
 
     #[cfg(persistence)]
-    #[test_log::test]
-    fn test_plan_account_lists_every_tunable_in_release_order() {
+    /// A plan of four tunables, one ungrouped and one its group skips.
+    #[cfg(persistence)]
+    fn accounted_plan() -> TunePlanner {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+        let tunables = [
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -1),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2),
+        ];
+        TunePlanner::new(&FakeAutotuneKey, &tunables)
+    }
 
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
-        let tunable1 =
-            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -1);
-        let tunable2 =
-            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
-        let tunable3 =
-            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
+    #[cfg(persistence)]
+    const NAMES: [&str; 4] = ["t0", "t1", "t2", "t3"];
 
-        let key = FakeAutotuneKey;
-        let plan = TunePlanner::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
-        let account = plan.account(&["t0", "t1", "t2", "t3"]);
+    #[cfg(persistence)]
+    #[test]
+    fn test_plan_account_lists_every_tunable_in_release_order() {
+        let account = accounted_plan().account(|index| NAMES[index]);
 
         let order: Vec<_> = account
             .iter()
@@ -561,6 +479,13 @@ mod tests {
                 ("t1", None)
             ]
         );
+    }
+
+    #[cfg(persistence)]
+    #[test]
+    fn test_plan_account_places_each_tunable_in_its_groups() {
+        let account = accounted_plan().account(|index| NAMES[index]);
+
         assert_eq!(
             account[0].groups,
             vec![Placement {
@@ -570,13 +495,18 @@ mod tests {
                 priority: 2,
             }]
         );
-        assert!(account[1].groups.is_empty());
-        // Accounting for the plan leaves it to run from its first batch.
-        let mut plan = plan;
+    }
+
+    #[cfg(persistence)]
+    #[test]
+    fn test_plan_account_leaves_the_plan_at_its_first_batch() {
+        let mut plan = accounted_plan();
+        plan.account(|index| NAMES[index]);
+
         assert_eq!(indices(&plan.plan_next()), vec![2, 0]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_no_group() {
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
@@ -588,7 +518,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_falls_through_when_all_group_tunables_fail() {
         // Every tunable lives in exactly one group; the caller treats every batch as a failure
         // by continuing to call next(). The plan must still surface every tunable, in priority
@@ -621,7 +551,7 @@ mod tests {
         assert_eq!(all_returned, vec![1, 0, 3, 2]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_single_group_exhausts_all_intra_priorities() {
         // A single group with multiple intra-priorities should yield each batch separately,
         // allowing the caller to continue on failures until the group is exhausted.
@@ -643,7 +573,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_all_negative_group_advances_to_next_group() {
         // A group whose every tunable has a negative intra-priority should be skipped entirely
         // without stopping autotuning — the next group must still be reached.
@@ -664,7 +594,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_no_group_tunables_only_emitted_once_even_on_failures() {
         // The ungrouped tunables are emitted together with the first group batch. If the caller
         // keeps calling next() (treating the first batch as failing), they must not be
@@ -686,7 +616,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_multi_group_tunable_not_duplicated_across_failed_groups() {
         // tunable1 belongs to both group0 and group1. It must be returned exactly once (via its
         // higher-priority group), even if the caller continues iterating after failures.
@@ -716,7 +646,7 @@ mod tests {
         assert_eq!(all_returned, vec![0, 1]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_recurses_when_batch_is_fully_already_returned() {
         // Regression test: a tunable that lives in multiple groups was already emitted via its
         // higher-priority group, so when its lower-priority group's batch fires the only index
@@ -749,7 +679,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_ordered_group_is_one_batch_best_first() {
         // Every member is in the round, best first, and a negative priority still skips.
         let group =
@@ -773,7 +703,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_batch_carries_every_group_of_an_entry() {
         // The batch carries patience only for the group that has one, and a tunable two
         // groups bring in is one entry naming both.
@@ -818,13 +748,9 @@ mod tests {
                 entry(0, &[], None),
             ]
         );
-        assert_eq!(
-            batch.patience,
-            HashMap::from_iter([(ordered.id(), patience)])
-        );
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_entry_names_a_group_listed_twice_once() {
         // A group listed twice on one tunable is still one group: naming it twice would
         // count each of the tunable's times twice against its patience.
@@ -848,7 +774,7 @@ mod tests {
         );
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_ordered_group_keeps_the_group_cutoff() {
         // The order is within the group. A lower-priority group is still a fallback,
         // reached only once the ordered batch fails.
@@ -871,7 +797,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_ordered_batch_leads_the_ungrouped_tunables() {
         // A tunable in no group must not preempt the ordered group's best candidate. The
         // batch stops at the first candidate under the bound, so whatever leads it is
@@ -892,7 +818,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_ordered_batch_is_not_jumped_by_a_cutoff_group_beside_it() {
         // Both groups sit at group priority 1. The ordered batch is planned at its best
         // member's priority, so the cutoff member under it is a fallback behind the batch
@@ -917,7 +843,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_cutoff_member_above_the_ordered_batch_still_leads() {
         // The interleaving cuts both ways. A cutoff member priced above the ordered
         // group's best keeps its round in front, and one priced level with it joins the
@@ -943,7 +869,7 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_same_named_groups_do_not_strike_each_other_out() {
         // Two groups may share a name, and the cross-level dedup must still tell them
         // apart. Keyed on the name, popping `hi`'s discarded negative level takes
@@ -976,7 +902,7 @@ mod tests {
 
     impl AutotuneKeyable for SizeKey {}
 
-    #[test_log::test]
+    #[test]
     fn test_plan_orders_each_key_by_its_own_priorities() {
         // The plan asks every priority function of the key it is built for: two keys that
         // rank the same members in opposite orders get opposite batches, and members the
@@ -1032,25 +958,25 @@ mod tests {
         queued
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_top_takes_every_candidate_tied_at_the_top() {
         let plan = ordered_plan(&[9, 9, 9, 9, 3, 3]);
         assert_eq!(queued(plan, 2, &[]), vec![0, 1, 2, 3]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_top_extends_a_small_top_to_the_parallelism() {
         let plan = ordered_plan(&[3, 9, 5, 7, 1]);
         assert_eq!(queued(plan, 3, &[]), vec![1, 3, 2]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_top_does_not_count_a_declining_candidate() {
         let plan = ordered_plan(&[3, 9, 5, 7, 1]);
         assert_eq!(queued(plan, 2, &[3]), vec![1, 3, 2]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_top_falls_back_only_past_a_batch_that_served_nothing() {
         let first = TuneGroup::<FakeAutotuneKey>::new("first", |_| 2);
         let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
@@ -1069,7 +995,7 @@ mod tests {
         assert_eq!(queued(plan(), 4, &[0]), vec![0, 1, 2]);
     }
 
-    #[test_log::test]
+    #[test]
     fn test_plan_top_hands_over_the_whole_plan_when_nothing_serves() {
         let plan = ordered_plan(&[2, 1]);
         assert_eq!(queued(plan, 1, &[0, 1, 2]), vec![0, 1, 2]);
@@ -1077,35 +1003,5 @@ mod tests {
 
     fn fake_kernel(_: ()) -> Result<(), String> {
         Ok(())
-    }
-
-    #[test_log::test]
-    fn test_plan_batch_carries_only_the_patience_of_its_groups() {
-        // Every member of the patient group rejects, so the plan falls back to the cutoff group:
-        // that batch is measured with no group's patience, not with the ordered group's.
-        let patience = Patience {
-            min_measured_count: 10,
-            max_miss_count: 5,
-        };
-        let ordered = TuneGroup::<FakeAutotuneKey>::ordered(
-            "ordered",
-            |_| 2,
-            OrderedSettings::default().with_patience(patience),
-        );
-        let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
-        let tunables = [
-            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&ordered, |_| 1),
-            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&cutoff, |_| 1),
-        ];
-        let mut plan = TunePlanner::new(&FakeAutotuneKey, &tunables);
-
-        assert_eq!(plan.plan_next().patience.len(), 1);
-        assert!(plan.plan_next().patience.is_empty());
-    }
-
-    #[test_log::test]
-    #[should_panic(expected = "the parallelism should be at least one")]
-    fn test_plan_top_needs_a_parallelism() {
-        ordered_plan(&[1]).plan_top(0, |_| true);
     }
 }

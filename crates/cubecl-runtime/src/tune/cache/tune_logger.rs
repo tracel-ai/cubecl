@@ -238,7 +238,7 @@ mod tests {
     }
 
     fn measured(index: usize, micros: u64) -> AutotuneResult {
-        AutotuneResult::success(AutotuneOutcome::new(
+        AutotuneResult::from_outcome(AutotuneOutcome::new(
             alloc::format!("k{index}"),
             index,
             BenchmarkComputations::new(&BenchmarkDurations::from_durations(
@@ -302,9 +302,9 @@ mod tests {
 
     #[test]
     fn an_unmeasured_decision_has_nothing_to_report() {
-        let results = [AutotuneResult::error(crate::tune::AutotuneError::Skip {
-            name: "k0".into(),
-        })];
+        let results = [AutotuneResult::from_error(
+            crate::tune::AutotuneError::Skip { name: "k0".into() },
+        )];
 
         assert!(measured_at(&results, 0).is_none());
     }

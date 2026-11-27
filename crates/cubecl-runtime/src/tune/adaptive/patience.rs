@@ -5,7 +5,7 @@ use cubecl_environment::collections::HashMap;
 
 use crate::tune::Patience;
 use crate::tune::adaptive::sample_keeper::TimeChange;
-use crate::tune::plan::planner::Batch;
+use crate::tune::plan::batch::Batch;
 use crate::tune::set::group::GroupId;
 
 /// Tracks how every group with a [`Patience`] in a [`Batch`] fares, through the groups that
@@ -115,7 +115,7 @@ impl GroupTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tune::plan::planner::BatchEntry;
+    use crate::tune::plan::batch::BatchEntry;
 
     /// Feeds each member's best time in microseconds to a fresh [`GroupTracker`], returning how
     /// many were measured before patience ran out, if it did.

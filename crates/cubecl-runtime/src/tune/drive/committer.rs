@@ -1,4 +1,4 @@
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
@@ -7,7 +7,7 @@ use cubecl_common::profile::ProfileDuration;
 #[cfg(not(target_family = "wasm"))]
 use cubecl_common::device::ServiceId;
 
-use crate::tune::cache::tracker::TuneCacheResult;
+use crate::tune::cache::tracker::{TuneCacheResult, best_scored};
 use crate::tune::cache::tune_logger::TuneLogger;
 use crate::tune::drive::sample_time::measured;
 use crate::tune::drive::settler::TuneSettler;
@@ -78,7 +78,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         Self {
             key,
             results: names
-                .map(|name| AutotuneResult::error(AutotuneError::Skip { name: name.into() }))
+                .map(|name| AutotuneResult::from_error(AutotuneError::Skip { name: name.into() }))
                 .collect(),
             logger,
             settler,
@@ -146,36 +146,34 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         let resolved = resolve_benches(pending).await;
         record_benches(&mut self.logger, &mut self.results, resolved);
 
-        // Read before the sort, which reorders `results` out of tunable order. A winner whose own
-        // outcome is an error is one picked with nothing measured — the tune executed but could
-        // not be timed.
-        let fastest_index = decided
-            .or_else(|| best_scored(&self.results))
+        // A winner whose own outcome is an error is one picked with nothing measured: the tune
+        // executed but could not be timed.
+        let decided_index = decided
+            .or_else(|| best_scored(self.results.iter()))
             .unwrap_or_else(|| unmeasured_pick(&self.key, &self.results));
-        let unmeasured = self.results[fastest_index].outcome.is_err();
-
-        // Orders what gets logged and persisted. It does not pick the winner when the strategy
-        // already did: a scheduler that eliminates candidates leaves results built from different
-        // sample counts behind, and `score` reads a short sample set as a stable one.
-        self.results.sort_by_key(AutotuneResult::score);
+        let unmeasured = self.results[decided_index].outcome.is_err();
         self.settler.settle(
             self.key,
             self.results,
-            fastest_index,
+            decided_index,
             unmeasured,
             &self.logger,
         );
 
-        TuneCacheResult::Hit { fastest_index }
+        TuneCacheResult::Hit {
+            fastest_index: decided_index,
+        }
     }
 }
 
 /// Resolve every bench of `pending`, together, in launch order.
 ///
-/// Resolved concurrently, and each benchmark timed individually rather than timing the loop: the
-/// profiles were all queued before any of them was polled, so awaiting them in turn would charge
-/// the first benchmark for draining the whole device queue and report the rest as free.
-pub async fn resolve_benches(pending: Vec<LaunchedBench>) -> Vec<ResolvedBench> {
+/// Each benchmark is timed on its own rather than timing the loop: the profiles were all queued
+/// before any of them was polled, so awaiting them in turn would charge the first benchmark for
+/// draining the whole device queue and report the rest as free.
+pub async fn resolve_benches(
+    pending: impl IntoIterator<Item = LaunchedBench>,
+) -> Vec<ResolvedBench> {
     futures_util::future::join_all(pending.into_iter().map(resolve_bench)).await
 }
 
@@ -187,8 +185,7 @@ pub async fn resolve_bench(bench: LaunchedBench) -> ResolvedBench {
     }
 }
 
-/// Log the step of every bench of `resolved` in order, and keep its result in `results` at its
-/// index.
+/// [`record_bench`] every bench of `resolved`, in order.
 pub fn record_benches(
     logger: &mut TuneLogger,
     results: &mut [AutotuneResult],
@@ -207,15 +204,6 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
     results[bench.index] = bench.result;
 }
 
-/// The index of the measured result that scores best: the first of them among equals.
-fn best_scored(results: &[AutotuneResult]) -> Option<usize> {
-    results
-        .iter()
-        .filter_map(|result| result.outcome.as_ref().ok())
-        .min_by_key(|outcome| outcome.computation.score())
-        .map(|outcome| outcome.index)
-}
-
 /// The candidate a tune that measured nothing decides: the first one that executed but could not
 /// be measured.
 ///
@@ -228,14 +216,15 @@ fn best_scored(results: &[AutotuneResult]) -> Option<usize> {
 ///
 /// # Panics
 ///
-/// When no candidate of `results` executed: some candidate serves the problem.
+/// When no candidate of `results` executed: some candidate the plan schedules executes on the device
+/// and only its timing fails, or one measures.
 pub fn unmeasured_pick<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
     let index = results
         .iter()
         .position(AutotuneResult::executed_unmeasured)
         .unwrap_or_else(|| {
             panic!(
-                "Can't execute the autotune plan for key: {key:?}: some candidate should serve the problem\n - results: {results:?}"
+                "Can't execute the autotune plan for key: {key:?}: some candidate the plan schedules should execute on the device\n - results: {results:?}"
             )
         });
     log::warn!(
@@ -271,13 +260,10 @@ async fn resolve_samples(
     name: String,
     profiles: Vec<ProfileDuration>,
 ) -> AutotuneResult {
-    let Some(first) = profiles.first() else {
-        return AutotuneResult::error(AutotuneError::Unknown {
-            name: name.to_string(),
-            err: "No profiling available".to_string(),
-        });
-    };
-    let timing_method = first.timing_method();
+    let timing_method = profiles
+        .first()
+        .expect("a queued bench should hold a sample: a benchmark that queued answers at least one")
+        .timing_method();
 
     // One sample that is no time disqualifies the candidate, the way one failed sample does.
     // Dropping it and averaging the rest would let a candidate whose window went untimed be
@@ -289,10 +275,10 @@ async fn resolve_samples(
             .map(measured)
             .collect::<Option<Vec<Duration>>>()
     else {
-        return AutotuneResult::error(AutotuneError::NotMeasured { name });
+        return AutotuneResult::from_error(AutotuneError::NotMeasured { name });
     };
 
-    AutotuneResult::success(AutotuneOutcome::new(
+    AutotuneResult::from_outcome(AutotuneOutcome::new(
         name,
         index,
         BenchmarkComputations::new(&BenchmarkDurations::from_durations(
@@ -305,22 +291,9 @@ async fn resolve_samples(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
-    use cubecl_common::profile::TimingMethod;
-
-    fn measured_result(index: usize, micros: u64) -> AutotuneResult {
-        AutotuneResult::success(AutotuneOutcome::new(
-            alloc::format!("k{index}"),
-            index,
-            BenchmarkComputations::new(&BenchmarkDurations::from_durations(
-                TimingMethod::System,
-                vec![Duration::from_micros(micros)],
-            )),
-        ))
-    }
 
     fn failed(error: AutotuneError) -> AutotuneResult {
-        AutotuneResult::error(error)
+        AutotuneResult::from_error(error)
     }
 
     fn unknown() -> AutotuneError {
@@ -328,22 +301,6 @@ mod tests {
             name: "untimed".into(),
             err: "no timestamp query".into(),
         }
-    }
-
-    #[test]
-    fn the_best_scored_measurement_wins_when_nothing_was_decided() {
-        let results = [
-            measured_result(0, 50),
-            measured_result(1, 40),
-            failed(unknown()),
-        ];
-
-        assert_eq!(best_scored(&results), Some(1));
-    }
-
-    #[test]
-    fn nothing_measured_scores_nothing() {
-        assert_eq!(best_scored(&[failed(unknown())]), None);
     }
 
     #[test]
@@ -357,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "some candidate should serve the problem")]
+    #[should_panic(expected = "should execute on the device")]
     fn a_plan_where_nothing_executed_panics() {
         let launch = failed(AutotuneError::HoldFailed {
             name: "unheld".into(),
@@ -368,37 +325,19 @@ mod tests {
     }
 
     #[test]
-    fn a_bench_that_failed_to_launch_resolves_to_its_error_and_its_step() {
+    fn a_bench_that_failed_to_launch_resolves_to_its_result() {
         let failure = ResolvedBench {
             index: 0,
-            step: Some(("k0".into(), Duration::from_micros(2))),
+            step: None,
             result: failed(unknown()),
         };
-        let mut logger = TuneLogger::new(&crate::config::Logger::new(), true);
-        let mut results = vec![measured_result(0, 1)];
 
         let resolved =
-            cubecl_environment::future::block_on(resolve_benches(vec![LaunchedBench::Failed(
-                failure,
-            )]));
-        record_benches(&mut logger, &mut results, resolved);
+            cubecl_environment::future::block_on(resolve_bench(LaunchedBench::Failed(failure)));
 
-        assert!(results[0].outcome.is_err());
-        assert_eq!(
-            logger
-                .context()
-                .expect("a recorded tune should keep its context")
-                .events
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn a_bench_with_no_samples_is_a_harness_failure() {
-        let result =
-            cubecl_environment::future::block_on(resolve_samples(0, "k0".into(), Vec::new()));
-
-        assert!(result.executed_unmeasured());
+        assert!(resolved.result.outcome.is_err());
     }
 }
+
+#[cfg(test)]
+mod tests_with_logger;

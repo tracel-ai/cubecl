@@ -15,7 +15,7 @@ use crate::tune::drive::committer::{
 use crate::tune::drive::tune_benchmark::tune_benchmark;
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
 #[cfg(not(target_family = "wasm"))]
-use crate::tune::plan::planner::Batch;
+use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{
@@ -117,7 +117,7 @@ where
                 config: config.autotune.bench.clone(),
                 short_circuit_limit: self.short_circuit_limit,
                 track_steps: self.track_steps,
-                compile_parallelism: config.compilation.parallelism(),
+                compile_parallelism_count: config.compilation.parallelism(),
             },
             self.evictor.take(),
             self.stage_enterer.take(),
@@ -269,7 +269,7 @@ where
             Err(err) => LaunchedBench::Failed(ResolvedBench {
                 index,
                 step: launch.map(|launch| (name, launch)),
-                result: AutotuneResult::error(err),
+                result: AutotuneResult::from_error(err),
             }),
         }
     }

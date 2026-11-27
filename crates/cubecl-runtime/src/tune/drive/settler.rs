@@ -44,8 +44,7 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
     }
 
     /// Settle `key` on `fastest_index`, which is `unmeasured` where it was picked with nothing
-    /// measured, `results` holding every candidate's result as the report and the table rank
-    /// them.
+    /// measured, `results` holding every candidate's result by tunable index.
     pub fn settle(
         self,
         key: K,
@@ -54,6 +53,9 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         unmeasured: bool,
         logger: &TuneLogger,
     ) {
+        // Ranked for the report and the table: measured ones first, fastest first.
+        let mut results = results;
+        results.sort_by_key(AutotuneResult::score);
         logger.log_result(&mut self.log_sink.lock(), &key, &results, fastest_index);
         // In-memory regardless: without it this key re-tunes on every call, and a tune that
         // measured nothing would keep failing the same way.

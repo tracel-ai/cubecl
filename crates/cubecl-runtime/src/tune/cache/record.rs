@@ -142,8 +142,7 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         let Some(open) = &mut self.open else {
             return;
         };
-        let names: Vec<&str> = autotunables.iter().map(|tune| tune.name()).collect();
-        open.plan = plan.account(&names);
+        open.plan = plan.account(|index| autotunables[index].name());
     }
 
     /// Write the record of the tune that just answered.

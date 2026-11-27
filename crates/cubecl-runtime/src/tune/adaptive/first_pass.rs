@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::tune::adaptive::patience::PatienceTracker;
-use crate::tune::plan::planner::Batch;
+use crate::tune::plan::batch::Batch;
 
 /// The next candidate a batch's first pass measures, and the candidates to compile before it.
 #[derive(Debug, PartialEq, Eq)]
@@ -104,7 +104,7 @@ impl FirstPassPlanner {
 mod tests {
     use super::*;
     use crate::tune::Patience;
-    use crate::tune::plan::planner::BatchEntry;
+    use crate::tune::plan::batch::BatchEntry;
     use crate::tune::set::group::GroupId;
 
     /// A batch of `len` candidates of one ordered group with `patience`.

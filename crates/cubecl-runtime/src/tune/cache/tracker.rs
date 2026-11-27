@@ -98,16 +98,21 @@ pub struct AutotuneResult {
 }
 
 impl AutotuneResult {
-    pub(crate) fn error(error: AutotuneError) -> Self {
+    pub(crate) fn from_error(error: AutotuneError) -> Self {
         Self {
             outcome: Err(error),
         }
     }
 
-    pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
+    pub(crate) fn from_outcome(outcome: AutotuneOutcome) -> Self {
         Self {
             outcome: Ok(outcome),
         }
+    }
+
+    /// What the candidate measured, if it measured.
+    pub(crate) fn measured(&self) -> Option<&AutotuneOutcome> {
+        self.outcome.as_ref().ok()
     }
 
     /// The score a tune that compares the results ranks this one by, the worst there is where it
@@ -124,6 +129,15 @@ impl AutotuneResult {
             .as_ref()
             .is_err_and(AutotuneError::executed_unmeasured)
     }
+}
+
+/// The index of the measured result of `results` that scores best: the first of them among
+/// equals.
+pub fn best_scored<'a>(results: impl Iterator<Item = &'a AutotuneResult>) -> Option<usize> {
+    results
+        .filter_map(AutotuneResult::measured)
+        .min_by_key(|outcome| outcome.computation.score())
+        .map(|outcome| outcome.index)
 }
 
 impl Eq for AutotuneResult {}
@@ -627,7 +641,7 @@ mod small_tests {
     #[test]
     fn a_failed_result_scores_worst_and_two_failures_are_equal() {
         let failure = || {
-            AutotuneResult::error(AutotuneError::Skip {
+            AutotuneResult::from_error(AutotuneError::Skip {
                 name: "skipped".into(),
             })
         };
