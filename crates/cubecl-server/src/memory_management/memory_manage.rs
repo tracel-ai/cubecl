@@ -1,5 +1,5 @@
 use super::{
-    AdaptiveReserver, BucketReserver, DEDICATED_POOL_POS, ManagedMemoryBinding,
+    AdaptiveReserver, BucketReserver, DEDICATED_POOL_POS, IMPORTED_POOL_POS, ManagedMemoryBinding,
     ManagedMemoryDescriptor, ManagedMemoryHandle, MemoryAllocationMode, MemoryAllocationOption,
     MemoryConfiguration, MemoryLocation, MemoryManagementOptions, MemoryPoolReport,
     MemoryPoolsReport, PERSISTENT_POOL_POS, PageGuard,
@@ -357,6 +357,16 @@ impl<Storage: StorageAllocator> MemoryManagement<Storage> {
         self.reserver.memory_report()
     }
 
+    /// Hold `storage`, host memory the storage [imported](StorageAllocator::import_host_memory), as
+    /// an allocation of its own, and the handle a [bind](Self::bind) assigns it from.
+    ///
+    /// # Assumptions
+    ///
+    /// `storage` came from an import of this memory's storage, and no slice holds it yet.
+    pub fn adopt_import(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
+        self.reserver.imported.adopt(storage)
+    }
+
     /// Log the current memory usage.
     pub fn print_memory_usage(&self) {
         self.reserver.print_memory_usage();
@@ -476,6 +486,11 @@ struct MemoryReserver<Storage> {
     /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectSliceReserver,
+    /// Host memory the storage
+    /// [imported](crate::storage::StorageAllocator::import_host_memory), placed here by
+    /// [`adopt_import`](MemoryManagement::adopt_import): never handed out by a reservation, released
+    /// to the storage on the tick after it is freed.
+    imported: DirectSliceReserver,
     dynamic: MemoryReserverDispatch,
     storage: Storage,
     /// The reservations made so far, which the pools' deallocation periods
@@ -509,6 +524,7 @@ enum MemoryReserverDispatch {
 enum PoolPosition {
     Persistent,
     Dedicated,
+    Imported,
     Dynamic(u8),
 }
 
@@ -518,6 +534,7 @@ impl PoolPosition {
         match pool_index {
             PERSISTENT_POOL_POS => PoolPosition::Persistent,
             DEDICATED_POOL_POS => PoolPosition::Dedicated,
+            IMPORTED_POOL_POS => PoolPosition::Imported,
             index => PoolPosition::Dynamic(index),
         }
     }
@@ -553,6 +570,12 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
                 properties.max_allocation_size(),
                 properties.alignment,
                 DEDICATED_POOL_POS,
+                Some(0),
+            ),
+            imported: DirectSliceReserver::new(
+                properties.max_allocation_size(),
+                properties.alignment,
+                IMPORTED_POOL_POS,
                 Some(0),
             ),
             dynamic,
@@ -608,7 +631,8 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         self.persistent
             .cleanup(&mut self.storage, self.reservation_count, cleanup, failures);
         // Dedicated buffers never wait for an explicit cleanup: freed is done.
-        let reclaimed = self.dedicated.reclaim(&mut self.storage, failures);
+        let reclaimed = self.dedicated.reclaim(&mut self.storage, failures)
+            | self.imported.reclaim(&mut self.storage, failures);
         self.cleanup_dynamic(cleanup, failures);
 
         // The pools only queue their page deallocations in the storage; a
@@ -654,6 +678,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         match PoolPosition::from_pool_index(location.pool) {
             PoolPosition::Persistent => &self.persistent,
             PoolPosition::Dedicated => &self.dedicated,
+            PoolPosition::Imported => &self.imported,
             PoolPosition::Dynamic(index) => self
                 .dynamic_pool_by_index(index)
                 .expect("a location should name a pool of the memory that placed it"),
@@ -675,6 +700,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         match PoolPosition::from_pool_index(location.pool) {
             PoolPosition::Persistent => Some(&mut self.persistent),
             PoolPosition::Dedicated => Some(&mut self.dedicated),
+            PoolPosition::Imported => Some(&mut self.imported),
             PoolPosition::Dynamic(index) => self.dynamic_pool_by_index_mut(index),
         }
     }
@@ -738,6 +764,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
         match PoolPosition::from_pool_index(location.pool) {
             PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
             PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
+            PoolPosition::Imported => self.imported.materialize(&mut self.storage, binding),
             PoolPosition::Dynamic(_) => self.materialize_dynamic(binding),
         }
     }
@@ -919,6 +946,7 @@ impl<Storage: StorageAllocator> MemoryReserver<Storage> {
             dynamic: self.report_dynamic(),
             persistent: self.persistent.report(),
             dedicated: self.dedicated.report(),
+            imported: self.imported.report(),
         }
     }
 

@@ -25,7 +25,7 @@ use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
-use crate::storage::ManagedResource;
+use crate::storage::{HostRange, ManagedResource, StorageAllocator};
 use crate::stream::ResolvedStreams;
 use crate::stream::{Placement, TouchedPage};
 use alloc::boxed::Box;
@@ -344,6 +344,50 @@ impl<'a, D: Driver> Command<'a, D> {
         Ok(())
     }
 
+    /// Release what the current stream's storage deferred.
+    ///
+    /// # Guarantees
+    ///
+    /// Releases nothing while a stream of the device records: freeing memory, or letting go of an
+    /// import, fails a recording on drivers such as HIP.
+    pub fn flush_storage(&mut self) {
+        if self.device_records() {
+            return;
+        }
+        self.streams.current().device_memory().storage().flush();
+    }
+
+    /// A handle to `host`, which the device's kernels read in place, imported into the current
+    /// stream's memory.
+    ///
+    /// # Guarantees
+    ///
+    /// Reaches no driver while a stream of the device records: pinning memory fails a recording
+    /// on drivers such as HIP.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when a stream of the device records a graph, the device
+    /// imports no host memory, or its driver refuses the range.
+    pub fn import_host_memory(&mut self, host: &HostRange) -> Result<Handle, IoError> {
+        // Pinning fails a recording on drivers such as HIP, and so would the releases it retires.
+        if self.device_records() {
+            return Err(IoError::HostMemoryRefused {
+                reason: "a stream is recording a graph: import before recording".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let handle = Handle::new(self.service, self.streams.current, host.len());
+        let (stream, failures) = self.streams.current_and_failures();
+        let device_memory = stream.device_memory();
+        // A reservation is what releases freed imports otherwise, and a loop of imports makes none.
+        device_memory.cleanup(Cleanup::Periodic, failures);
+        let storage = device_memory.storage().import_host_memory(host)?;
+        let reserved = device_memory.adopt_import(storage);
+        self.bind(reserved, handle.memory.clone());
+        Ok(handle)
+    }
+
     /// The current stream's cursor.
     pub fn cursor(&self) -> u64 {
         self.streams.cursor
@@ -359,6 +403,11 @@ impl<'a, D: Driver> Command<'a, D> {
         self.allocate(size, handle.memory.clone())?;
 
         Ok(handle)
+    }
+
+    /// Whether a stream of the device records a graph.
+    fn device_records(&mut self) -> bool {
+        self.streams.current().capturing().device().any_recording()
     }
 
     /// Give `reserved`'s storage to `new`, so handles issued against `new`
@@ -528,7 +577,8 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
     /// row-major, [`IoError::BindingOutOfBounds`] for a binding whose offsets reach
-    /// past the end of its memory, and the driver's refusal to copy.
+    /// past the end of its memory, [`IoError::HostMemoryRefused`] for imported host memory,
+    /// and the driver's refusal to copy.
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
@@ -537,6 +587,7 @@ impl<'a, D: Driver> Command<'a, D> {
             elem_size,
         } = descriptor;
         let size = data.len();
+        binding.ensure_device_writable()?;
 
         // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
         // before validating its potentially zero strides or staging: the zero-size
@@ -712,7 +763,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
 impl<D: Driver> DeviceRelocator for Command<'_, D> {
     fn relocation_need(&mut self, scope: RelocationScope) -> RelocationNeed {
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return RelocationNeed::Recording;
         }
         match scope {
@@ -731,7 +782,7 @@ impl<D: Driver> DeviceRelocator for Command<'_, D> {
     }
 
     fn relocate_memory(&mut self, scope: RelocationScope, reason: RelocationReason) {
-        if self.streams.current().capturing().device().any_recording() {
+        if self.device_records() {
             return;
         }
         let stream_ids: Vec<_> = match scope {

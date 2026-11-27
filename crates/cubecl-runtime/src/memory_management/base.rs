@@ -125,6 +125,20 @@ pub struct MemoryPoolReport {
     pub largest_alloc_bytes: u64,
 }
 
+impl MemoryPoolReport {
+    /// A [`Direct`](MemoryPoolKind::Direct) pool that never held anything.
+    fn empty_direct() -> Self {
+        Self {
+            kind: MemoryPoolKind::Direct,
+            usage: MemoryUsage::default(),
+            page_count: 0,
+            peak_page_count: 0,
+            unmapped_page_count: 0,
+            largest_alloc_bytes: 0,
+        }
+    }
+}
+
 /// Which memory a [`MemoryReport`] covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
@@ -179,6 +193,10 @@ pub struct MemoryPoolsReport {
     pub persistent: MemoryPoolReport,
     /// The dedicated allocations, each its own device allocation.
     pub dedicated: MemoryPoolReport,
+    /// The host memory imported, each range its own allocation in host memory, and left out of
+    /// [`usage`](Self::usage), which is the device's.
+    #[serde(default = "MemoryPoolReport::empty_direct")]
+    pub imported: MemoryPoolReport,
 }
 
 impl MemoryReport {
@@ -205,7 +223,7 @@ impl StreamMemoryReport {
 }
 
 impl MemoryPoolsReport {
-    /// The usage of every pool together.
+    /// The usage of every device pool together.
     pub fn usage(&self) -> MemoryUsage {
         self.dynamic
             .iter()
@@ -260,6 +278,7 @@ mod tests {
                 dynamic: vec![pool(bytes)],
                 persistent: pool(bytes),
                 dedicated: pool(bytes),
+                imported: MemoryPoolReport::empty_direct(),
             },
             auxiliary: Vec::new(),
         }

@@ -40,7 +40,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{ManagedResource, StorageAllocator},
+    storage::{HostRange, ManagedResource},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
@@ -88,6 +88,16 @@ impl Server for HipServer {
             .iter()
             .map(|size| command.reserve_cpu(*size, None))
             .collect())
+    }
+
+    fn import_host_memory(
+        &mut self,
+        host: HostRange,
+        stream_id: StreamId,
+    ) -> Result<Handle, ServerError> {
+        Ok(self
+            .command_no_inputs(stream_id)?
+            .import_host_memory(&host)?)
     }
 
     fn initialize_memory(
@@ -237,6 +247,10 @@ impl Server for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io).cloned());
+        let Some(written) = peers.refuse_forbidden_writes(self, stream_id, &bindings, io, written)
+        else {
+            return;
+        };
         // A peer input that carries a failure stops the launch as a failed
         // input of this device would: nothing runs on its stale bytes.
         if let Some(error) = peers.input_failure() {
@@ -277,7 +291,7 @@ impl Server for HipServer {
         // left unwritten, and a read of one of them is what surfaces it.
         let mut command = self.command_no_inputs(stream_id)?;
         command.flush_drops();
-        command.stream().memory_management_gpu.storage().flush();
+        command.flush_storage();
 
         Ok(())
     }

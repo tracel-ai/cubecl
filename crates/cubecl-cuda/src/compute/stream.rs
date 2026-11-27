@@ -137,7 +137,8 @@ impl EventStreamBackend for CudaStreamBackend {
     fn create_stream(&self) -> Result<Self::Stream, ServerError> {
         let stream = create_cuda_stream(self.priority)?;
 
-        let storage = GpuStorage::new();
+        // SAFETY: the backend never destroys a stream it created, so `stream` outlives the storage.
+        let storage = unsafe { GpuStorage::on_stream(stream) };
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,

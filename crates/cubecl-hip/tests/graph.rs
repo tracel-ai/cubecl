@@ -7,9 +7,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::runtime_tests::{capture_status, graph_sharing, graph_streams};
 use cubecl_core::server::Handle;
+use cubecl_environment::stream::StreamId;
 use cubecl_hip::HipRuntime;
+use cubecl_server::client::Graph;
 use cubecl_server::runtime::Runtime;
-use std::sync::Mutex;
+use cubecl_server::storage::HOST_MEMORY_ALIGNMENT_BYTES;
+use std::sync::{Arc, Mutex};
 
 /// Graph capture holds the one cached client's stream for its whole window,
 /// so two captures must not overlap — exactly one
@@ -430,4 +433,183 @@ fn hip_graph_recording_skipping_a_temporary_its_plan_made_seals() {
 fn hip_graph_holds_another_streams_input_until_it_drops() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     graph_streams::a_graph_holds_another_streams_input_until_it_drops::<HipRuntime>();
+}
+
+fn host_floats(values: &[f32]) -> Arc<Bytes> {
+    let mut memory =
+        Bytes::zeroed_aligned(HOST_MEMORY_ALIGNMENT_BYTES, HOST_MEMORY_ALIGNMENT_BYTES).unwrap();
+    memory[..values.len() * 4].copy_from_slice(f32::as_bytes(values));
+    Arc::new(memory)
+}
+
+fn add_one_on(client: &Client, input: &Handle, output: &Handle, n: usize) {
+    add_one::launch(
+        client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(client, n),
+        unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+    );
+}
+
+/// Records `add_one` from `input` to `output`, after the planning run a recording takes.
+fn record_add_one(client: &Client, input: &Handle, output: &Handle, n: usize) {
+    client
+        .graph_prepare()
+        .expect("planning a recording should start");
+    add_one_on(client, input, output, n);
+    client.graph_end_run().expect("the planning run should end");
+    client.start_capture().expect("the recording should start");
+    add_one_on(client, input, output, n);
+}
+
+/// A graph reads imported host memory on every replay.
+#[test]
+fn hip_graph_reads_imported_host_memory() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
+    let n = 4usize;
+    let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
+    let input = client
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
+        .unwrap();
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    record_add_one(&client, &input, &output, n);
+    let graph = client.stop_capture().expect("the recording should seal");
+
+    for _ in 0..2 {
+        unsafe { graph.replay() }.expect("a replay should enqueue");
+        let out = client.read_one(output.clone()).unwrap();
+        assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+    }
+}
+
+/// A graph over memory another stream imported, recorded over more launches than the release
+/// queue holds.
+struct ImportOfAnotherStream {
+    pub client: Client,
+    pub importer: Client,
+    pub memory: Arc<Bytes>,
+    pub input: Handle,
+    pub output: Handle,
+    pub graph: Graph,
+}
+
+/// `None` on a device lacking the Feature.
+fn record_over_an_import_of_another_stream() -> Option<ImportOfAnotherStream> {
+    let mut client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return None;
+    }
+    let n = 4usize;
+    let memory = host_floats(&[1.0, 2.0, 3.0, 4.0]);
+    // Two streams named apart, so a single-stream policy cannot fold them into one.
+    let mut importer = client.clone();
+    // SAFETY: neither stream is used by anything else, and each is driven from this thread alone.
+    unsafe {
+        importer.set_stream(StreamId { value: 4_000_001 });
+        client.set_stream(StreamId { value: 4_000_002 });
+    }
+    let input = importer
+        .import_host_memory(&memory, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
+        .unwrap();
+    let output = client.empty(n * core::mem::size_of::<f32>());
+    // A planning run over the import would leave its bindings to the GC thread, which no sync joins.
+    let planned = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+
+    let launches = 10;
+    client
+        .graph_prepare()
+        .expect("planning a recording should start");
+    (0..launches).for_each(|_| add_one_on(&client, &planned, &output, n));
+    client.graph_end_run().expect("the planning run should end");
+    client.start_capture().expect("the recording should start");
+    (0..launches).for_each(|_| add_one_on(&client, &input, &output, n));
+    let graph = client.stop_capture().expect("the recording should seal");
+    Some(ImportOfAnotherStream {
+        client,
+        importer,
+        memory,
+        input,
+        output,
+        graph,
+    })
+}
+
+/// A graph reads memory another stream imported, over more launches than the release queue
+/// holds.
+#[test]
+fn hip_graph_reads_an_import_of_another_stream() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(recorded) = record_over_an_import_of_another_stream() else {
+        return;
+    };
+    unsafe { recorded.graph.replay() }.expect("a replay should enqueue");
+    let out = recorded.client.read_one(recorded.output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A graph keeps memory another stream imported while only the graph reads it, and lets go of it
+/// once the graph drops too.
+#[test]
+fn hip_graph_holds_an_import_of_another_stream_until_it_drops() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(ImportOfAnotherStream {
+        client,
+        importer,
+        mut memory,
+        input,
+        output: _,
+        graph,
+    }) = record_over_an_import_of_another_stream()
+    else {
+        return;
+    };
+    // The release waits behind the stream that imported, so only its own cleanup retires it.
+    let release = || {
+        cubecl_environment::future::block_on(client.sync()).unwrap();
+        for _ in 0..2 {
+            cubecl_environment::future::block_on(importer.sync()).unwrap();
+            importer.memory_cleanup().unwrap();
+        }
+    };
+    drop(input);
+    release();
+    assert!(Arc::get_mut(&mut memory).is_none());
+
+    drop(graph);
+    release();
+    assert!(Arc::get_mut(&mut memory).is_some());
+}
+
+/// An import released just before a recording, its release likely still pending on the stream,
+/// leaves the recording intact.
+#[test]
+fn hip_graph_records_over_a_pending_import_release() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = HipRuntime::client(&Default::default());
+    if !client.features().host_memory_import {
+        return;
+    }
+    let n = 4usize;
+    let output = client.empty(n * core::mem::size_of::<f32>());
+    let released = host_floats(&[0.0; 4]);
+    let imported = client
+        .import_host_memory(&released, 0..HOST_MEMORY_ALIGNMENT_BYTES as u64)
+        .unwrap();
+    add_one_on(&client, &imported, &output, n);
+    drop((imported, released));
+    client.memory_cleanup().unwrap();
+
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    record_add_one(&client, &input, &output, n);
+    let graph = client.stop_capture().expect("the recording should seal");
+
+    unsafe { graph.replay() }.expect("a replay should enqueue");
+    let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
