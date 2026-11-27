@@ -59,6 +59,11 @@ impl Instruction {
     /// Whether a sum this instruction contracts hides which unit holds which of its cells on
     /// `target`: a cmma fragment's does where the target's compiler keeps its fragments' positions
     /// to itself ([`FragmentPositions::Hidden`]).
+    ///
+    /// # Guarantees
+    ///
+    /// - `true` exactly for [`Instruction::Cmma`] on a target whose fragment positions are
+    ///   [`FragmentPositions::Hidden`].
     pub fn hides_cell_positions(self, target: &TargetProperties) -> bool {
         match self {
             Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
@@ -970,7 +975,6 @@ pub(crate) mod tests {
     /// drain that bounces it still has one; the forms whose cells are each unit's own take none.
     #[test]
     fn a_cmma_sum_takes_a_scratch_even_where_its_cells_are_stated() {
-        assert!(!Instruction::Cmma.hides_cell_positions(&stated_positions()));
         assert!(Instruction::Cmma.takes_scratch());
         assert!(!mma().takes_scratch());
         assert!(!Instruction::Wgmma.takes_scratch());

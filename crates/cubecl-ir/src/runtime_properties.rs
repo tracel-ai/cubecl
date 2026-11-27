@@ -46,17 +46,10 @@ pub struct MmaProperties {
     /// matrix instruction
     #[cfg_attr(feature = "serde", serde(skip))]
     pub element_positions: OperandFact<Option<ElementPositions>>,
-    /// Whether the compiler states which lane holds which cell of a fragment of the fragment API.
     pub fragment_positions: FragmentPositions,
 }
 
 /// Whether a compiler states which lane holds which cell of a fragment of the fragment API.
-///
-/// # Guarantees
-///
-/// - Where positions are stated, a fragment's registers, read with `Matrix::to_registers`, hold
-///   its cells where [`element_positions`](MmaProperties::element_positions) places a lane's
-///   elements, in that order.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
 pub enum FragmentPositions {
@@ -149,8 +142,16 @@ impl MmaProperties {
     }
 
     /// Where the elements a lane holds of operand `ident`, of `elem`, in a contraction of `shape`
-    /// lie in it, where the target states it: what a kernel reads off its own definition of it,
-    /// for code that picks one ahead.
+    /// lie in it, for code that picks a definition ahead.
+    ///
+    /// # Assumptions
+    ///
+    /// - The target's positions depend on neither the operand's layout nor its scope.
+    ///
+    /// # Guarantees
+    ///
+    /// - The answer is the positions a kernel reads off its own `MmaDefinition` of that operand,
+    ///   `None` where the target has no manual matrix instruction for it.
     pub fn element_positions_of(
         &self,
         ident: MatrixIdent,
@@ -160,6 +161,17 @@ impl MmaProperties {
         Self::with_matrix(ident, shape, elem, |ctx, matrix| {
             self.element_positions.apply(ctx, ident, matrix)
         })
+    }
+
+    /// The elements a lane holds of operand `ident` of `elems` elements, each held by its
+    /// operand's register copy count of lanes.
+    pub fn elems_per_lane(&self, ident: MatrixIdent, elems: usize) -> usize {
+        let copies = match ident {
+            MatrixIdent::A => self.register_copy_count_a,
+            MatrixIdent::B => self.register_copy_count_b,
+            MatrixIdent::Accumulator => self.register_copy_count_acc,
+        };
+        elems * copies / self.const_plane_lane_count as usize
     }
 
     /// `fact` of operand `ident`, of `elem`, in a contraction of `shape`, asked in a context of

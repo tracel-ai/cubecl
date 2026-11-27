@@ -5,7 +5,7 @@ mod quantized;
 
 pub use base::{
     MatrixElemUnsupported, MatrixRelayoutUnsupported, MatrixShapeUnsupported,
-    MatrixTileMoveUnsupported, RegisterCountMismatch, WmmaForm,
+    MatrixTileMoveUnsupported, WmmaForm,
 };
 pub(crate) use base::{
     cast, fill, fragment_ty, ld_matrix, load, mma_manual, multiply_accumulate, registers,

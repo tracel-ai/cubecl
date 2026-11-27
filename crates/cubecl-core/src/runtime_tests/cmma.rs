@@ -722,20 +722,27 @@ pub fn test_downcast<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
     assert_equals_approx::<f32>(&client, out, &test_simple_1_expected(), 1e-3);
 }
 
+/// The side of the square tile [`kernel_fragment_registers`] holds, and the depth of its
+/// contraction.
+const FRAGMENT_TILE: usize = 16;
+
 /// A `16 × 16` accumulator of `CD` loaded row-major from `input`, then each cell its lane's
 /// registers hold written back where [`cmma::MmaDefinition::position_of_nth`] places it.
+///
+/// - `input`: the tile, row-major, `FRAGMENT_TILE` values a row.
+/// - `out`: the tile as the lanes' registers place it, row-major, `FRAGMENT_TILE` values a row.
 #[cube(launch)]
 pub fn kernel_fragment_registers<CD: Float>(input: &[CD], out: &mut [CD]) {
     let acc = cmma::Matrix::<CD>::from_slice(
         cmma::MatrixIdent::Accumulator,
-        16usize,
-        16usize,
-        16usize,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
         cmma::MatrixLayout::RowMajor,
         input,
-        16,
+        FRAGMENT_TILE as u32,
     );
-    let def = cmma::MmaDefinition::<f16, f16, CD>::new(16usize, 16usize, 16usize);
+    let def = cmma::MmaDefinition::<f16, f16, CD>::new(FRAGMENT_TILE, FRAGMENT_TILE, FRAGMENT_TILE);
     let width = def.vector_size(MatrixIdent::Accumulator);
     let count = def.vectors_per_lane(MatrixIdent::Accumulator);
     let size!(NV) = width;
@@ -746,7 +753,7 @@ pub fn kernel_fragment_registers<CD: Float>(input: &[CD], out: &mut [CD]) {
         for e in 0..width {
             let nth = comptime!((i * width + e) as u32);
             let (row, col) = def.position_of_nth(UNIT_POS_PLANE, nth, MatrixIdent::Accumulator);
-            out[(row * 16 + col) as usize] = registers[i].extract(e);
+            out[(row * FRAGMENT_TILE as u32 + col) as usize] = registers[i].extract(e);
         }
     }
 }
@@ -765,25 +772,26 @@ pub fn test_fragment_registers_hold_their_positions<R: Runtime, CD: Float + Cube
         a_type: f16::cube_type(),
         b_type: f16::cube_type(),
         cd_type: CD::cube_type(),
-        m: 16,
-        k: 16,
-        n: 16,
+        m: FRAGMENT_TILE as u32,
+        k: FRAGMENT_TILE as u32,
+        n: FRAGMENT_TILE as u32,
     });
     if !stated || !offered {
         println!("Unsupported, skipping");
         return;
     }
 
-    let input: Vec<CD> = (0..256).map(CD::from_int).collect();
+    let cells = FRAGMENT_TILE * FRAGMENT_TILE;
+    let input: Vec<CD> = (0..cells as i64).map(CD::from_int).collect();
     let input_handle = client.create_from_slice(CD::as_bytes(&input));
-    let out = client.empty(core::mem::size_of::<CD>() * 256);
+    let out = client.empty(core::mem::size_of::<CD>() * cells);
 
     kernel_fragment_registers::launch::<CD>(
         &client,
         CubeCount::Static(1, 1, 1),
         cube_dimensions,
-        unsafe { BufferArg::from_raw_parts(input_handle, 256) },
-        unsafe { BufferArg::from_raw_parts(out.clone(), 256) },
+        unsafe { BufferArg::from_raw_parts(input_handle, cells) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), cells) },
     );
 
     let actual = client.read_one_unchecked(out);

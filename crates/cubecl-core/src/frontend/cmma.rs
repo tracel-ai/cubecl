@@ -165,6 +165,8 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     ///
     /// - The target states which lane holds which cell of a fragment
     ///   ([`FragmentPositions::AsElementPositions`]).
+    /// - The target has element positions for the fragment's role, shape and element
+    ///   ([`MmaProperties::element_positions`]); on AMD, the fragment's tile is `16 × 16`.
     /// - `N` divides the cells a lane holds.
     ///
     /// # Guarantees
@@ -175,7 +177,8 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     ///
     /// # Panics
     ///
-    /// - At expansion, where either Assumption is broken.
+    /// - At expansion, where the target hides its fragments' positions or `N` does not divide the
+    ///   cells a lane holds.
     pub fn to_registers<N: Size>(&self) -> Array<Vector<C::Scalar, N>> {
         unexpanded!()
     }
@@ -224,13 +227,13 @@ impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
                 .expect("Matrix::to_registers: a fragment should point at a matrix")
         };
         let shape = matrix.shape;
-        let (cells, copies) = match matrix.ident {
-            MatrixIdent::A => (shape.m * shape.k, mma.register_copy_count_a),
-            MatrixIdent::B => (shape.k * shape.n, mma.register_copy_count_b),
-            MatrixIdent::Accumulator => (shape.m * shape.n, mma.register_copy_count_acc),
+        let cells = match matrix.ident {
+            MatrixIdent::A => shape.m * shape.k,
+            MatrixIdent::B => shape.k * shape.n,
+            MatrixIdent::Accumulator => shape.m * shape.n,
         };
         let packing = matrix.elem_ty.packing_factor(scope.ctx());
-        let held = cells / packing * copies / mma.const_plane_lane_count as usize;
+        let held = mma.elems_per_lane(matrix.ident, cells / packing);
         let width = N::__expand_value(scope);
         assert!(
             held.is_multiple_of(width),
@@ -645,15 +648,11 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
-            let plane_dim = scope.state().target_properties.mma.const_plane_lane_count as usize;
-            let duplication = match ident {
-                MatrixIdent::A => scope.state().target_properties.mma.register_copy_count_a,
-                MatrixIdent::B => scope.state().target_properties.mma.register_copy_count_b,
-                MatrixIdent::Accumulator => {
-                    scope.state().target_properties.mma.register_copy_count_acc
-                }
-            };
-            (elems * duplication) / plane_dim
+            scope
+                .state()
+                .target_properties
+                .mma
+                .elems_per_lane(ident, elems)
         })
     }
 

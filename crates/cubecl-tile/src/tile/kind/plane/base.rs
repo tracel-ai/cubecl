@@ -51,7 +51,7 @@ impl PlaneTile {
 
     /// Whether this tile's sum is backed by a scratch ([`Instruction::takes_scratch`]), so it
     /// drains through one.
-    pub(crate) fn takes_scratch(&self) -> comptime_type!(bool) {
+    pub fn takes_scratch(&self) -> comptime_type!(bool) {
         let instruction = self.instruction();
         comptime!(instruction.takes_scratch())
     }
@@ -565,7 +565,7 @@ impl PlanePartition {
     }
 
     /// Whether this grid's tiles are backed by a scratch, the one form that drains through one.
-    pub(crate) fn takes_scratch(&self) -> comptime_type!(bool) {
+    pub fn takes_scratch(&self) -> comptime_type!(bool) {
         self.frags.index(0usize).takes_scratch()
     }
 
