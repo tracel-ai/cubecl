@@ -79,12 +79,15 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
     ///
     /// `width` overrides the stage's line width; the operand must then be scalar and unpacked.
     /// `decoded` is the element a stage whose fill decodes its operand holds, `f32` where `None`.
+    /// `contracted` is the Dimension a contraction sums the staged operands along, where the
+    /// caller states one.
     #[allow(dead_code)]
     pub(crate) fn new(
         walk: &Walk,
         sources: &P,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
+        #[comptime] contracted: Option<Dimension>,
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<P> {
@@ -96,6 +99,7 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
             depth: walk.depth(),
             storage,
             width,
+            contracted,
             decoded,
             owner: plan.owner(),
         });
@@ -158,7 +162,7 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
 #[cube]
 impl Stages<OperandPair> {
     /// The `depth` slots staging both operands of a contraction into shared memory laid out as
-    /// `storage`.
+    /// `storage`, stating no Dimension it sums them along.
     ///
     /// A stage whose fill decodes its operand, from scales, a codebook or fields as wide as their
     /// word, holds the values at `decoded`, or at `f32` where `None`. An operand staged as it lies
@@ -190,7 +194,45 @@ impl Stages<OperandPair> {
             rhs: rhs.clone(),
             staged,
         };
-        Stages::new(walk, &sources, storage, comptime!(None), depth, decoded)
+        Stages::new(
+            walk,
+            &sources,
+            storage,
+            comptime!(None),
+            comptime!(None),
+            depth,
+            decoded,
+        )
+    }
+
+    /// [`smem_staging`](Stages::smem_staging) for the factors of a contraction summed along
+    /// `contracted`, whose stages are laid out in the order the fragments reading them take
+    /// ([`StageStorage::ordered_for_fragments`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn smem_factors(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] contracted: Dimension,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
+        let sources = OperandPair {
+            lhs: lhs.clone(),
+            rhs: rhs.clone(),
+            staged,
+        };
+        Stages::new(
+            walk,
+            &sources,
+            storage,
+            comptime!(None),
+            comptime!(Some(contracted)),
+            depth,
+            decoded,
+        )
     }
 }
 
@@ -204,7 +246,15 @@ impl Stages<Tile> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<Tile> {
-        Stages::new(walk, input, storage, comptime!(None), depth, decoded)
+        Stages::new(
+            walk,
+            input,
+            storage,
+            comptime!(None),
+            comptime!(None),
+            depth,
+            decoded,
+        )
     }
 
     /// [`smem_single`](Stages::smem_single) with the stage served in `width`-wide lines.
@@ -216,7 +266,7 @@ impl Stages<Tile> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<Tile> {
-        Stages::new(walk, input, storage, width, depth, decoded)
+        Stages::new(walk, input, storage, width, comptime!(None), depth, decoded)
     }
 }
 

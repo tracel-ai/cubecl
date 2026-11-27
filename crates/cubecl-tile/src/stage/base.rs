@@ -2,6 +2,7 @@
 
 use crate::launch::Delivery;
 use crate::{ChunkSwizzle, Decline, Dimension, Instruction, LineBytes, Space, StageForm};
+use cubecl::ir::MmaProperties;
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
@@ -33,6 +34,32 @@ pub enum StageStorage {
 pub enum StageOrder {
     /// The order of the stage's Space, as the source holds it: its last dimension innermost.
     AsSource,
+}
+
+impl StageOrder {
+    /// The order the fragments of `mma`'s target read a stage of the factor `stage` describes in
+    /// at full width: the source's, on every target.
+    pub(crate) fn for_fragments(_stage: &FactorStage, _mma: &MmaProperties) -> Self {
+        StageOrder::AsSource
+    }
+}
+
+/// The facts of one stage of an operand that the order its fragments read it in is decided by
+/// ([`StageStorage::ordered_for_fragments`]), alike where the Lowering lays the stage out and
+/// where a host sizes it ([`StageStorage::bytes_read_by_fragments`]).
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct FactorStage {
+    /// The Space the stage covers.
+    pub space: Space,
+    /// The Dimension a contraction sums the operand along, as the caller staging it states it:
+    /// `None` for an operand it states none for, such as attention's keys and values.
+    pub contracted: Option<Dimension>,
+    /// The bits of one of the stage's values.
+    pub elem_bits: usize,
+    /// The values one line of the operand's source holds.
+    pub width: usize,
+    /// Who moves the operand's bytes into the stage.
+    pub delivery: Delivery,
 }
 
 /// How a [`Tiled`](StageStorage::Tiled) block lays each row down, in 16-byte chunks.
@@ -204,6 +231,56 @@ impl StageStorage {
         let line = vector_size * elem_bits / 8;
         StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
+
+    /// This storage as the Lowering lays out the stage `stage` describes, for the fragments of
+    /// `mma`'s target to read: a tiled stage in the order they read it in
+    /// ([`StageOrder::for_fragments`]), any other as it is. The one decision the Lowering lays a
+    /// factor's stage out by and a host sizes it by
+    /// ([`bytes_read_by_fragments`](Self::bytes_read_by_fragments)).
+    ///
+    /// # Assumptions
+    ///
+    /// - `stage` describes a plain operand staged as it lies, through a direct map.
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its row chunks.
+    /// - A tiled stage is laid in the source's order.
+    pub fn ordered_for_fragments(self, stage: &FactorStage, mma: &MmaProperties) -> Self {
+        match self {
+            Self::Tiled { block, chunks, .. } => Self::Tiled {
+                block,
+                chunks,
+                order: StageOrder::for_fragments(stage, mma),
+            },
+            other => other,
+        }
+    }
+
+    /// Bytes the stage `stage` describes holds where the fragments of `mma`'s target read it:
+    /// [`bytes`](Self::bytes) of the storage the Lowering lays it out in
+    /// ([`ordered_for_fragments`](Self::ordered_for_fragments)). What a host sizes a stage the
+    /// Lowering builds for a plain operand staged as it lies by.
+    ///
+    /// # Assumptions
+    ///
+    /// - As [`bytes`](Self::bytes) over `stage.space`, and as
+    ///   [`ordered_for_fragments`](Self::ordered_for_fragments).
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are those of the stage the Lowering allocates for that operand.
+    ///
+    /// # Panics
+    ///
+    /// - As [`bytes`](Self::bytes).
+    pub fn bytes_read_by_fragments(&self, stage: &FactorStage, mma: &MmaProperties) -> usize {
+        self.clone().ordered_for_fragments(stage, mma).bytes(
+            &stage.space,
+            stage.width,
+            stage.elem_bits,
+        )
+    }
 }
 
 impl StageStorage {
@@ -242,4 +319,87 @@ fn block_space(block: &[(Dimension, usize)], space: &Space) -> Option<Space> {
             .collect::<Vec<_>>(),
     );
     (&nested != space).then_some(nested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+
+    /// A row-major rhs `[k, n]` of `f16` in 8-wide lines, stated `contracted` and moved in by
+    /// `delivery`.
+    fn rhs(contracted: Option<Dimension>, delivery: Delivery) -> FactorStage {
+        FactorStage {
+            space: Space::new(&[(K, 16), (N, 32)]),
+            contracted,
+            elem_bits: 16,
+            width: 8,
+            delivery,
+        }
+    }
+
+    /// Every storage a host states for a factor's stage.
+    fn storages() -> [StageStorage; 4] {
+        let tiled = |chunks| StageStorage::Tiled {
+            block: vec![(M, 16), (N, 16), (K, 16)],
+            chunks,
+            order: StageOrder::AsSource,
+        };
+        [
+            tiled(RowChunks::InOrder),
+            tiled(RowChunks::Swizzled),
+            tiled(RowChunks::Padded),
+            StageStorage::STRIDED,
+        ]
+    }
+
+    /// On a default target, a stage stating `contracted` is laid out and sized as stated, under
+    /// every delivery.
+    fn assert_laid_and_sized_as_stated(contracted: Option<Dimension>) {
+        let mma = MmaProperties::default();
+        for delivery in [Delivery::SyncPerUnit, Delivery::AsyncPerUnit, Delivery::Tma] {
+            let stage = rhs(contracted, delivery);
+            for storage in storages() {
+                let bytes = storage.bytes(&stage.space, stage.width, stage.elem_bits);
+                assert_eq!(
+                    storage.clone().ordered_for_fragments(&stage, &mma),
+                    storage,
+                    "{delivery:?}"
+                );
+                assert_eq!(
+                    storage.bytes_read_by_fragments(&stage, &mma),
+                    bytes,
+                    "{storage:?} {delivery:?}"
+                );
+            }
+        }
+    }
+
+    /// A matmul's factor, its contraction stated along `k`, keeps the stage it states.
+    #[test]
+    fn a_factor_stating_its_contraction_is_laid_and_sized_as_stated() {
+        assert_laid_and_sized_as_stated(Some(K));
+    }
+
+    /// An attention's keys and values, stating no contraction, keep the stage they state.
+    #[test]
+    fn a_stage_stating_no_contraction_is_laid_and_sized_as_stated() {
+        assert_laid_and_sized_as_stated(None);
+    }
+
+    /// A padded `16 × 32` stage of `f16` holds 16 rows of 64 bytes and a 16-byte chunk each.
+    #[test]
+    fn a_padded_factor_stage_is_sized_by_its_rows_and_their_padding() {
+        let stage = rhs(Some(K), Delivery::SyncPerUnit);
+        let storage = StageStorage::Tiled {
+            block: vec![(K, 16), (N, 32)],
+            chunks: RowChunks::Padded,
+            order: StageOrder::AsSource,
+        };
+        let bytes = storage.bytes_read_by_fragments(&stage, &MmaProperties::default());
+        assert_eq!(bytes, 16 * (64 + 16));
+    }
 }

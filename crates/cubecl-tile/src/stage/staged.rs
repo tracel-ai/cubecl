@@ -56,7 +56,9 @@ impl Memory {
     /// served `width` wide where stated, for `owner`: the cube, or each plane a copy of its own,
     /// which only a plain stage of served values is. A reader that names the element it decodes
     /// into, `decoded`, is staged values where it could be staged words
-    /// ([`stage_element_for`](Tile::stage_element_for)).
+    /// ([`stage_element_for`](Tile::stage_element_for)). A plain operand staged as it lies is laid
+    /// out in the order the fragments reading it take, `contracted` the Dimension its caller
+    /// states a contraction sums it along ([`StageStorage::ordered_for_fragments`]).
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
         #[comptime] level: &Level,
@@ -64,6 +66,7 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
@@ -80,7 +83,9 @@ impl Memory {
                     element: elem_type_of::<S>(),
                 }
             }
-            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner, decoded),
+            _ => Memory::stage_memory::<S>(
+                operand, level, storage, width, owner, decoded, contracted,
+            ),
         }
     }
 
@@ -92,10 +97,18 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
+        let space = comptime!(level.child(&operand.place.space));
+        let factor = Memory::factor_stage::<S>(operand, &space, width, element, contracted);
+        let target = comptime::target_properties().comptime();
+        let storage = comptime!(match factor {
+            Some(stage) => storage.ordered_for_fragments(&stage, &target.mma),
+            None => storage,
+        });
         let stage = Memory::stage_memory_as_served::<S>(
             operand, level, storage, width, owner, element, decodes,
         );
@@ -104,6 +117,42 @@ impl Memory {
             Packing::Words { .. } => stage.served_as(packing),
             Packing::Plain | Packing::Packed { .. } => stage,
         }
+    }
+
+    /// The facts of `operand`'s stage over `space` that the order its fragments read it in is
+    /// decided by, holding `element` and served `width` wide where stated, `contracted`
+    /// the Dimension its caller states a contraction sums it along: where it is a plain operand
+    /// of values in memory, staged as they lie, at their own width, through a direct map. `None`
+    /// for any other stage, which is laid out as stated.
+    fn factor_stage<S: Numeric>(
+        operand: &Tile,
+        #[comptime] space: &Space,
+        #[comptime] width: Option<usize>,
+        #[comptime] element: StageElement,
+        #[comptime] contracted: Option<Dimension>,
+    ) -> comptime_type!(Option<FactorStage>) {
+        let packing = operand.packing();
+        let quantized = operand.quantized();
+        let memory = operand.is_memory();
+        let projection = operand.projection();
+        let delivery = operand.delivery();
+        let source_width = operand.vector_size();
+        let elem = elem_type_of::<S>();
+        comptime!({
+            let as_lies = element == StageElement::Served
+                && packing == Packing::Plain
+                && !quantized
+                && width.is_none()
+                && memory
+                && projection.is_direct();
+            as_lies.then(|| FactorStage {
+                space: space.clone(),
+                contracted,
+                elem_bits: elem.size_bits(),
+                width: source_width,
+                delivery,
+            })
+        })
     }
 
     /// [`stage_memory`](Memory::stage_memory) before a stage of words is read as words.
@@ -220,5 +269,54 @@ impl Memory {
                 owner,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_scope::test_scope;
+    use crate::*;
+
+    use super::StageElement;
+
+    const M: Dimension = Dimension(0);
+    const K: Dimension = Dimension(1);
+
+    /// The facts the Lowering decides the order of a plain `[m, k]` `f32` operand's stage by,
+    /// its caller stating `contracted` and the stage served `width` wide where stated.
+    fn factor_stage(contracted: Option<Dimension>, width: Option<usize>) -> Option<FactorStage> {
+        let scope = test_scope();
+        let space = Space::new(&[(M, 16), (K, 16)]);
+        let operand = Tile::__expand_shared::<f32>(&scope, space.clone(), StageStorage::STRIDED);
+        Memory::__expand_factor_stage::<f32>(
+            &scope,
+            &operand,
+            &space,
+            width,
+            StageElement::Served,
+            contracted,
+        )
+    }
+
+    /// A matmul's caller states the Dimension its contraction sums the operand along.
+    #[test]
+    fn a_factor_stage_holds_the_contraction_its_caller_states() {
+        let stage = factor_stage(Some(K), None).expect("a plain operand should be a factor stage");
+        assert_eq!(stage.contracted, Some(K));
+        assert_eq!(stage.elem_bits, 32);
+        assert_eq!(stage.width, 1);
+    }
+
+    /// An attention's caller states no contraction for its keys and values.
+    #[test]
+    fn a_factor_stage_holds_no_contraction_where_its_caller_states_none() {
+        let stage = factor_stage(None, None).expect("a plain operand should be a factor stage");
+        assert_eq!(stage.contracted, None);
+    }
+
+    /// A stage served at a width of its own is not staged as it lies, so it is laid out as stated.
+    #[test]
+    fn a_stage_at_a_width_of_its_own_is_no_factor_stage() {
+        assert_eq!(factor_stage(Some(K), Some(4)), None);
     }
 }
