@@ -9,19 +9,19 @@ use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneKeyable, Tunable, TuneInputs};
 
-/// Plans the candidates of a [`TunableSet`](crate::tune::TunableSet): holds them in registration order,
-/// and the order each key runs them in, planned once a key.
-pub struct CandidatePlanner<K, F: TuneInputs, Out, Id> {
+/// Orders the candidates of a [`TunableSet`](crate::tune::TunableSet) for each key.
+pub struct CandidateOrderer<K, F: TuneInputs, Out, Id> {
     /// The candidates in registration order (Arrival Usage), each found by its index (Position
     /// Usage).
     tunables: Vec<Tunable<K, F, Out, Id>>,
     /// The run order of each key planned, by key (Keyed Usage). Planned once a key: ranking
     /// candidates can build every one's blueprint, which costs more than the launch, and an
-    /// untuned key is reached at every layer of a compile pass.
+    /// untuned key is reached at every layer of a compile pass. Behind a lock because a set is
+    /// shared, behind an `Arc`, by every thread that calls it, and plans a key on its first call.
     run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
-impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidatePlanner<K, F, Out, Id> {
+impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidateOrderer<K, F, Out, Id> {
     pub fn new() -> Self {
         Self {
             tunables: Vec::new(),
@@ -44,7 +44,9 @@ impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidatePlanner<K, F,
 
     /// The candidate at `index`, an index into the registration order.
     pub fn tunable_at(&self, index: usize) -> &Tunable<K, F, Out, Id> {
-        &self.tunables[index]
+        self.tunables
+            .get(index)
+            .expect("an index should be one of the set's candidates")
     }
 
     /// The plan of the candidates for `key`.
@@ -101,7 +103,7 @@ mod tests {
             counted.fetch_add(1, Ordering::Relaxed);
             1
         });
-        let mut planner = CandidatePlanner::<String, (), usize, ()>::new();
+        let mut planner = CandidateOrderer::<String, (), usize, ()>::new();
         planner.add(tunable("first", 0).group(&group, |_| 1));
         planner.add(tunable("second", 1).group(&group, |_| 2));
         let key = String::from("key");
@@ -117,7 +119,7 @@ mod tests {
     #[test]
     fn a_candidate_added_after_planning_is_planned_in() {
         let group = TuneGroup::<String>::new("group", |_| 1);
-        let mut planner = CandidatePlanner::<String, (), usize, ()>::new();
+        let mut planner = CandidateOrderer::<String, (), usize, ()>::new();
         planner.add(tunable("first", 0));
         planner.add(tunable("second", 1));
         let key = String::from("key");
@@ -130,10 +132,10 @@ mod tests {
 
     #[test]
     fn the_names_hash_tells_a_split_name_from_a_joined_one() {
-        let mut split = CandidatePlanner::<String, (), usize, ()>::new();
+        let mut split = CandidateOrderer::<String, (), usize, ()>::new();
         split.add(tunable("a", 0));
         let split = split.add(tunable("bc", 1));
-        let joined = CandidatePlanner::<String, (), usize, ()>::new().add(tunable("abc", 0));
+        let joined = CandidateOrderer::<String, (), usize, ()>::new().add(tunable("abc", 0));
 
         assert_ne!(split, joined);
     }

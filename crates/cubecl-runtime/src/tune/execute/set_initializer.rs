@@ -79,12 +79,20 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_initializer_builds_afresh() {
+    fn closing_hands_back_every_set_built() {
+        let mut initializer = SetInitializer::new();
+        initializer.initialize(key(0), || 7u32);
+
+        assert_eq!(initializer.close().len(), 1);
+    }
+
+    #[test]
+    fn a_closed_initializer_holds_no_set() {
         let mut initializer = SetInitializer::new();
         initializer.initialize(key(0), || 7u32);
         let closed = initializer.close();
 
-        assert_eq!(closed.len(), 1);
         assert!(initializer.cached::<u32>(&key(0)).is_none());
+        core::mem::drop(closed);
     }
 }

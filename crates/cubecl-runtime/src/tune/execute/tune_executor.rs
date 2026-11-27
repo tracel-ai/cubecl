@@ -424,22 +424,37 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_initializer_runs_once_per_id() {
-        use core::sync::atomic::{AtomicUsize, Ordering};
-
-        static BUILT: AtomicUsize = AtomicUsize::new(0);
-        let build = || {
-            BUILT.fetch_add(1, Ordering::Relaxed);
+    /// An initializer of empty sets, counting the sets it built in `built`.
+    fn counting(
+        built: &Arc<core::sync::atomic::AtomicUsize>,
+    ) -> impl Fn() -> TunableSet<FakeAutotuneKey, (), ()> + Clone + Send + Sync + 'static {
+        let built = built.clone();
+        move || {
+            built.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             TunableSet::<FakeAutotuneKey, (), ()>::new_cloning_inputs(|_: &()| FakeAutotuneKey)
-        };
+        }
+    }
+
+    #[test]
+    fn an_id_answers_the_set_it_built() {
+        let build = counting(&Arc::default());
         let executor = TuneExecutor::<FakeAutotuneKey, u8>::new("test");
 
-        let first = executor.init(&0, build);
+        let first = executor.init(&0, build.clone());
         let again = executor.init(&0, build);
-        executor.init(&1, build);
 
         assert!(Arc::ptr_eq(&first, &again));
-        assert_eq!(BUILT.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn each_id_builds_its_own_set() {
+        let built = Arc::default();
+        let build = counting(&built);
+        let executor = TuneExecutor::<FakeAutotuneKey, u8>::new("test");
+
+        executor.init(&0, build.clone());
+        executor.init(&1, build);
+
+        assert_eq!(built.load(core::sync::atomic::Ordering::Relaxed), 2);
     }
 }

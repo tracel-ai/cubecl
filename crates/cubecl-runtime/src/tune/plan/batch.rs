@@ -36,14 +36,29 @@ impl Batch {
         ungrouped: impl IntoIterator<Item = usize>,
         patience: &HashMap<GroupId, Patience>,
     ) -> Self {
+        /// `group` among `groups`, named once.
+        fn join(groups: &mut Vec<GroupId>, group: GroupId) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+
         let mut entries = Vec::<BatchEntry>::new();
+        // The slot of each tunable's entry, by tunable index (Keyed Usage).
+        let mut slots = HashMap::<usize, usize>::new();
         for planned in planned {
-            match entries
-                .iter_mut()
-                .find(|entry| entry.index == planned.index)
-            {
-                Some(entry) => entry.join(planned.group),
-                None => entries.push(BatchEntry::grouped(&planned)),
+            match slots.get(&planned.index) {
+                Some(&slot) => join(
+                    &mut entries
+                        .get_mut(slot)
+                        .expect("a kept slot should be one of the entries")
+                        .groups,
+                    planned.group,
+                ),
+                None => {
+                    slots.insert(planned.index, entries.len());
+                    entries.push(BatchEntry::grouped(&planned));
+                }
             }
         }
         entries.extend(ungrouped.into_iter().map(BatchEntry::ungrouped_at));
@@ -68,7 +83,6 @@ impl Batch {
         self.entries.is_empty()
     }
 
-    /// The tunable indices, in the order they are benchmarked.
     pub fn indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.entries.iter().map(|entry| entry.index)
     }
@@ -101,13 +115,6 @@ impl BatchEntry {
             index,
             groups: Vec::new(),
             priority: None,
-        }
-    }
-
-    /// The entry also brought in by `group`, named once.
-    fn join(&mut self, group: GroupId) {
-        if !self.groups.contains(&group) {
-            self.groups.push(group);
         }
     }
 }

@@ -65,7 +65,8 @@ impl FirstPassPlanner {
         let slot =
             (self.next..self.compiled.len()).find(|slot| !self.patience.skips_slot(*slot))?;
         self.next = slot + 1;
-        let compile = if self.compiled[slot] {
+        let compiled = self.compiled.get(slot).copied();
+        let compile = if compiled.expect("a slot should be one of the batch's candidates") {
             Vec::new()
         } else {
             self.claim_window_from_slot(slot)

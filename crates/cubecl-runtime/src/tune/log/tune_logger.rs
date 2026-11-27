@@ -70,7 +70,7 @@ impl TuneLogger {
     ///
     /// A decided candidate at `decided_index` with no measurement still writes its decision,
     /// with no time, so the cross-checks it carries are reported; it writes no line for humans:
-    /// an all-failed plan can decide an unmeasured winner, which already warned with the full
+    /// an all-failed plan can decide an unmeasured candidate, which already warned with the full
     /// results.
     pub fn log_result<K: AutotuneKeyable>(
         &self,
@@ -90,9 +90,7 @@ impl TuneLogger {
             reporter.report_log(logger, decided);
         }
     }
-}
 
-impl TuneLogger {
     /// Report the cross-checks of a tune that stopped with nothing decided, which no decision
     /// carries: written to the log, as a warning.
     pub fn report_undecided<K: AutotuneKeyable>(&self, key: &K) {
@@ -128,7 +126,7 @@ fn measured_at(results: &[AutotuneResult], index: usize) -> Option<&AutotuneOutc
 }
 
 /// Reports a tune's result: its key, every result, the context, and the decided candidate's
-/// measurement.
+/// index.
 struct ResultReporter<'a, K> {
     key: &'a K,
     results: &'a [AutotuneResult],
@@ -182,29 +180,40 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
             AutotuneLogLevel::Disabled => {}
         }
     }
+}
 
-    pub fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
-        let top_times = self
+impl<K: AutotuneKeyable> ResultReporter<'_, K> {
+    fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
+        use core::fmt::Write;
+
+        let mut line = format!(
+            "Decided result {}-{}. Top {TOP_TIME_COUNT} times: [",
+            decided.name, self.key
+        );
+        let top = self
             .results
             .iter()
             .filter_map(AutotuneResult::measured)
-            .map(|outcome| (outcome.index, outcome.computation.median))
-            .take(TOP_TIME_COUNT)
-            .collect::<alloc::vec::Vec<_>>();
-        let context = self
-            .log_context
-            .map(|context| format!(", context: {context}"))
-            .unwrap_or_default();
-        logger.log_autotune(&format!(
-            "Fastest result {}-{}. Top {TOP_TIME_COUNT} times: {top_times:?}{context}",
-            decided.name, self.key,
-        ));
+            .take(TOP_TIME_COUNT);
+        for (rank, outcome) in top.enumerate() {
+            let separator = if rank == 0 { "" } else { ", " };
+            let _ = write!(
+                line,
+                "{separator}({}, {:?})",
+                outcome.index, outcome.computation.median
+            );
+        }
+        line.push(']');
+        if let Some(context) = self.log_context {
+            let _ = write!(line, ", context: {context}");
+        }
+        logger.log_autotune(&line);
     }
 
-    pub fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
+    fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let context = self.log_context.map(full_context).unwrap_or_default();
         logger.log_autotune(&format!(
-            "Fastest result {}-{}.\nContext:\n{context}",
+            "Decided result {}-{}.\nContext:\n{context}",
             decided.name, self.key,
         ));
         for result in self.results {
@@ -342,6 +351,21 @@ mod tests {
     #[test]
     fn a_full_context_without_bounds_or_events_is_empty() {
         assert_eq!(full_context(&AutotuneLogContext::default()), "");
+    }
+
+    #[cfg(feature = "autotune-checks")]
+    #[test]
+    fn checks_something_reads_are_kept() {
+        let mut logger = logging();
+        logger.log_checks(vec![crate::tune::CheckResult {
+            name: "k0".into(),
+            passed: true,
+        }]);
+
+        let context = logger
+            .as_context()
+            .expect("a read logger should keep its context");
+        assert_eq!(context.checks.as_ref().map(Vec::len), Some(1));
     }
 
     #[cfg(feature = "autotune-checks")]

@@ -3,9 +3,10 @@
 /// # Guarantees
 ///
 /// - [`Exclusive`](Self::Exclusive): nothing else is scheduled on the device while a sample runs,
-///   nor while a batch of the adaptive pass runs, and a candidate's panic is contained by the
-///   device's own thread. The fixed-count pass holds it per candidate, so other work may land
-///   between two candidates of a batch.
+///   nor while a batch of the adaptive pass runs, the compile pass of a `CompileOnly` override
+///   runs, or the `autotune-checks` cross-checks of one call run, and a candidate's panic is
+///   contained by the device's own thread. The fixed-count pass holds it per candidate, so other
+///   work may land between two candidates of a batch.
 /// - [`Shared`](Self::Shared): the device is never held, and a candidate's panic is contained on
 ///   the calling thread with `std`; without `std`, it unwinds through the call that tuned.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -142,7 +142,7 @@ fn field_init(field: &AutotuneKeyField, member: Member) -> TokenStream {
             let min = anchor.min();
             let base = anchor.base();
 
-            quote![#anchor_type::new(#max, #min, #base).anchor_value(#member)]
+            quote![#anchor_type { max: #max, min: #min, base: #base }.round(#member)]
         })
         .unwrap_or_else(|| member.to_token_stream())
 }

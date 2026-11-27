@@ -139,8 +139,7 @@ where
     }
 
     /// Benchmark every candidate with a fixed sample count, batch by batch until one measures a
-    /// candidate, resolving each batch's samples before the next. This is the strategy the
-    /// configuration may ask for natively.
+    /// candidate, resolving each batch's samples before the next.
     #[cfg(not(target_family = "wasm"))]
     fn drive_fixed(mut self, client: &Client) -> TuneAnswer {
         let sampler = CandidateSampler::new(client, self.access);
@@ -214,8 +213,12 @@ where
                 .is_ok_and(|outcome| outcome.computation.median <= limit);
             self.committer.record_bench(resolved);
             if close_enough {
+                let operation = self
+                    .autotunables
+                    .get(index)
+                    .expect("an index should be one of the set's candidates");
                 self.committer
-                    .log_short_circuit(self.autotunables[index].name().to_string());
+                    .log_short_circuit(operation.name().to_string());
                 return true;
             }
         }
@@ -240,7 +243,10 @@ where
 
     /// Launch the candidate at `index`: its samples queued, or the error that stopped it.
     fn launch(&mut self, index: usize, sampler: CandidateSampler<'_>) -> LaunchedBench {
-        let operation = self.autotunables[index];
+        let operation = *self
+            .autotunables
+            .get(index)
+            .expect("an index should be one of the set's candidates");
         let started = self.track_steps.then(cubecl_common::profile::Instant::now);
         let profiles = tune_benchmark(
             operation,

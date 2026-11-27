@@ -1,9 +1,8 @@
 /// Describes the set of inputs a [`TunableSet`](crate::tune::TunableSet) accepts.
 ///
 /// The associated type [`At`](Self::At) gives the concrete input type at a specific
-/// lifetime. The indirection exists because [`TunableSet`](crate::tune::TunableSet) must be
-/// `'static` (to live in [`LocalTuner`](crate::tune::LocalTuner)'s `Arc<dyn Any>` cache), but
-/// some callers want to pass *borrowed* inputs. A `'static` marker type with a
+/// lifetime. The indirection exists because a [`TunableSet`](crate::tune::TunableSet) is
+/// `'static`, but some callers want to pass *borrowed* inputs. A `'static` marker type with a
 /// lifetime-parameterized `At` works here: the set is `'static`, but every
 /// tunable function accepts `Self::At<'a>` for any `'a` via HRTB.
 ///
@@ -11,13 +10,13 @@
 /// burn's fusion autotune passes `TuneInput<'a, R, O>` (which wraps `&'a mut Context`)
 /// by defining a `FusionTuneInputs<R, O>` marker with
 /// `At<'a> = TuneInput<'a, R, O>`. Such a marker must not implement `Clone`, otherwise
-/// it would overlap with the blanket impl below.
+/// it would overlap with the blanket impl below. Owned inputs, through that blanket
+/// implementation, have a clone for a spare.
 ///
 /// # Guarantees
 ///
 /// - Every implementation's [`spare`](Self::spare) is cheap: every call to an elected candidate
 ///   takes one.
-/// - Owned inputs, through the blanket implementation, always have a spare: a clone.
 pub trait TuneInputs: Send + Sync + 'static {
     /// What a candidate is called with.
     type At<'a>: Clone + Send;

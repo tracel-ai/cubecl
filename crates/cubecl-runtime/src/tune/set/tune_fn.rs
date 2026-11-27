@@ -3,10 +3,7 @@ use alloc::string::String;
 
 use crate::tune::{AutotuneError, TuneInputs};
 
-/// A type-erased delegate for a tunable function.
-///
-/// The lifetime `'inp` is the lifetime of the input data, the function must be defined such that
-/// it can be called for any lifetime `inp` and produce a `Result<Out, AutotuneError>`.
+/// A type-erased delegate for a tunable function, callable on inputs of any lifetime.
 type TuneDelegate<I, Out> =
     dyn for<'inp> Fn(<I as TuneInputs>::At<'inp>) -> Result<Out, AutotuneError> + Send + Sync;
 

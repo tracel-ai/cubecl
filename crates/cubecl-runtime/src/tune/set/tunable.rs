@@ -17,10 +17,6 @@ use crate::tune::{AutotuneError, TuneInputs};
 ///
 /// - Its function launches the same kernels for equal inputs: a tune measures it on generated
 ///   inputs and keeps the answer for every call of the key.
-///
-/// # Guarantees
-///
-/// - It is autotuned whenever any of its groups is prioritized.
 pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     function: TuneFn<F, Output>,
     /// The groups it joined, in the order it joined them (Arrival Usage).
@@ -53,16 +49,17 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
 impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     /// A tunable identified by `identity`, and named by it: the value
     /// [`LocalTuner::fastest_identity`](crate::tune::LocalTuner::fastest_identity) hands back once the
-    /// tunable is the fastest for a key.
+    /// tunable is decided for a key.
     ///
-    /// For a caller that builds something else from the winner — a variant of the same kernel,
-    /// say — and so needs to know *which* candidate won rather than only to run it again. The name
-    /// a cached result is checksummed by is `identity`'s own, so the two cannot disagree.
+    /// For a caller that builds something else from the decided candidate — a variant of the same
+    /// kernel, say — and so needs to know *which* candidate was decided rather than only to run it
+    /// again. The name a cached result is checksummed by is `identity`'s own, so the two cannot
+    /// disagree.
     ///
     /// # Assumptions
     ///
-    /// - Two identities of one set display differently: a set is told apart from another by its
-    ///   candidates' names alone.
+    /// - Identities that display alike are the same candidate, in every set: a set is told apart
+    ///   from another by its candidates' names alone.
     pub fn identified<Func, Err>(identity: Id, func: Func) -> Self
     where
         Id: Display,
@@ -126,7 +123,6 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
         &self.function
     }
 
-    /// Every group the tunable joined, in the order it joined them.
     pub(crate) fn groups(&self) -> &[GroupMembership<K>] {
         &self.groups
     }

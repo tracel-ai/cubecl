@@ -59,7 +59,8 @@ pub struct PersistentCacheValue {
     pub limit: Option<core::time::Duration>,
 }
 
-/// The table a [`TuneTracker`] stores its answers in, whether or not it persists them.
+/// The table a [`TuneTracker`](crate::tune::cache::tracker::TuneTracker) stores its answers in,
+/// whether or not it persists them.
 #[cfg(persistence)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuneTable {
@@ -81,7 +82,8 @@ pub const LAYOUT_PREFIX: &str = "layout-v";
 #[cfg(persistence)]
 #[derive(Clone, Copy, Debug)]
 pub struct TuneTableName<'a> {
-    /// The hardware the answers were measured on, as its [`HardwareIdentity`] displays.
+    /// The hardware the answers were measured on, as its
+    /// [`HardwareIdentity`](crate::device::HardwareIdentity) displays.
     pub hardware: &'a str,
     /// The tuner, named by the code that declared it.
     pub tuner: &'a str,
@@ -89,7 +91,12 @@ pub struct TuneTableName<'a> {
 
 #[cfg(persistence)]
 impl TuneTableName<'_> {
-    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
+    /// The namespace the table is stored under.
+    ///
+    /// # Guarantees
+    ///
+    /// - It reads `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`, the layout a reader
+    ///   of the environment parses.
     pub fn namespace(&self) -> Namespace {
         let Self { hardware, tuner } = self;
         TABLE_NAMING_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))

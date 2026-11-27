@@ -152,9 +152,8 @@ impl TunePlanner {
         order
     }
 
-    /// The whole plan as a recorded tune reports it: every tunable, named by `name_of` its index,
-    /// in the [order](Self::order) the plan releases them, with the batch each comes in and its
-    /// place in each of its groups.
+    /// The [order](Self::order) as a recorded tune reports it: each tunable named by `name_of` its
+    /// index, with its place in each of its groups.
     #[cfg(persistence)]
     pub fn account<'n>(&self, name_of: impl Fn(usize) -> &'n str) -> Vec<PlannedCandidate> {
         self.order()

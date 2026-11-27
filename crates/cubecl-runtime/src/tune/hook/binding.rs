@@ -6,7 +6,7 @@ use core::any::Any;
 
 use crate::tune::{AutotuneError, TuneStage};
 
-/// An [`Evictor`] bound to one key and the reference inputs of one tune: what a benchmark loop
+/// An [`Evictor`](crate::tune::Evictor) bound to one key and the reference inputs of one tune: what a benchmark loop
 /// calls before each sample.
 ///
 /// `FnMut` rather than `Fn` because the loop lends it out exclusively: the closure holds the
@@ -14,7 +14,7 @@ use crate::tune::{AutotuneError, TuneStage};
 /// thread the samples are launched from.
 pub type BoundEvictor<'i> = dyn FnMut() -> Result<(), AutotuneError> + Send + 'i;
 
-/// A [`StageEnterer`] bound to one key and the reference inputs of one tune: what the tuner enters
+/// A [`StageEnterer`](crate::tune::StageEnterer) bound to one key and the reference inputs of one tune: what the tuner enters
 /// at each stage.
 ///
 /// `FnMut` for the reason [`BoundEvictor`] is.

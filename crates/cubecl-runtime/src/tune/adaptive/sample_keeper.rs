@@ -114,7 +114,6 @@ pub enum TimeChange {
 }
 
 impl TimeChange {
-    /// How `time` compares to `baseline`.
     pub fn of(time: Duration, baseline: Duration) -> Self {
         let faster = time < baseline.mul_f64(1.0 - IMPROVEMENT_THRESHOLD_FRACTION);
         let slower = time > baseline.mul_f64(1.0 + IMPROVEMENT_THRESHOLD_FRACTION);

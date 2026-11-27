@@ -8,7 +8,7 @@ use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
 use crate::tune::hook::clone_input_generator::CloneInputGenerator;
 use crate::tune::hook::hook_binder::HookBinder;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::candidate_orderer::{CandidatePlanner, names_hash};
+use crate::tune::set::candidate_orderer::{CandidateOrderer, names_hash};
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{
     AutotuneKeyable, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,
@@ -18,8 +18,7 @@ use crate::tune::{
 /// A set of candidate tunable functions for autotune, sharing a key generator and an input
 /// generator. See [`TuneInputs`] for the `F` parameter.
 ///
-/// `Id` is what its tunables are [identified](Tunable::identified) by, inferred from the tunables
-/// it is given: `()` for tunables built by [`Tunable::new`], named and nothing more.
+/// `Id` is what its tunables are identified by, as [`Tunable`] says.
 ///
 /// # Assumptions
 ///
@@ -28,7 +27,7 @@ use crate::tune::{
 ///   [checksum](Self::compute_checksum) alone, so a kernel changed behind an unchanged name keeps
 ///   the answers tuned before the change.
 pub struct TunableSet<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id = ()> {
-    candidates: CandidatePlanner<K, F, Output, Id>,
+    candidates: CandidateOrderer<K, F, Output, Id>,
     /// The hash of the candidates' names, kept in step with them: every launch looks its tuner up
     /// by it.
     checksum: StableHash,
@@ -44,7 +43,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     /// reference inputs.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
         Self {
-            candidates: CandidatePlanner::new(),
+            candidates: CandidateOrderer::new(),
             checksum: names_hash::<K, F, Output, Id>(&[]),
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
@@ -59,7 +58,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         Self::new(key_gen, CloneInputGenerator)
     }
 
-    /// The number of candidates, which bounds every index a tune of the set answers.
+    /// The number of candidates, which bounds every index a tune of a non-empty set answers.
     pub fn len(&self) -> usize {
         self.candidates.functions().len()
     }
@@ -132,12 +131,12 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         format!("{:x}", self.checksum)
     }
 
-    /// The key of the problem `inputs` pose.
+    /// [`KeyGenerator::generate`] of the set's key generator.
     pub fn generate_key<'a>(&self, inputs: &F::At<'a>) -> K {
         self.key_gen.generate(inputs)
     }
 
-    /// What the candidates are measured on for `key`, made from the reference `inputs`.
+    /// [`InputGenerator::generate`] of the set's input generator.
     pub fn generate_inputs<'a>(&self, key: &K, inputs: &F::At<'a>) -> F::At<'a> {
         self.input_gen.generate(key, inputs)
     }
@@ -157,7 +156,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self.short_circuit
     }
 
-    /// Every candidate's function, in registration order.
+    /// [`CandidateOrderer::functions`].
     pub(crate) fn autotunables(&self) -> impl Iterator<Item = &TuneFn<F, Output>> {
         self.candidates.functions()
     }
@@ -166,7 +165,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self.candidates.plan(key)
     }
 
-    /// The candidates of `key` in the order an untuned key runs them.
+    /// [`CandidateOrderer::plan_run_order`].
     pub(crate) fn plan_run_order(&self, key: &K) -> Arc<[usize]> {
         self.candidates.plan_run_order(key)
     }

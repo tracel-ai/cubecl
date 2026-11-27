@@ -13,8 +13,8 @@ use crate::config::autotune::AutotuneLevel;
 ///
 /// # Guarantees
 ///
-/// - Higher-priority groups are autotuned first; once any tunable in a group returns a valid
-///   result, no later groups are tried.
+/// - A batch of a higher group priority is benchmarked before a batch of a lower one, and once a
+///   batch measured a candidate, no later batch is benchmarked.
 pub struct TuneGroup<K> {
     id: GroupId,
     name: Arc<String>,
@@ -23,7 +23,7 @@ pub struct TuneGroup<K> {
 }
 
 /// A priority function, of a group or of a member within it.
-pub(crate) type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8 + Send + Sync>;
+pub type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8 + Send + Sync>;
 
 /// Identifies a [`TuneGroup`]: two groups may share a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,11 +72,12 @@ impl OrderedSettings {
 /// makes a leader the rest of the group struggles to beat. A member that fails is neither measured
 /// nor a miss: it says nothing about how the order is faring.
 ///
-/// Adaptive scheduler only: the fixed-count pass, the only one on wasm, measures every member.
+/// Adaptive scheduler only: the fixed-count pass, the only one on wasm, ignores it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patience {
-    /// Members measured before the group may stop. One member is always measured. The batch also
-    /// measures this many candidates before the [bounds](crate::tune::Bounds)' time limit may end it.
+    /// Members measured before the group may stop. One member is always measured. The adaptive
+    /// scheduler also measures this many candidates of the batch before the
+    /// [bounds](crate::tune::Bounds)' time limit may end it.
     pub min_measured_count: usize,
     /// Members in a row that miss before the group stops. Zero stops it at
     /// [`min_measured_count`](Self::min_measured_count), whatever they measured.
@@ -118,11 +119,12 @@ impl<K> TuneGroup<K> {
     /// A group whose member priorities order one round rather than cut it off: every member with
     /// a non-negative priority is in the batch, best first.
     ///
-    /// The batch is benchmarked in that order and the short circuit ends it at the first candidate
-    /// under the [bounds](crate::tune::Bounds)' time limit, once the batch measured its
-    /// [`Patience::min_measured_count`], so the priority decides how much of the group is compiled
-    /// rather than which of it can win. The batch costs its whole membership without a bounds
-    /// generator, on wasm, or with the short circuit disabled.
+    /// The batch is benchmarked in that order, and the short circuit may end it at the first
+    /// candidate under the [bounds](crate::tune::Bounds)' time limit: on the adaptive scheduler,
+    /// once the batch measured its [`Patience::min_measured_count`]. So the priority decides how
+    /// much of the group is compiled rather than which of it can win. Without a bounds generator,
+    /// or with the short circuit disabled, only the group's patience ends the batch early, and on
+    /// the fixed-count pass, the only one on wasm, nothing does.
     ///
     /// The batch sits at the priority of its best member, so a cutoff group at the same group
     /// priority interleaves with it by priority.
@@ -138,7 +140,7 @@ impl<K> TuneGroup<K> {
 impl<K> TuneGroup<K> {
     fn build(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static, order: GroupOrder) -> Self {
         Self {
-            id: GroupId(GROUP_COUNTER.fetch_add(1, Ordering::Relaxed)),
+            id: GroupId(NEXT_GROUP_ID.fetch_add(1, Ordering::Relaxed)),
             name: Arc::new(name.into()),
             priority: Arc::new(f),
             order,
@@ -211,7 +213,8 @@ impl<K> Clone for TuneGroup<K> {
     }
 }
 
-static GROUP_COUNTER: AtomicU32 = AtomicU32::new(0);
+/// The id the next group built takes.
+static NEXT_GROUP_ID: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(test)]
 mod tests {
@@ -230,20 +233,28 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_ordered_group_orders_only_its_non_negative_members() {
-        let group = TuneGroup::<()>::ordered("ordered", |_| 1, OrderedSettings::default());
-
-        assert!(group.orders_priority(0));
-        assert!(!group.orders_priority(-1));
+    fn ordered() -> TuneGroup<()> {
+        TuneGroup::<()>::ordered("ordered", |_| 1, OrderedSettings::default())
     }
 
     #[test]
-    fn a_cutoff_group_orders_no_member_and_has_no_patience() {
-        let group = TuneGroup::<()>::new("cutoff", |_| 1);
+    fn an_ordered_group_orders_a_non_negative_member() {
+        assert!(ordered().orders_priority(0));
+    }
 
-        assert!(!group.orders_priority(3));
-        assert_eq!(group.patience(), None);
+    #[test]
+    fn an_ordered_group_leaves_a_negative_member_out() {
+        assert!(!ordered().orders_priority(-1));
+    }
+
+    #[test]
+    fn a_cutoff_group_orders_no_member() {
+        assert!(!TuneGroup::<()>::new("cutoff", |_| 1).orders_priority(3));
+    }
+
+    #[test]
+    fn a_cutoff_group_has_no_patience() {
+        assert_eq!(TuneGroup::<()>::new("cutoff", |_| 1).patience(), None);
     }
 
     #[test]

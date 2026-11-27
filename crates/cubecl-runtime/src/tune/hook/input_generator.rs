@@ -14,13 +14,14 @@ use crate::tune::TuneInputs;
 /// and the `Fn` blanket below works; borrowed-input families implement this trait
 /// directly.
 ///
+/// Inputs that share buffers with the reference ones, as a clone of device handles does, let a
+/// candidate that writes them write the reference ones too: only a generator that allocates them
+/// keeps the call's state out of the tune.
+///
 /// # Guarantees
 ///
 /// - Every implementation answers inputs posing the problem the reference inputs pose: the tune
 ///   measures the one and keeps its answer for the other.
-/// - Inputs that share buffers with the reference ones, as a clone of device handles does, let a
-///   candidate that writes them write the reference ones too: only a generator that allocates
-///   them keeps the call's state out of the tune.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid input generator",
     label = "invalid input generator"

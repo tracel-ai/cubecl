@@ -1,4 +1,5 @@
-//! Tests of a tracker over a table in the process-wide memory storage, each table its own.
+//! Tests of a tracker over a table in the process-wide memory storage, each table its own. Serial
+//! with every test that switches the environment, which would reset the tables under them.
 
 use super::*;
 use alloc::boxed::Box;
@@ -18,6 +19,7 @@ const CURRENT: &str = "ffff-current-list";
 /// the current one, even when it sorts first: the lookup asks for the key
 /// and the list together.
 #[test]
+#[serial_test::serial]
 fn an_answer_to_an_older_list_is_never_served() {
     let table = "tune-cache-tests/stale-first";
     plant(table, KEY, STALE, 1);
@@ -29,6 +31,7 @@ fn an_answer_to_an_older_list_is_never_served() {
 }
 
 #[test]
+#[serial_test::serial]
 fn an_answer_to_the_current_list_is_served() {
     let table = "tune-cache-tests/current";
     plant(table, KEY, STALE, 1);
@@ -41,6 +44,7 @@ fn an_answer_to_the_current_list_is_served() {
 }
 
 #[test]
+#[serial_test::serial]
 fn a_stored_index_past_the_set_is_a_miss() {
     let table = "tune-cache-tests/past-the-set";
     plant(table, KEY, CURRENT, 3);
@@ -53,6 +57,7 @@ fn a_stored_index_past_the_set_is_a_miss() {
 
 /// A row past the set is deleted, so the tune that follows can store its answer.
 #[test]
+#[serial_test::serial]
 fn a_stored_index_past_the_set_is_deleted() {
     let table = "tune-cache-tests/past-the-set-deleted";
     plant(table, KEY, CURRENT, 3);
@@ -62,6 +67,7 @@ fn a_stored_index_past_the_set_is_deleted() {
 }
 
 #[test]
+#[serial_test::serial]
 fn a_second_answer_to_a_stored_key_is_not_stored() {
     let table = "tune-cache-tests/second-answer";
     let mut tracker = tracker_over(table);
@@ -71,10 +77,12 @@ fn a_second_answer_to_a_stored_key_is_not_stored() {
 }
 
 #[test]
+#[serial_test::serial]
 fn a_switched_environment_misses_every_answer() {
     let mut tracker = tracker_over("tune-cache-tests/switched");
     tracker.track_answer(KEY.to_string(), 1);
-    tracker.table.generation = tracker.table.generation.wrapping_add(1);
+    // Far from any generation a concurrent switch of the environment reaches.
+    tracker.table.generation = tracker.table.generation.wrapping_add(u32::MAX / 2);
 
     assert!(matches!(
         tracker.decided(&KEY.to_string()),
@@ -83,10 +91,12 @@ fn a_switched_environment_misses_every_answer() {
 }
 
 #[test]
+#[serial_test::serial]
 fn a_reset_drops_the_answers_of_the_switched_environment() {
     let mut tracker = tracker_over("tune-cache-tests/reset");
     tracker.track_answer(KEY.to_string(), 1);
-    tracker.table.generation = tracker.table.generation.wrapping_add(1);
+    // Far from any generation a concurrent switch of the environment reaches.
+    tracker.table.generation = tracker.table.generation.wrapping_add(u32::MAX / 2);
 
     tracker.reset_if_environment_switched();
 
@@ -140,6 +150,7 @@ fn opening_a_table_drops_the_earlier_layouts_only() {
 /// older one only costs a row, since no lookup for the current list reads
 /// it.
 #[test]
+#[serial_test::serial]
 fn a_stored_answer_leaves_the_answers_to_older_lists() {
     let table = "tune-cache-tests/kept";
     plant(table, KEY, STALE, 1);

@@ -14,7 +14,7 @@ use core::any::Any;
 ///
 /// # Assumptions
 ///
-/// - A measuring stage is entered where the set's
+/// - Every stage is entered where the set's
 ///   [`TuneDeviceAccess`](crate::tune::TuneDeviceAccess) holds the tuned device, on the thread
 ///   that runs the candidates.
 ///

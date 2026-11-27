@@ -9,7 +9,7 @@ use cubecl_common::profile::{Instant, ProfileDuration};
 
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
-use crate::tune::adaptive::candidate_tracker::CandidateTracker;
+use crate::tune::adaptive::candidate_tracker::{CandidateState, CandidateTracker};
 use crate::tune::adaptive::first_pass_planner::{CompileWindows, FirstPassPlanner};
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
@@ -48,7 +48,10 @@ impl BatchOutcome {
             results: indices
                 .iter()
                 .map(|&index| {
-                    let error = AutotuneError::hold_failed(autotunables[index].name(), reason);
+                    let operation = autotunables
+                        .get(index)
+                        .expect("an index should be one of the set's candidates");
+                    let error = AutotuneError::hold_failed(operation.name(), reason);
                     (index, AutotuneResult::from_error(error))
                 })
                 .collect(),
@@ -172,7 +175,9 @@ impl<'i> Scheduler<'i> {
 
             let outcome = self.schedule_batch(batch, autotunables, inputs.clone(), sampler);
             for (index, result) in outcome.results {
-                results[index] = result;
+                *results
+                    .get_mut(index)
+                    .expect("an index should be one of the set's candidates") = result;
             }
             steps.extend(outcome.steps);
 
@@ -305,11 +310,14 @@ impl<'i> Scheduler<'i> {
             let slot = step.slot;
             let launched = self.options.track_steps.then(Instant::now);
             self.compile_ahead(&step.compile, candidates, autotunables, inputs, sampler);
-            self.first_pass(autotunables, inputs, &mut candidates[slot], sampler)
+            let candidate = candidates
+                .get_mut(slot)
+                .expect("a slot should be one of the batch's candidates");
+            self.first_pass(autotunables, inputs, candidate, sampler)
                 .await;
-            candidates[slot].track_cost_since(launched);
+            candidate.track_cost_since(launched);
 
-            if let Some(best) = candidates[slot].state().live_best() {
+            if let Some(best) = candidate.state().live_best() {
                 planner.record(slot, best);
             }
 
@@ -363,7 +371,12 @@ impl<'i> Scheduler<'i> {
         candidates: Vec<CandidateTracker>,
         confirmed: Option<usize>,
     ) -> BatchOutcome {
-        let short_circuit = confirmed.map(|slot| candidates[slot].state().name.to_string());
+        let short_circuit = confirmed.map(|slot| {
+            let candidate = candidates
+                .get(slot)
+                .expect("a slot should be one of the batch's candidates");
+            candidate.state().name.to_string()
+        });
         let steps = candidates
             .iter()
             .filter(|_| self.options.track_steps)
@@ -504,11 +517,10 @@ impl<'i> Scheduler<'i> {
         <F as TuneInputs>::At<'a>: Clone,
     {
         let sampled = self.sample(operation, inputs, sampler);
-        let profile = match sampled.map(|profile| candidate.track_queued(profile)) {
-            Ok(profile) => profile,
-            Err(err) => return candidate.disqualify(err),
-        };
-        candidate.track_ticks(profile.resolve().await);
+        match sampled.map(|profile| candidate.track_queued(profile)) {
+            Ok(profile) => candidate.track_ticks(profile.resolve().await),
+            Err(err) => candidate.fail(err),
+        }
         candidate.state().live
     }
 
@@ -618,8 +630,11 @@ impl<'i> Scheduler<'i> {
         .await;
 
         for (slot, ticks, waited) in resolved {
-            candidates[slot].track_ticks(ticks);
-            candidates[slot].track_cost(track_steps.then_some(waited));
+            let candidate = candidates
+                .get_mut(slot)
+                .expect("a slot should be one of the batch's candidates");
+            candidate.track_ticks(ticks);
+            candidate.track_cost(track_steps.then_some(waited));
         }
     }
 
@@ -674,7 +689,10 @@ impl<'i> Scheduler<'i> {
             let Some((_, Reverse(slot))) = self.eliminable.pop() else {
                 return;
             };
-            candidates[slot].eliminate();
+            candidates
+                .get_mut(slot)
+                .expect("a slot should be one of the batch's candidates")
+                .eliminate();
         }
     }
 }
@@ -694,24 +712,27 @@ impl RoundEnd {
     /// How a round that eliminated ends: done once every live candidate, and there is one, has
     /// converged.
     fn after_elimination(candidates: &[CandidateTracker]) -> Self {
-        let mut live = candidates
-            .iter()
-            .map(CandidateTracker::state)
-            .filter(|state| state.live)
-            .peekable();
-        match live.peek().is_some() && live.all(|state| state.summary.converged) {
-            true => Self::Done,
-            false => Self::Continue,
+        let mut live = live(candidates).peekable();
+        let converged = live.peek().is_some() && live.all(|state| state.summary.converged);
+        if converged {
+            Self::Done
+        } else {
+            Self::Continue
         }
     }
 }
 
-/// How many of `candidates` are still in the round.
-fn live_count(candidates: &[CandidateTracker]) -> usize {
+/// What every candidate of `candidates` still in the round knows of itself.
+fn live(candidates: &[CandidateTracker]) -> impl Iterator<Item = CandidateState<'_>> {
     candidates
         .iter()
-        .filter(|candidate| candidate.state().live)
-        .count()
+        .map(CandidateTracker::state)
+        .filter(|state| state.live)
+}
+
+/// How many of `candidates` are still in the round.
+fn live_count(candidates: &[CandidateTracker]) -> usize {
+    live(candidates).count()
 }
 
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
@@ -755,7 +776,6 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
 mod tests {
     use super::*;
     use alloc::vec;
-    use cubecl_common::profile::TimingMethod;
 
     fn schedule(speed_factor: f64) -> Scheduler<'static> {
         Scheduler::new(options(speed_factor), None, None)
@@ -1001,7 +1021,6 @@ mod tests {
         let survivor = candidate(0, [50, 900, 60, 800, 55]).into_result();
 
         assert!(eliminated.score() < survivor.score());
-        let _ = TimingMethod::System;
     }
 
     #[test]

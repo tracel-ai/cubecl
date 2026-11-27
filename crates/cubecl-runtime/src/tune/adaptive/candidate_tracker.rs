@@ -75,14 +75,13 @@ impl CandidateTracker {
         self.samples.any_under(limit)
     }
 
-    /// Track `duration` as its latest sample.
+    /// [`SampleKeeper::keep`].
     pub fn track_duration(&mut self, duration: Duration) {
         self.samples.keep(duration);
     }
 
-    /// Track what a resolved sample measured, or disqualify the candidate where it measured no
-    /// time: recorded as a zero, it would be the fastest sample in the round and would short
-    /// circuit on it.
+    /// Track what a resolved sample measured, or [fail](Self::fail) the candidate as
+    /// [`NotMeasured`](AutotuneError::NotMeasured) where it is [no time](measured).
     pub fn track_ticks(&mut self, ticks: Option<ProfileTicks>) {
         match measured(ticks) {
             Some(duration) => self.track_duration(duration),
@@ -114,12 +113,6 @@ impl CandidateTracker {
     pub fn fail(&mut self, error: AutotuneError) {
         self.error = Some(error);
         self.live = false;
-    }
-
-    /// [Fail](Self::fail) the candidate, answering that it did not survive.
-    pub fn disqualify(&mut self, error: AutotuneError) -> bool {
-        self.fail(error);
-        false
     }
 
     /// Take it out of the round on the evidence, keeping its samples.

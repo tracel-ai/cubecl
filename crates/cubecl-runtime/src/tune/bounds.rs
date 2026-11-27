@@ -62,8 +62,7 @@ impl Thresholds {
         }
     }
 
-    /// The threshold that sets no limit, so every candidate is measured.
-    /// [`AutotuneBound::time_limit`] declines it.
+    /// The threshold that sets no limit: [`AutotuneBound::time_limit`] declines it.
     pub const UNBOUNDED: Self = Self::uniform_fraction(0.0);
 
     /// The fraction of peak an [`AutotuneLevel`] settles for.
