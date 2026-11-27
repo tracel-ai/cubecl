@@ -355,6 +355,14 @@ impl Stages<OperandPair> {
     /// Whether `prefetched` holds the next stage in registers; false in the
     /// cases [`Prefetch::InRegisters`] lists.
     pub fn prefetches_in_registers(&self) -> comptime_type!(bool) {
+        let fills = self.fills_through_registers();
+        comptime!(fills && self.depth <= 2)
+    }
+
+    /// Whether every unit can hold its share of both operands' fill of a slot in registers
+    /// between the fill's loads and its stores: the cases [`Prefetch::InRegisters`] lists, but
+    /// for the depth.
+    pub(crate) fn fills_through_registers(&self) -> comptime_type!(bool) {
         let staged = self.slots.index(FIRST_SLOT);
         let operands = comptime!(staged.data.staged);
         let fixed = staged.has_fixed();
@@ -376,7 +384,6 @@ impl Stages<OperandPair> {
                 && !lhs_beside
                 && !rhs_beside
                 && self.fillers == 0
-                && self.depth <= 2
                 && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && matches!(
@@ -456,6 +463,46 @@ impl Stages<OperandPair> {
         slot.data
             .rhs
             .register_store(&sources.rhs.at(region), rhs, rhs_scales);
+    }
+
+    /// Fill slot `slot` from `sources` at `region` through registers: every unit issues its
+    /// loads of both operands, waits for the slot to be free, then stores them, so the loads'
+    /// round trips overlap one another and the wait rather than following each other. Only
+    /// where [`fills_through_registers`](Stages::fills_through_registers) holds.
+    #[allow(dead_code)] // Reached through its expand, from the slot schedule.
+    pub(crate) fn fill_through_registers<Lhs: Numeric, Rhs: Numeric>(
+        &mut self,
+        #[comptime] slot: usize,
+        sources: &OperandPair,
+        region: &Region,
+    ) {
+        let (mut lhs, mut rhs, mut lhs_scales, mut rhs_scales) =
+            self.fetch_buffers::<Lhs, Rhs>();
+        self.fetch::<Lhs, Rhs>(
+            slot,
+            sources,
+            region,
+            &mut lhs,
+            &mut rhs,
+            &mut lhs_scales,
+            &mut rhs_scales,
+        );
+        // The loads stay ahead of the wait for the slot, and that wait ahead of the stores and
+        // the work between loads and stores (a transpose): a scheduler would otherwise sink the
+        // later loads past the first ones' stores, and the wait past the loads' arrival.
+        schedule_barrier();
+        self.slot_mut(slot).meeting.acquire_write();
+        schedule_barrier();
+        self.store::<Lhs, Rhs>(
+            slot,
+            sources,
+            region,
+            &lhs,
+            &rhs,
+            &lhs_scales,
+            &rhs_scales,
+        );
+        self.slot_mut(slot).meeting.release_write();
     }
 }
 
