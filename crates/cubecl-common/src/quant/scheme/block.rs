@@ -54,6 +54,15 @@ impl BlockScale {
         Some(fields)
     }
 
+    /// A level slot after `fields`: its level, or the dtype code `0` that
+    /// [`unpack`](Self::unpack) reads as an empty slot.
+    pub(super) fn pack_slot(slot: Option<Self>, fields: PackedFields) -> Option<PackedFields> {
+        match slot {
+            Some(level) => level.pack(fields),
+            None => fields.with(0, 3),
+        }
+    }
+
     /// The level [`pack`](Self::pack) put next in `fields`, if it put one, and what comes after
     /// it; `None` for fields no level packs to.
     pub(super) fn unpack(fields: PackedFields) -> Option<(Option<Self>, PackedFields)> {

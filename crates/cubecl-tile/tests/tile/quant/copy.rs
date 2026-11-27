@@ -3,7 +3,7 @@ use crate::support::{
     assert_equals_approx,
 };
 use crate::tile::{Form, implied, uncut};
-use cubecl::quant::scheme::{QuantScheme, QuantStore, QuantValue, ScaleDtype};
+use cubecl::quant::scheme::{BlockScale, QuantScheme, QuantStore, QuantValue, ScaleDtype};
 use cubecl::{bytes::Bytes, ir::ElemType, prelude::*, std::tensor::TensorHandle, zspace::Shape};
 use cubecl_tile::{
     Dimension, Levels, Partitioning, Projection, Space, StageStorage, Tile, TileSpec, TileTensor,
@@ -125,7 +125,7 @@ fn two_level_scaled_copy(
 fn check_block_scaled_copy(m: usize, n: usize, bm: usize, bn: usize, global: Option<f32>) {
     let client = cubecl::test_device().client();
     let scheme = QuantScheme::default()
-        .per_block([bm as u8, bn as u8], ScaleDtype::F32)
+        .with_levels([BlockScale::per_block([bm as u8, bn as u8], ScaleDtype::F32)])
         .with_store(QuantStore::PackedU32(0))
         .with_value(QuantValue::Q8S);
     let pack = scheme.num_quants();

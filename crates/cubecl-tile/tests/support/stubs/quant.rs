@@ -1,6 +1,6 @@
 use cubecl_common::{
     e2m1, e4m3, e5m2,
-    quant::scheme::{QuantScheme, QuantStore, QuantValue},
+    quant::scheme::{BlockSize, QuantScheme, QuantStore, QuantValue},
 };
 
 pub fn quantize(
@@ -281,7 +281,11 @@ pub(crate) fn assert_supported(scheme: &QuantScheme) {
 pub(crate) fn block_axes(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
     assert_supported(scheme);
 
-    scheme.finest().size.values(shape)
+    scheme
+        .levels()
+        .next()
+        .map_or(BlockSize::TENSOR, |level| level.size)
+        .values(shape)
 }
 
 /// The block scale grid: each dimension divided by its block extent, so one entry per block.
@@ -330,7 +334,7 @@ fn scale_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_common::quant::scheme::{QuantStore, QuantValue, ScaleDtype};
+    use cubecl_common::quant::scheme::{BlockScale, QuantStore, QuantValue, ScaleDtype};
 
     fn scheme(value: QuantValue, store: QuantStore) -> QuantScheme {
         QuantScheme::default().with_value(value).with_store(store)
@@ -339,7 +343,7 @@ mod tests {
     /// Quantize then dequantize and assert the round-trip stays within one
     /// quantization step (`scale`), the worst-case symmetric error.
     fn assert_round_trips(value: QuantValue, store: QuantStore, scale: f32) {
-        let s = scheme(value, store).per_tensor(ScaleDtype::F32);
+        let s = scheme(value, store).with_levels([BlockScale::per_tensor(ScaleDtype::F32)]);
         let n = 64; // multiple of every num_quants we test (≤16)
         let values: Vec<f32> = (0..n).map(|i| (i as f32 / n as f32) * 2.0 - 1.0).collect();
 
@@ -364,7 +368,8 @@ mod tests {
             &[values.len()],
             &[scale],
             &[values.len()],
-            &scheme(QuantValue::Q8S, QuantStore::Native).per_tensor(ScaleDtype::F32),
+            &scheme(QuantValue::Q8S, QuantStore::Native)
+                .with_levels([BlockScale::per_tensor(ScaleDtype::F32)]),
         );
 
         let got: Vec<i8> = bytes.iter().map(|&b| b as i8).collect();
@@ -390,7 +395,7 @@ mod tests {
     /// Quantize then dequantize `values` at a scale of one, so what comes back is the codec's
     /// answer and nothing else.
     fn round_trip_at_unit_scale(value: QuantValue, store: QuantStore, values: &[f32]) -> Vec<f32> {
-        let s = scheme(value, store).per_tensor(ScaleDtype::F32);
+        let s = scheme(value, store).with_levels([BlockScale::per_tensor(ScaleDtype::F32)]);
         let n = values.len();
         let bytes = quantize(values, &[n], &[1.0], &[n], &s);
 
@@ -430,7 +435,8 @@ mod tests {
     #[test]
     fn block_level_uses_per_block_scale() {
         // Two blocks of 4 along the last axis, each with its own scale.
-        let s = scheme(QuantValue::Q8S, QuantStore::Native).per_block([4u8], ScaleDtype::F32);
+        let s = scheme(QuantValue::Q8S, QuantStore::Native)
+            .with_levels([BlockScale::per_block([4u8], ScaleDtype::F32)]);
         let values = vec![
             0.1, 0.2, 0.3, 0.4, // block 0
             10.0, 20.0, 30.0, 40.0, // block 1

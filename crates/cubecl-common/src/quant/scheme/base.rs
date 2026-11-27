@@ -2,89 +2,91 @@ use alloc::vec::Vec;
 use core::default::Default;
 use serde::{Deserialize, Serialize};
 
+use super::BlockScale;
 use super::code::PackedFields;
 use super::saved::SavedScheme;
-use super::{BlockScale, BlockSize};
 use crate::{e2m1, ue8m0};
 
-/// Describes a quantization scheme/configuration.
+/// How a tensor's values are stored: their format and the levels of scales over them, none or
+/// more.
 ///
-/// Scales come at one or two levels, a [`finest`](Self::finest) one and a
-/// [`coarser`](Self::coarser) one over it, which [`per_block`](Self::per_block) and
-/// [`coarser_per_block`](Self::coarser_per_block) set ([`per_tensor`](Self::per_tensor) sets
-/// either). A value's scale is the product of the scales of the blocks it is in, one block a
-/// level:
+/// A value's scale is the product of the scales of the blocks it is in, one block a level. The
+/// levels sit in [`LEVEL_SLOTS`](Self::LEVEL_SLOTS) slots, the innermost first; an empty slot
+/// holds no scale, and a scheme with no level at all stores plain values:
 ///
 /// ```
-/// # use cubecl_common::quant::scheme::{BlockExtent, BlockSize, QuantScheme, ScaleDtype};
+/// # use cubecl_common::quant::scheme::{
+/// #     BlockScale, BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype,
+/// # };
 /// // One scale for the whole tensor, stored as f32: the default scheme's level.
-/// QuantScheme::default().per_tensor(ScaleDtype::F32);
+/// QuantScheme::default().with_levels([BlockScale::per_tensor(ScaleDtype::F32)]);
 ///
 /// // One scale per block of 32 values.
-/// QuantScheme::default().per_block([32], ScaleDtype::F32);
+/// QuantScheme::default().with_levels([BlockScale::per_block([32], ScaleDtype::F32)]);
 ///
 /// // Two levels: ue4m3 block scales, normalized by a single per-tensor f32 scale.
-/// QuantScheme::default()
-///     .per_block([16], ScaleDtype::UE4M3)
-///     .per_tensor(ScaleDtype::F32);
-///
-/// // One scale per row, over the whole last axis, however long it is.
-/// let row = BlockSize::ROW;
-/// QuantScheme::default().per_block(row, ScaleDtype::F32);
+/// QuantScheme::default().with_levels([
+///     BlockScale::per_block([16], ScaleDtype::UE4M3),
+///     BlockScale::per_tensor(ScaleDtype::F32),
+/// ]);
 ///
 /// // Two levels: ue8m0 block scales under one f32 scale per row.
-/// QuantScheme::default()
-///     .per_block([32], ScaleDtype::UE8M0)
-///     .coarser_per_block(row, ScaleDtype::F32);
+/// QuantScheme::default().with_levels([
+///     BlockScale::per_block([32], ScaleDtype::UE8M0),
+///     BlockScale::per_block(BlockSize::ROW, ScaleDtype::F32),
+/// ]);
 ///
-/// // Two levels: one f32 scale per 64 values along the last axis, four blocks of 16.
-/// QuantScheme::default()
-///     .per_block([16], ScaleDtype::UE4M3)
-///     .coarser_per_block([64], ScaleDtype::F32);
+/// // No scale: bf16 values, one a stored element.
+/// QuantScheme::new(QuantValue::BF16, QuantStore::Native);
 /// ```
 ///
-/// A two-level scheme exists so block scales can live in a narrow type: the coarser scale absorbs
-/// the dynamic range of the values it covers, and the block dtype only covers the spread between
-/// their blocks. That spread is still bounded: a block whose scale falls further below the largest
-/// one than the block dtype can express is stored at that dtype's smallest value, far too coarse
-/// for it, and every value in the block quantizes to zero. [`ScaleDtype::UE4M3`] spans about 2^18
-/// this way, so a tensor holding a genuine outlier can lose its ordinary values.
+/// A scale in a slot is computed relative to the scales in the slots after it, which only a
+/// quantizer reads: a reader multiplies every level's scale in, whatever its slot. Two levels exist
+/// so block scales can live in a narrow type: the outer scale absorbs the dynamic range of the
+/// values it covers, and the block dtype only covers the spread between their blocks. That spread
+/// is still bounded: a block whose scale falls further below the largest one than the block dtype
+/// can express is stored at that dtype's smallest value, far too coarse for it, and every value in
+/// the block quantizes to zero. [`ScaleDtype::UE4M3`] spans about 2^18 this way, so a tensor
+/// holding a genuine outlier can lose its ordinary values.
+///
+/// # Assumptions
+///
+/// - Each level's blocks cover whole blocks of every level in a slot before it.
+/// - A float value ([`QuantValue::F32`], [`F16`](QuantValue::F16), [`BF16`](QuantValue::BF16)) is
+///   stored [`Native`](QuantStore::Native).
+/// - An index value ([`QuantValue::is_index`]) is read through a table of `2^bits` entries.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "SavedScheme")]
 pub struct QuantScheme {
-    /// The logical data type of quantized input values (e.g., [`QuantValue::Q8F`]).
-    ///
-    /// This defines how values are interpreted during computation, independent of how they're stored.
+    /// The format each stored value is read in.
     pub value: QuantValue,
-    /// Data type used for storing quantized values.
+    /// How the values are laid in stored elements.
     pub store: QuantStore,
-    /// The level whose scales lie beside the values, one per block of its size.
-    pub finest: BlockScale,
-    /// A level over the finest one, where the scheme has one: each of its blocks covers whole
-    /// blocks of the finest level.
-    ///
-    /// One optional level rather than a list only because no format has a third yet, and this
-    /// keeps the scheme, which every quantized dtype carries, at the size two levels take. A third
-    /// is this field becoming an array of them, coarsest last, read by [`levels`](Self::levels),
-    /// [`to_code`](Self::to_code) and the saved form.
-    pub coarser: Option<BlockScale>,
+    /// The scale levels, slot 0 the innermost; `None` is no scale in that slot.
+    pub levels: [Option<BlockScale>; QuantScheme::LEVEL_SLOTS],
 }
 
 impl Default for QuantScheme {
+    /// 8-bit integers packed in `u32` words, under one f32 scale for the whole tensor.
     fn default() -> Self {
-        Self {
-            value: QuantValue::Q8F,
-            store: QuantStore::PackedU32(0),
-            finest: BlockScale {
-                size: BlockSize::TENSOR,
-                dtype: ScaleDtype::F32,
-            },
-            coarser: None,
-        }
+        Self::new(QuantValue::Q8F, QuantStore::PackedU32(0))
+            .with_levels([BlockScale::per_tensor(ScaleDtype::F32)])
     }
 }
 
 impl QuantScheme {
+    /// How many level slots a scheme has.
+    pub const LEVEL_SLOTS: usize = 4;
+
+    /// Values of `value` laid as `store`, under no scale.
+    pub fn new(value: QuantValue, store: QuantStore) -> Self {
+        Self {
+            value,
+            store,
+            levels: [None; Self::LEVEL_SLOTS],
+        }
+    }
+
     /// Set the data type used for quantized values.
     pub fn with_value(mut self, value: QuantValue) -> Self {
         self.value = value;
@@ -97,53 +99,14 @@ impl QuantScheme {
         self
     }
 
-    /// Set one scale for the whole tensor, stored as `dtype`: the coarser level over a finest level
-    /// of blocks, and otherwise the finest level itself. So the order counts:
-    /// `per_tensor(..).per_block(..)` replaces the tensor's scale by the blocks'.
-    pub fn per_tensor(mut self, dtype: ScaleDtype) -> Self {
-        let level = BlockScale {
-            size: BlockSize::TENSOR,
-            dtype,
-        };
-        match self.finest.size == BlockSize::TENSOR {
-            true => self.finest = level,
-            false => self.coarser = Some(level),
-        }
+    /// Set every level: `levels` in the first slots, innermost first, and no scale in the others.
+    pub fn with_levels<const N: usize>(mut self, levels: [BlockScale; N]) -> Self {
+        const { assert!(N <= Self::LEVEL_SLOTS, "a scheme holds at most four levels") };
+        self.levels = core::array::from_fn(|slot| levels.get(slot).copied());
         self
     }
 
-    /// Set the finest level: one scale per block of `size`, stored as `dtype`. The coarser level
-    /// is kept, so a scale for the whole tensor is set after the blocks it covers.
-    ///
-    /// # Panics
-    ///
-    /// As [`BlockSize::new`], for a block given as its values.
-    pub fn per_block(mut self, size: impl Into<BlockSize>, dtype: ScaleDtype) -> Self {
-        self.finest = BlockScale {
-            size: size.into(),
-            dtype,
-        };
-        self
-    }
-
-    /// Set the coarser level: one scale per block of `size`, stored as `dtype`.
-    ///
-    /// # Assumptions
-    ///
-    /// Each block of `size` covers whole blocks of the finest level.
-    ///
-    /// # Panics
-    ///
-    /// As [`BlockSize::new`], for a block given as its values.
-    pub fn coarser_per_block(mut self, size: impl Into<BlockSize>, dtype: ScaleDtype) -> Self {
-        self.coarser = Some(BlockScale {
-            size: size.into(),
-            dtype,
-        });
-        self
-    }
-
-    /// The shape of each level's grid of scales over a tensor of `shape`, the finest first: one
+    /// The shape of each level's grid of scales over a tensor of `shape`, in slot order: one
     /// scale per block, the last block of an axis possibly in part.
     pub fn scale_grids(&self, shape: &[usize]) -> impl Iterator<Item = Vec<usize>> + use<> {
         let shape = shape.to_vec();
@@ -151,15 +114,10 @@ impl QuantScheme {
             .map(move |level| level.size.num_blocks(&shape))
     }
 
-    /// The scale levels, the finest first: as many scale tensors ride along with the values.
-    pub fn levels(&self) -> impl Iterator<Item = BlockScale> + use<> {
-        core::iter::once(self.finest).chain(self.coarser)
-    }
-
-    /// The finest of the [`levels`](Self::levels), the one whose scales are laid out beside the
+    /// The levels the scheme states, in slot order: as many scale tensors ride along with the
     /// values.
-    pub fn finest(&self) -> BlockScale {
-        self.finest
+    pub fn levels(&self) -> impl Iterator<Item = BlockScale> + use<> {
+        self.levels.into_iter().flatten()
     }
 
     /// Swap two tensor dimensions in the scale levels, mirroring `shape.swap(dim0, dim1)`.
@@ -168,7 +126,7 @@ impl QuantScheme {
     ///
     /// # Panics
     ///
-    /// Where a dimension is past `rank`, and as [`BlockSize::permuted`].
+    /// Where a dimension is past `rank`, and as [`BlockSize::permuted`](super::BlockSize::permuted).
     pub fn swap_block_dims(&mut self, rank: usize, dim0: usize, dim1: usize) {
         let mut axes: Vec<usize> = (0..rank).collect();
         axes.swap(dim0, dim1);
@@ -179,11 +137,10 @@ impl QuantScheme {
     ///
     /// # Panics
     ///
-    /// As [`BlockSize::permuted`].
+    /// As [`BlockSize::permuted`](super::BlockSize::permuted).
     pub fn permute_block_dims(&mut self, axes: &[usize]) {
-        self.finest.size = self.finest.size.permuted(axes);
-        if let Some(coarser) = &mut self.coarser {
-            coarser.size = coarser.size.permuted(axes);
+        for level in self.levels.iter_mut().flatten() {
+            level.size = level.size.permuted(axes);
         }
     }
 
@@ -228,7 +185,7 @@ impl QuantScheme {
     ///
     /// # Panics
     ///
-    /// As [`BlockSize::permuted`], and where the packing dim is not one of `axes`.
+    /// As [`BlockSize::permuted`](super::BlockSize::permuted), and where the packing dim is not one of `axes`.
     pub fn permute_dims(&mut self, axes: &[usize]) {
         self.permute_block_dims(axes);
         self.permute_packing_dim(axes);
@@ -261,13 +218,13 @@ impl ScaleDtype {
         }
     }
 
-    /// Where a two-level scheme puts the largest finest-level scale of a coarser block, when the
-    /// finest level is stored as this dtype: the coarser scale is that largest one divided by
-    /// this value, and every finest scale under it is stored relative to it.
+    /// Where a level stored as this dtype puts the largest of its scales under one block of the
+    /// level in the slot after it: that outer scale is the largest one divided by this value, and
+    /// every inner scale under it is stored relative to it.
     ///
     /// A dtype narrower than f32's range puts it at its top, which leaves the most room below for
-    /// the smaller ones. A dtype whose range reaches f32's puts it at one, so the coarser scale is
-    /// the largest one itself: at its top, the coarser scale would go subnormal and the others
+    /// the smaller ones. A dtype whose range reaches f32's puts it at one, so the outer scale is
+    /// the largest one itself: at its top, the outer scale would go subnormal and the others
     /// would overflow. For [`ScaleDtype::UE8M0`] that also makes each stored scale a power of two
     /// at most one, the offset of its block below the largest.
     pub fn largest_under_coarser(&self) -> f32 {
@@ -649,14 +606,13 @@ codes!(ScaleDtype {
 /// backend's custom operation crosses the wire as tensors and scalars only.
 ///
 /// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), then
-/// each level the scheme states, the finest first: its dtype (3, `0` where there is
-/// no such level), whether the rest of the axes are whole (1), how many of the last axes it lists
-/// (3) and the extent along each of them, the last one first (8 each, `0` for the whole axis).
+/// each level slot in order: its dtype (3, `0` for an empty slot) and, for a level, whether the
+/// rest of the axes are whole (1), how many of the last axes it lists (3) and the extent along
+/// each of them, the last one first (8 each, `0` for the whole axis).
 impl QuantScheme {
     /// This scheme as one `u64`; [`from_code`](Self::from_code) reads it back. `None` for a scheme
     /// no code holds: a packing axis past 63, a level whose rest is neither one value nor the
-    /// whole axis, or levels listing more extents than the bits left hold, five for one level and
-    /// four for two.
+    /// whole axis, or levels listing more extents than the bits left hold, four in all.
     pub fn to_code(&self) -> Option<u64> {
         let (store, axis) = match self.store {
             QuantStore::Native => (0, 0),
@@ -667,9 +623,8 @@ impl QuantScheme {
             .with(self.value.to_code(), 4)?
             .with(store, 2)?
             .with(axis as u64, 6)?;
-        fields = self.finest.pack(fields)?;
-        if let Some(coarser) = self.coarser {
-            fields = coarser.pack(fields)?;
+        for slot in self.levels {
+            fields = BlockScale::pack_slot(slot, fields)?;
         }
         Some(fields.bits)
     }
@@ -690,16 +645,20 @@ impl QuantScheme {
             2 => QuantStore::PackedU32(axis as usize),
             _ => return None,
         };
-        let (finest, fields) = BlockScale::unpack(fields)?;
-        let (coarser, _) = BlockScale::unpack(fields)?;
+        let mut levels = [None; Self::LEVEL_SLOTS];
+        let mut fields = fields;
+        for slot in &mut levels {
+            let (level, after) = BlockScale::unpack(fields)?;
+            *slot = level;
+            fields = after;
+        }
         // Read fields alone accept codes no scheme packs to: bits a field of this scheme does not
         // use, a listed extent that says the rest again. Packing the result again keeps the one
         // code each scheme has.
         Some(Self {
             value: QuantValue::from_code(value)?,
             store,
-            finest: finest?,
-            coarser,
+            levels,
         })
         .filter(|scheme| scheme.to_code() == Some(code))
     }
@@ -737,7 +696,7 @@ impl QuantScheme {
 
 #[cfg(test)]
 mod tests {
-    use super::super::BlockExtent;
+    use super::super::{BlockExtent, BlockSize};
     use super::*;
     use alloc::vec;
 
@@ -759,78 +718,71 @@ mod tests {
     }
 
     #[test]
-    fn a_stated_level_is_the_only_one() {
-        let scheme = QuantScheme::default().per_block([32], ScaleDtype::F16);
-        let levels: Vec<BlockScale> = scheme.levels().collect();
-        assert_eq!(levels, [level([32], ScaleDtype::F16)]);
+    fn a_new_scheme_states_no_level() {
+        let scheme = QuantScheme::new(QuantValue::BF16, QuantStore::Native);
+        assert_eq!(scheme.levels, [None; QuantScheme::LEVEL_SLOTS]);
+        assert_eq!(scheme.levels().count(), 0);
     }
 
     #[test]
     fn the_default_scheme_is_a_stated_scale_for_the_tensor() {
         assert_eq!(
             QuantScheme::default(),
-            QuantScheme::default().per_tensor(ScaleDtype::F32)
+            QuantScheme::new(QuantValue::Q8F, QuantStore::PackedU32(0))
+                .with_levels([BlockScale::per_tensor(ScaleDtype::F32)])
         );
     }
 
     #[test]
-    fn a_tensors_scale_set_after_blocks_is_the_coarser_level() {
-        let scheme = QuantScheme::default()
-            .per_block([16], ScaleDtype::UE4M3)
-            .per_tensor(ScaleDtype::F32);
-        let levels: Vec<BlockScale> = scheme.levels().collect();
+    fn levels_fill_the_slots_from_the_innermost() {
+        let scheme = QuantScheme::default().with_levels([
+            level([16], ScaleDtype::UE4M3),
+            level(BlockSize::TENSOR, ScaleDtype::F32),
+        ]);
         assert_eq!(
-            levels,
+            scheme.levels,
             [
-                level([16], ScaleDtype::UE4M3),
-                level(BlockSize::TENSOR, ScaleDtype::F32)
+                Some(level([16], ScaleDtype::UE4M3)),
+                Some(level(BlockSize::TENSOR, ScaleDtype::F32)),
+                None,
+                None
             ]
         );
     }
 
     #[test]
-    fn blocks_set_after_a_tensors_scale_replace_it() {
-        let scheme = QuantScheme::default()
-            .per_tensor(ScaleDtype::F16)
-            .per_block([16], ScaleDtype::UE4M3);
+    fn setting_levels_empties_the_slots_they_do_not_fill() {
+        let scheme = QuantScheme::nvfp4().with_levels([level([32], ScaleDtype::F16)]);
         let levels: Vec<BlockScale> = scheme.levels().collect();
-        assert_eq!(levels, [level([16], ScaleDtype::UE4M3)]);
+        assert_eq!(levels, [level([32], ScaleDtype::F16)]);
     }
 
     #[test]
-    fn setting_blocks_again_replaces_the_finest_level() {
-        let scheme = QuantScheme::nvfp4().per_block([32, 1], ScaleDtype::F16);
-        assert_eq!(scheme.finest, level([32, 1], ScaleDtype::F16));
+    fn the_levels_skip_empty_slots() {
+        let scheme = QuantScheme {
+            levels: [
+                None,
+                Some(level([32], ScaleDtype::UE8M0)),
+                None,
+                Some(level(row(), ScaleDtype::F32)),
+            ],
+            ..QuantScheme::default()
+        };
+        let levels: Vec<BlockScale> = scheme.levels().collect();
         assert_eq!(
-            scheme.coarser,
-            Some(level(BlockSize::TENSOR, ScaleDtype::F32))
+            levels,
+            [
+                level([32], ScaleDtype::UE8M0),
+                level(row(), ScaleDtype::F32)
+            ]
         );
-    }
-
-    #[test]
-    fn setting_a_tensors_scale_replaces_the_coarser_level() {
-        let scheme = QuantScheme::mxfp4_row_factored().per_tensor(ScaleDtype::F32);
-        assert_eq!(
-            scheme.coarser,
-            Some(level(BlockSize::TENSOR, ScaleDtype::F32))
-        );
-    }
-
-    #[test]
-    fn coarser_blocks_set_the_coarser_level_under_the_finest() {
-        let scheme = QuantScheme::default()
-            .per_block([32], ScaleDtype::UE8M0)
-            .coarser_per_block(row(), ScaleDtype::F32);
-        assert_eq!(scheme.finest, level([32], ScaleDtype::UE8M0));
-        assert_eq!(scheme.coarser, Some(level(row(), ScaleDtype::F32)));
     }
 
     /// Blocks of 16 over `[4, 64]` lay a `[4, 4]` grid; blocks of 32 a `[4, 2]` one.
     #[test]
     fn each_level_lays_its_own_grid() {
         let scheme = QuantScheme::default()
-            .per_block([16], ScaleDtype::UE4M3)
-            .coarser_per_block([32], ScaleDtype::F32);
+            .with_levels([level([16], ScaleDtype::UE4M3), level([32], ScaleDtype::F32)]);
         let grids: Vec<Vec<usize>> = scheme.scale_grids(&[4, 64]).collect();
         assert_eq!(grids, [vec![4, 4], vec![4, 2]]);
     }
@@ -863,25 +815,28 @@ mod tests {
             &[BlockExtent::WholeAxis, BlockExtent::VALUE],
             BlockExtent::VALUE,
         );
-        assert_eq!(scheme.finest, level([32, 1], ScaleDtype::UE8M0));
-        assert_eq!(scheme.coarser, Some(level(column, ScaleDtype::F32)));
+        assert_eq!(scheme.levels[0], Some(level([32, 1], ScaleDtype::UE8M0)));
+        assert_eq!(scheme.levels[1], Some(level(column, ScaleDtype::F32)));
     }
 
     #[test]
     fn a_scale_for_the_tensor_does_not_move() {
-        let mut scheme = QuantScheme::default().per_tensor(ScaleDtype::F32);
+        let mut scheme = QuantScheme::default();
         scheme.swap_block_dims(2, 0, 1);
-        assert_eq!(scheme, QuantScheme::default().per_tensor(ScaleDtype::F32));
+        assert_eq!(scheme, QuantScheme::default());
     }
 
     #[test]
     fn permuting_dims_moves_the_packing_dim_and_the_block_with_their_axes() {
         let mut scheme = QuantScheme::default()
             .with_store(QuantStore::PackedU32(0))
-            .per_block([1, 2, 4], ScaleDtype::F32);
+            .with_levels([level([1, 2, 4], ScaleDtype::F32)]);
         scheme.permute_dims(&[2, 0, 1]);
         assert_eq!(scheme.store, QuantStore::PackedU32(2));
-        assert_eq!(scheme.finest().size, BlockSize::new([4, 1, 2]));
+        assert_eq!(
+            scheme.levels[0].map(|level| level.size),
+            Some(BlockSize::new([4, 1, 2]))
+        );
     }
 
     #[test]
@@ -1166,30 +1121,42 @@ mod tests {
             BlockSize::new([255, 1]),
             BlockSize::with_rest(&[BlockExtent::from(16)], BlockExtent::WholeAxis),
         ];
-        let longest = BlockSize::new([2, 4, 8, 16, 255]);
+        let longest = BlockSize::new([2, 4, 8, 255]);
         let levels: Vec<BlockScale> = dtypes
             .iter()
             .flat_map(|&dtype| sizes.map(|size| level(size, dtype)))
             .collect();
-        let coarser: Vec<Option<BlockScale>> = [None]
-            .into_iter()
-            .chain(levels.iter().copied().map(Some))
-            .collect();
-        let pairs: Vec<(BlockScale, Option<BlockScale>)> = levels
-            .iter()
-            .flat_map(|&finest| coarser.iter().map(move |&coarser| (finest, coarser)))
-            .chain([(level(longest, ScaleDtype::F32), None)])
-            .collect();
+        // Every level alone in every slot, every pair in the first two, a hole between two, four
+        // levels, the longest level and no level at all.
+        let mut slots: Vec<[Option<BlockScale>; QuantScheme::LEVEL_SLOTS]> = vec![[None; 4]];
+        for &first in &levels {
+            for slot in 0..QuantScheme::LEVEL_SLOTS {
+                let mut alone = [None; 4];
+                alone[slot] = Some(first);
+                slots.push(alone);
+            }
+            for &second in &levels {
+                slots.push([Some(first), Some(second), None, None]);
+            }
+        }
+        let tensor = level(BlockSize::TENSOR, ScaleDtype::F32);
+        slots.push([
+            Some(level([16], ScaleDtype::UE4M3)),
+            None,
+            Some(tensor),
+            None,
+        ]);
+        slots.push([Some(tensor); 4]);
+        slots.push([Some(level(longest, ScaleDtype::F32)), None, None, None]);
         let mut codes = alloc::collections::BTreeSet::new();
         let mut count = 0;
         for value in values.iter().copied() {
             for store in stores {
-                for (finest, coarser) in pairs.iter().copied() {
+                for levels in slots.iter().copied() {
                     let scheme = QuantScheme {
                         value,
                         store,
-                        finest,
-                        coarser,
+                        levels,
                     };
                     let code = scheme.to_code().unwrap();
                     assert_eq!(QuantScheme::from_code(code), Some(scheme), "{scheme:?}");
@@ -1207,7 +1174,7 @@ mod tests {
     fn a_code_no_scheme_packs_to_is_refused() {
         let canonical = QuantScheme::default()
             .with_store(QuantStore::PackedU32(1))
-            .per_block([32], ScaleDtype::F16)
+            .with_levels([level([32], ScaleDtype::F16)])
             .to_code()
             .unwrap();
         let native = QuantScheme::default()
@@ -1220,8 +1187,7 @@ mod tests {
             ("a dtype of 7", canonical | (7 << 12)),
             ("six listed extents", (canonical & !(7 << 16)) | (6 << 16)),
             ("an axis on a native store", native | (5 << 6)),
-            ("no finest level", canonical & !(7 << 12)),
-            ("an extent past the listed ones", canonical | (8 << 30)),
+            ("a bit past the last slot", canonical | (1 << 40)),
             (
                 "a listed extent that is the rest",
                 (canonical & !(0xFF << 19)) | (1 << 19),
@@ -1244,13 +1210,18 @@ mod tests {
             ),
             (
                 "a rest of two values",
-                QuantScheme::default().per_block(pairs, ScaleDtype::F16),
+                QuantScheme::default().with_levels([level(pairs, ScaleDtype::F16)]),
+            ),
+            (
+                "five extents in one level",
+                QuantScheme::default().with_levels([level([2, 4, 8, 16, 32], ScaleDtype::F16)]),
             ),
             (
                 "five extents in two levels",
-                QuantScheme::default()
-                    .per_block([2, 4, 8, 16, 32], ScaleDtype::F16)
-                    .per_tensor(ScaleDtype::F32),
+                QuantScheme::default().with_levels([
+                    level([2, 4, 8], ScaleDtype::F16),
+                    level([16, 32], ScaleDtype::F32),
+                ]),
             ),
         ];
         for (case, scheme) in unheld {

@@ -489,7 +489,11 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static> RunWithQuantType
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
-        match scheme.finest().dtype {
+        let innermost = scheme
+            .levels()
+            .next()
+            .expect("a quantized view's scheme should state a scale level");
+        match innermost.dtype {
             ScaleDtype::F32 => func.execute::<Q, f32>(),
             ScaleDtype::F16 => func.execute::<Q, f16>(),
             ScaleDtype::BF16 => func.execute::<Q, bf16>(),
@@ -595,7 +599,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
 #[cfg(test)]
 mod tests {
     use super::{RunWithQuantType, quant_vector_size_q, run_with_quant_type};
-    use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
+    use cubecl_common::quant::scheme::{BlockScale, QuantScheme, ScaleDtype};
     use cubecl_core::prelude::Scalar;
 
     struct Dispatched;
@@ -617,9 +621,10 @@ mod tests {
     /// value and block scale types dispatch.
     #[test]
     fn two_level_scheme_dispatches() {
-        let scheme = QuantScheme::default()
-            .per_block([32], ScaleDtype::F32)
-            .per_tensor(ScaleDtype::F32);
+        let scheme = QuantScheme::default().with_levels([
+            BlockScale::per_block([32], ScaleDtype::F32),
+            BlockScale::per_tensor(ScaleDtype::F32),
+        ]);
         assert!(run_with_quant_type(Dispatched, scheme));
     }
 

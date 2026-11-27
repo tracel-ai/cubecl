@@ -15,30 +15,30 @@ pub trait RunWithQuantType {
 /// missing level is dropped from the reconstruction and every value comes back short by that
 /// factor, an extra one is a caller quantizing differently than the scheme it passed.
 ///
-/// A coarser level binds as f32 rather than being read as f32 bytes. f32 is required only because
-/// every coarser level in use is f32; another dtype is its binding read as that dtype, as the
-/// finest level's is.
+/// Every level outside the innermost slot binds as f32 rather than being read as f32 bytes. f32 is
+/// required only because every such level in use is f32; another dtype is its binding read as
+/// that dtype, as the innermost level's is.
 pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
     let levels = scheme.levels().count();
     assert!(
         bindings == levels,
         "a scheme with {levels} scale level(s) takes as many scale bindings, but {bindings} were provided",
     );
-    for coarser in scheme.levels().skip(1) {
+    for outer in scheme.levels().skip(1) {
         assert!(
-            coarser.dtype == ScaleDtype::F32,
-            "a coarser scale binds as f32, but the scheme stores it as {:?}",
-            coarser.dtype
+            outer.dtype == ScaleDtype::F32,
+            "an outer scale binds as f32, but the scheme stores it as {:?}",
+            outer.dtype
         );
     }
 }
 
-/// Panic where a consumer holds the coarser scale in a register, one value for every position,
-/// and the scheme's coarser level is not one f32 scale for the whole tensor.
+/// Panic where a consumer holds every outer scale in a register, one value for every position,
+/// and an outer level of the scheme is not one f32 scale for the whole tensor.
 ///
 /// # Panics
 ///
-/// Where a level coarser than the finest is not one f32 scale for the whole tensor.
+/// Where a level outside the innermost slot is not one f32 scale for the whole tensor.
 pub fn check_global_levels(scheme: &QuantScheme) {
     for global in scheme.levels().skip(1) {
         assert!(
@@ -91,20 +91,29 @@ pub fn check_table_bindings(scheme: &QuantScheme, table_provided: bool) {
 #[cfg(test)]
 mod tests {
     use super::{check_global_levels, check_scale_bindings, check_table_bindings};
-    use cubecl_common::quant::scheme::{QuantScheme, QuantStore, QuantValue, ScaleDtype};
+    use cubecl_common::quant::scheme::{
+        BlockScale, QuantScheme, QuantStore, QuantValue, ScaleDtype,
+    };
 
     #[test]
     fn a_one_level_scheme_takes_one_binding() {
-        check_scale_bindings(&QuantScheme::default().per_tensor(ScaleDtype::F32), 1);
-        check_scale_bindings(&QuantScheme::default().per_block([32], ScaleDtype::F32), 1);
+        check_scale_bindings(
+            &QuantScheme::default().with_levels([BlockScale::per_tensor(ScaleDtype::F32)]),
+            1,
+        );
+        check_scale_bindings(
+            &QuantScheme::default().with_levels([BlockScale::per_block([32], ScaleDtype::F32)]),
+            1,
+        );
     }
 
     #[test]
     fn a_two_level_scheme_takes_two_bindings() {
         check_scale_bindings(
-            &QuantScheme::default()
-                .per_block([32], ScaleDtype::F32)
-                .per_tensor(ScaleDtype::F32),
+            &QuantScheme::default().with_levels([
+                BlockScale::per_block([32], ScaleDtype::F32),
+                BlockScale::per_tensor(ScaleDtype::F32),
+            ]),
             2,
         );
     }
@@ -114,22 +123,23 @@ mod tests {
     #[should_panic(expected = "binds as f32, but")]
     fn a_two_level_scheme_storing_the_tensor_scale_narrower_is_rejected() {
         check_scale_bindings(
-            &QuantScheme::default()
-                .per_block([32], ScaleDtype::F32)
-                .per_tensor(ScaleDtype::BF16),
+            &QuantScheme::default().with_levels([
+                BlockScale::per_block([32], ScaleDtype::F32),
+                BlockScale::per_tensor(ScaleDtype::BF16),
+            ]),
             2,
         );
     }
 
     #[test]
-    fn a_coarser_level_of_rows_binds_as_a_grid() {
+    fn an_outer_level_of_rows_binds_as_a_grid() {
         check_scale_bindings(&QuantScheme::mxfp4_row_factored(), 2);
     }
 
-    /// A reader holding the coarser scale in a register has one value for every position.
+    /// A reader holding an outer scale in a register has one value for every position.
     #[test]
     #[should_panic(expected = "is one for the whole tensor, but")]
-    fn a_coarser_level_of_rows_is_no_register_scale() {
+    fn an_outer_level_of_rows_is_no_register_scale() {
         check_global_levels(&QuantScheme::mxfp4_row_factored());
     }
 
@@ -138,9 +148,10 @@ mod tests {
     fn a_two_level_scheme_with_one_binding_is_rejected() {
         // Would otherwise dequantize against the block scales alone, dropping the per-tensor factor.
         check_scale_bindings(
-            &QuantScheme::default()
-                .per_block([32], ScaleDtype::F32)
-                .per_tensor(ScaleDtype::F32),
+            &QuantScheme::default().with_levels([
+                BlockScale::per_block([32], ScaleDtype::F32),
+                BlockScale::per_tensor(ScaleDtype::F32),
+            ]),
             1,
         );
     }
@@ -148,7 +159,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "takes as many scale bindings, but 2 were provided")]
     fn a_one_level_scheme_with_two_bindings_is_rejected() {
-        check_scale_bindings(&QuantScheme::default().per_tensor(ScaleDtype::F32), 2);
+        check_scale_bindings(
+            &QuantScheme::default().with_levels([BlockScale::per_tensor(ScaleDtype::F32)]),
+            2,
+        );
     }
 
     fn lookup_scheme() -> QuantScheme {
