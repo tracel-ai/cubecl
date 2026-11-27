@@ -197,10 +197,10 @@ mod tests {
     /// one layout, in two crates.
     #[test]
     fn a_table_parses_from_the_namespace_the_runtime_writes() {
-        let namespace = cubecl_runtime::tune::TuneTableName {
-            hardware: "cuda_ptx-sm89_NVIDIA-L4_par58",
-            tuner: "matmul-tune-gemm",
-        }
+        let namespace = cubecl_runtime::tune::TuneTableName::current(
+            "cuda_ptx-sm89_NVIDIA-L4_par58",
+            "matmul-tune-gemm",
+        )
         .namespace();
         let table = AutotuneTable::new(namespace.as_str()).expect("parses");
         assert_eq!(table.tuner, "matmul-tune-gemm");

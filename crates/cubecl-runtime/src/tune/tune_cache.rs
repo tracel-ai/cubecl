@@ -170,11 +170,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             use alloc::string::ToString;
 
             let config = crate::config::CubeClRuntimeConfig::get();
-            let namespace = TuneTableName {
-                hardware: &hardware.to_string(),
-                tuner: name,
-            }
-            .namespace();
+            let namespace = TuneTableName::current(hardware.to_string(), name).namespace();
             let table: String = namespace.as_str().into();
 
             if config.autotune.disable_cache {

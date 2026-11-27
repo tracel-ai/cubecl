@@ -4,9 +4,9 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{AutotuneAnswer, BuildStamp};
+use super::{AutotuneAnswer, BuildStamp, TunedTable};
 use crate::bundle::Bundle;
-use crate::persistence::Namespace;
+use crate::persistence::{Namespace, TuneTableName};
 
 /// What names the namespace recording which answers of one table the work of
 /// one build used, keyed as the table is.
@@ -76,19 +76,28 @@ impl UsedAnswers {
             .is_some_and(|keys| keys.contains(key))
     }
 
-    /// The answers as `entries` holds them now, trimmed to their picks. One
-    /// used and since removed, or whose value does not decode, is left out.
-    pub fn answers(&self, entries: &dyn Bundle) -> Vec<AutotuneAnswer> {
-        let mut answers = Vec::new();
-        for (table, keys) in &self.tables {
-            entries.scan(table, &mut |key, value| {
+    /// The answers as `entries` holds them now, trimmed to their picks, by
+    /// table. One used and since removed, whose value does not decode, or of a
+    /// namespace that names no table, is left out, and so is a table left with
+    /// none.
+    pub fn answers(&self, entries: &dyn Bundle) -> Vec<TunedTable> {
+        let mut tables = Vec::new();
+        for (namespace, keys) in &self.tables {
+            let Some(table) = TuneTableName::parse(namespace) else {
+                continue;
+            };
+            let mut answers = Vec::new();
+            entries.scan(namespace, &mut |key, value| {
                 let used = keys
                     .contains(key)
-                    .then(|| AutotuneAnswer::stored(table, key, value));
+                    .then(|| AutotuneAnswer::stored(key, value));
                 answers.extend(used.flatten());
             });
+            if !answers.is_empty() {
+                tables.push(TunedTable { table, answers });
+            }
         }
-        answers
+        tables
     }
 }
 

@@ -3,7 +3,7 @@
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, AutotuneAnswer, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId,
-    EnvironmentOrigin, EnvironmentSummary, SaveOptions, UsedAnswersName,
+    EnvironmentOrigin, EnvironmentSummary, SaveOptions, TunedTable, UsedAnswersName,
 };
 use cubecl_environment::persistence::{
     CacheOption, Database, Namespace, Store, StoreOptions, TuneTableName,
@@ -392,9 +392,14 @@ fn a_saved_bundle_gives_back_the_answers_its_build_used() {
     std::fs::write(&file, &*saved.bytes).unwrap();
 
     for bundle in [saved, EnvironmentBundle::open(&file).unwrap()] {
-        let mut answers = bundle.read_used_answers().unwrap();
-        answers.sort_by_key(|answer| answer.fastest_index);
-        assert_eq!(answers, [trimmed("loaded", 1), trimmed("measured", 2)]);
+        let mut tables = bundle.read_used_answers().unwrap();
+        for tuned in &mut tables {
+            tuned.answers.sort_by_key(|answer| answer.fastest_index);
+        }
+        assert_eq!(
+            tables,
+            [in_table(vec![trimmed("loaded", 1), trimmed("measured", 2)])]
+        );
     }
 }
 
@@ -410,7 +415,10 @@ fn an_environment_created_from_answers_holds_them() {
 
     let tuned = EnvironmentId::create(
         "tuned",
-        EnvironmentOrigin::Answers(vec![trimmed("first", 1), trimmed("second", 2)]),
+        EnvironmentOrigin::Answers(vec![in_table(vec![
+            trimmed("first", 1),
+            trimmed("second", 2),
+        ])]),
     )
     .unwrap();
 
@@ -420,34 +428,27 @@ fn an_environment_created_from_answers_holds_them() {
     assert_eq!(pick("second"), Some(2));
 }
 
-/// Answers of a table this version's tuners never read are left out: those of
-/// another cubecl version, of another layout, and of a namespace that is no
-/// table at all.
+/// Answers of a table of another cubecl version, which this version's tuners
+/// never read, are left out.
 #[test]
 #[serial_test::serial]
 fn answers_of_a_table_this_version_does_not_read_are_left_out() {
     let _root = rooted();
-    let moved = |table: &str| AutotuneAnswer {
-        table: table.into(),
-        ..trimmed("moved", 1)
-    };
     let version = env!("CARGO_PKG_VERSION");
-    let foreign = [
-        "autotune/0.1.0/layout-v1/hardware/tuner".to_string(),
-        format!("autotune/{version}-other/layout-v1/hardware/tuner"),
-        format!("autotune/{version}/layout-v0/hardware/tuner"),
-        format!("autotune/{version}/layout-v10/hardware/tuner"),
-        format!("autotune/{version}/device/tuner"),
-        format!("cuda/{version}/layout-v1/hardware/tuner"),
-    ];
-    let mut answers: Vec<AutotuneAnswer> = foreign.iter().map(|table| moved(table)).collect();
-    answers.push(trimmed("read", 2));
+    let mut tables: Vec<TunedTable> = ["0.1.0".to_string(), format!("{version}-other")]
+        .into_iter()
+        .map(|version| TunedTable {
+            table: TuneTableName { version, ..table() },
+            answers: vec![trimmed("moved", 1)],
+        })
+        .collect();
+    tables.push(in_table(vec![trimmed("read", 2)]));
 
-    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Answers(answers)).unwrap();
+    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Answers(tables)).unwrap();
 
     tuned.activate().unwrap();
     let database = Database::open_active().unwrap();
-    assert_eq!(database.namespaces(), [table().as_str()]);
+    assert_eq!(database.namespaces(), [table().namespace().as_str()]);
     assert_eq!(pick("read"), Some(2));
 }
 
@@ -468,7 +469,10 @@ fn the_first_answer_to_a_key_is_held() {
 
     let tuned = EnvironmentId::create(
         "tuned",
-        EnvironmentOrigin::Answers(vec![trimmed("shared", 3), trimmed("shared", 4)]),
+        EnvironmentOrigin::Answers(vec![in_table(vec![
+            trimmed("shared", 3),
+            trimmed("shared", 4),
+        ])]),
     )
     .unwrap();
     tuned.merge(EnvironmentOrigin::Fork(file)).unwrap();
@@ -491,10 +495,10 @@ fn merged_answers_never_replace_one_the_environment_held() {
         .unwrap();
 
     tuned
-        .merge(EnvironmentOrigin::Answers(vec![
+        .merge(EnvironmentOrigin::Answers(vec![in_table(vec![
             trimmed("held", 2),
             trimmed("lacked", 3),
-        ]))
+        ])]))
         .unwrap();
 
     assert_eq!(pick("held"), Some(1));
@@ -558,12 +562,8 @@ fn bytes_that_are_no_bundle_do_not_read() {
 }
 
 /// The table the answers here are stored in.
-fn table() -> Namespace {
-    TuneTableName {
-        hardware: "hardware",
-        tuner: "tuner",
-    }
-    .namespace()
+fn table() -> TuneTableName {
+    TuneTableName::current("hardware", "tuner")
 }
 
 /// This build, and another.
@@ -578,7 +578,7 @@ fn builds() -> (BuildStamp, BuildStamp) {
 fn answers() -> Store<String, Answer> {
     Store::new(
         StoreOptions::new()
-            .storage(table())
+            .storage(table().namespace())
             .cache(CacheOption::Lazy),
     )
 }
@@ -591,7 +591,7 @@ fn pick(key: &str) -> Option<usize> {
 
 /// The answers of [`table`] the work of `build` used.
 fn uses(build: BuildStamp) -> Store<String, ()> {
-    let table = table();
+    let table = table().namespace();
     let name = UsedAnswersName {
         build,
         table: table.as_str(),
@@ -619,9 +619,16 @@ fn trimmed(key: &str, fastest_index: usize) -> AutotuneAnswer {
     let mut stored = Vec::new();
     ciborium::into_writer(key, &mut stored).unwrap();
     AutotuneAnswer {
-        table: table().as_str().into(),
         key: Bytes::from_bytes_vec(stored),
         fastest_index,
+    }
+}
+
+/// `answers`, as [`table`] holds them.
+fn in_table(answers: Vec<AutotuneAnswer>) -> TunedTable {
+    TunedTable {
+        table: table(),
+        answers,
     }
 }
 

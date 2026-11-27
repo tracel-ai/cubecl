@@ -1,20 +1,28 @@
-//! One autotune answer, outside of the environment that held it.
+//! The answers of an autotune table, outside of the environment that held
+//! them.
 
-use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 use crate::bytes::Bytes;
+use crate::persistence::TuneTableName;
 use crate::persistence::decode;
 #[cfg(native_cache)]
 use crate::persistence::encode;
 
-/// One answer of an autotune table, trimmed to its pick: what another
-/// environment needs of it to run the same pick, without the measurements it
-/// was picked from.
+/// The answers one autotune table holds, trimmed to their picks: what another
+/// environment needs of the table to run the same picks, without the
+/// measurements they were picked from.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TunedTable {
+    /// The table that holds them.
+    pub table: TuneTableName,
+    /// Its answers, one per key.
+    pub answers: Vec<AutotuneAnswer>,
+}
+
+/// One answer of an autotune table, trimmed to its pick.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AutotuneAnswer {
-    /// The table that holds it, by its whole namespace: the cubecl version and
-    /// the table layout, the hardware and the tuner.
-    pub table: String,
     /// The key it answers and the checksum of the candidate list it was picked
     /// from, as the table stores them.
     pub key: Bytes,
@@ -23,12 +31,11 @@ pub struct AutotuneAnswer {
 }
 
 impl AutotuneAnswer {
-    /// The answer `table` stores as `value` under `key`, or `None` when the
+    /// The answer a table stores as `value` under `key`, or `None` when the
     /// value does not decode.
-    pub(crate) fn stored(table: &str, key: &[u8], value: &[u8]) -> Option<Self> {
+    pub(crate) fn stored(key: &[u8], value: &[u8]) -> Option<Self> {
         let StoredPick { fastest_index } = decode(value)?;
         Some(Self {
-            table: table.to_string(),
             key: Bytes::from_bytes_vec(key.to_vec()),
             fastest_index,
         })

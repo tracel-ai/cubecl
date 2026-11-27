@@ -2252,11 +2252,7 @@ fn an_answer_past_the_end_of_the_candidate_list_is_tuned_again() {
     let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
     let (handles, key) = addition_inputs(&client, &set);
     let hardware = client.hardware_identity();
-    let table = TuneTableName {
-        hardware: &hardware.to_string(),
-        tuner: "past-the-end",
-    }
-    .namespace();
+    let table = TuneTableName::current(hardware.to_string(), "past-the-end").namespace();
     let stored = cbor(&PersistentCacheKey {
         key: key.clone(),
         checksum: set.compute_checksum(),
@@ -2289,7 +2285,7 @@ fn an_answer_past_the_end_of_the_candidate_list_is_tuned_again() {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_saved_environment_gives_back_the_answer_a_tune_measured() {
-    use cubecl_environment::environment::{AutotuneAnswer, EnvironmentId, SaveOptions};
+    use cubecl_environment::environment::{AutotuneAnswer, EnvironmentId, SaveOptions, TunedTable};
     use cubecl_server::tune::{PersistentCacheKey, TuneCacheResult, TuneTableName, Tuner};
 
     let root = tempfile::tempdir().unwrap();
@@ -2308,20 +2304,18 @@ fn a_saved_environment_gives_back_the_answer_a_tune_measured() {
     };
     let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
 
-    let table = TuneTableName {
-        hardware: &hardware.to_string(),
-        tuner: "given-back",
-    };
     let stored = PersistentCacheKey {
         key,
         checksum: set.compute_checksum(),
     };
     assert_eq!(
         saved.read_used_answers().unwrap(),
-        [AutotuneAnswer {
-            table: table.namespace().as_str().to_string(),
-            key: cubecl_environment::bytes::Bytes::from_bytes_vec(cbor(&stored)),
-            fastest_index,
+        [TunedTable {
+            table: TuneTableName::current(hardware.to_string(), "given-back"),
+            answers: vec![AutotuneAnswer {
+                key: cubecl_environment::bytes::Bytes::from_bytes_vec(cbor(&stored)),
+                fastest_index,
+            }],
         }]
     );
 }
@@ -4351,10 +4345,10 @@ fn a_prune_keeps_what_the_work_loaded() {
 #[serial_test::serial]
 fn a_prune_removes_the_answers_the_work_did_not_use() {
     use cubecl_environment::environment::{
-        AutotuneAnswer, BuildStamp, EnvironmentId, EnvironmentOrigin, PruneOptions, SaveOptions,
+        BuildStamp, EnvironmentId, EnvironmentOrigin, PruneOptions, SaveOptions, TunedTable,
         UsedAnswersName,
     };
-    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_environment::persistence::{Database, Origin, TuneTableName};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -4363,16 +4357,20 @@ fn a_prune_removes_the_answers_the_work_did_not_use() {
     let [elsewhere, idle, loaded] = &shared[..] else {
         panic!("one answer a tuner: {shared:?}");
     };
-    let outdated = AutotuneAnswer {
-        table: "autotune/0.1.0/layout-v1/hardware/loaded".into(),
+    let outdated = TunedTable {
+        table: TuneTableName {
+            version: "0.1.0".into(),
+            ..loaded.table.clone()
+        },
         ..loaded.clone()
     };
     let other_build = BuildStamp {
         hash: BuildStamp::current().hash ^ 1,
     };
+    let elsewhere_table = elsewhere.table.namespace();
     let other_uses = UsedAnswersName {
         build: other_build,
-        table: &elsewhere.table,
+        table: elsewhere_table.as_str(),
     }
     .namespace();
     EnvironmentId::create("pruned", EnvironmentOrigin::Answers(shared.clone()))
@@ -4380,8 +4378,17 @@ fn a_prune_removes_the_answers_the_work_did_not_use() {
         .activate()
         .unwrap();
     let database = Database::open_active().unwrap();
-    database.insert(&outdated.table, &outdated.key, b"pick", Origin::Imported);
-    database.insert(other_uses.as_str(), &elsewhere.key, b"", Origin::Imported);
+    for answer in &outdated.answers {
+        database.insert(
+            outdated.table.namespace().as_str(),
+            &answer.key,
+            b"pick",
+            Origin::Imported,
+        );
+    }
+    for answer in &elsewhere.answers {
+        database.insert(other_uses.as_str(), &answer.key, b"", Origin::Imported);
+    }
 
     let measured = tuned_answers(&["loaded", "measured"]);
     let pruned = EnvironmentId::active()
@@ -4390,13 +4397,10 @@ fn a_prune_removes_the_answers_the_work_did_not_use() {
 
     assert_eq!((pruned.answers.kept, pruned.answers.removed), (2, 3));
     for used in &measured {
-        assert!(database.get(&used.table, &used.key).is_some(), "{used:?}");
+        assert!(held(&database, used), "{used:?}");
     }
     for unused in [idle, elsewhere, &outdated] {
-        assert!(
-            database.get(&unused.table, &unused.key).is_none(),
-            "{unused:?}"
-        );
+        assert!(!held(&database, unused), "{unused:?}");
     }
     assert!(!database.namespaces().contains(&other_uses.to_string()));
     let saved = EnvironmentId::active().save(SaveOptions::new()).unwrap();
@@ -4454,11 +4458,24 @@ fn a_prune_after_a_gathering_pass_keeps_the_answers_it_met() {
     assert_eq!((pruned.answers.kept, pruned.answers.removed), (1, 1));
 }
 
-/// Tunes one addition with a tuner of each name in the active environment, and
-/// gives back the answers used there since it was created, in the order of
-/// `tuners` as they sort.
+/// Whether `database` holds any of the answers of `tuned`, in its table.
 #[cfg(all(feature = "std", persistence))]
-fn tuned_answers(tuners: &[&str]) -> Vec<cubecl_environment::environment::AutotuneAnswer> {
+fn held(
+    database: &cubecl_environment::persistence::Database,
+    tuned: &cubecl_environment::environment::TunedTable,
+) -> bool {
+    let table = tuned.table.namespace();
+    tuned
+        .answers
+        .iter()
+        .any(|answer| database.get(table.as_str(), &answer.key).is_some())
+}
+
+/// Tunes one addition with a tuner of each name in the active environment, and
+/// gives back the answers used there since it was created, one table a tuner,
+/// in the order of `tuners` as they sort.
+#[cfg(all(feature = "std", persistence))]
+fn tuned_answers(tuners: &[&str]) -> Vec<cubecl_environment::environment::TunedTable> {
     use cubecl_environment::environment::{EnvironmentId, SaveOptions};
     use cubecl_server::tune::Tuner;
 

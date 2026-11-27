@@ -10,7 +10,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{AutotuneAnswer, EnvironmentBundle};
+use super::{EnvironmentBundle, TunedTable};
 
 /// Names an environment in the storage that keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -35,10 +35,10 @@ pub enum EnvironmentOrigin {
     Fork(EnvironmentId),
     /// What the bundle holds.
     Bundle(EnvironmentBundle),
-    /// The autotune answers this version's tuners read: those of its tables,
-    /// at its layout. The rest are left out. Where two answer one key of one
+    /// The autotune answers of the tables this version's tuners read, by
+    /// table. The other tables are left out. Where two answer one key of one
     /// table, the first is held.
-    Answers(Vec<AutotuneAnswer>),
+    Answers(Vec<TunedTable>),
 }
 
 /// Why an environment could not be created, activated or saved.
@@ -111,7 +111,7 @@ mod storage {
         path, root, sanitize,
     };
     use crate::persistence::database::same_file;
-    use crate::persistence::{Access, Database, DatabaseStorage, Origin, Storage, TuneTableName};
+    use crate::persistence::{Access, Database, DatabaseStorage, Origin, Storage};
     use crate::sync::LazyLock;
     use alloc::boxed::Box;
     use alloc::collections::BTreeMap;
@@ -332,8 +332,8 @@ mod storage {
         Fork(EnvironmentId),
         /// A serialized environment.
         Bundle(EnvironmentBundle),
-        /// Autotune answers, of any table.
-        Answers(Vec<AutotuneAnswer>),
+        /// Autotune answers by table, of any version's tables.
+        Answers(Vec<TunedTable>),
     }
 
     impl Incoming {
@@ -387,22 +387,27 @@ mod storage {
         }
     }
 
-    /// A database at `scratch` holding those of `answers` this version's
-    /// tuners read, where they read them.
+    /// A database at `scratch` holding the answers of those of `tables` this
+    /// version's tuners read, where they read them.
     fn written(
-        answers: Vec<AutotuneAnswer>,
+        tables: Vec<TunedTable>,
         scratch: &ScratchFile,
     ) -> Result<Database, EnvironmentError> {
-        let mut tables: BTreeMap<String, Vec<(Bytes, Bytes)>> = BTreeMap::new();
-        let read = |answer: &AutotuneAnswer| TuneTableName::is_current_table(&answer.table);
-        for answer in answers.into_iter().filter(read) {
-            let value = answer.stored_value();
-            let entries = tables.entry(answer.table).or_default();
-            entries.push((answer.key, value));
+        let mut entries_by_table: BTreeMap<String, Vec<(Bytes, Bytes)>> = BTreeMap::new();
+        for TunedTable { table, answers } in
+            tables.into_iter().filter(|tuned| tuned.table.is_current())
+        {
+            let entries = entries_by_table
+                .entry(table.namespace().as_str().into())
+                .or_default();
+            entries.extend(answers.into_iter().map(|answer| {
+                let value = answer.stored_value();
+                (answer.key, value)
+            }));
         }
         let database = Database::open_at(scratch.path(), Access::ReadWrite)
             .map_err(EnvironmentError::storage)?;
-        for (table, entries) in tables {
+        for (table, entries) in entries_by_table {
             let written = database.insert_many(&table, &mut entries.into_iter(), Origin::Imported);
             check_refused(written.failed)?;
         }

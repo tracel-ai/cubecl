@@ -14,7 +14,7 @@ use crate::bytes::{OpenedFile, Reader};
 use crate::environment::scratch_file::ScratchFile;
 #[cfg(native_cache)]
 use crate::environment::{
-    AutotuneAnswer, BuildStamp, EnvironmentError, EnvironmentSummary, UsedAnswers,
+    BuildStamp, EnvironmentError, EnvironmentSummary, TunedTable, UsedAnswers,
 };
 #[cfg(native_cache)]
 use std::path::Path;
@@ -114,8 +114,8 @@ impl EnvironmentBundle {
     }
 
     /// The autotune answers the work of the executable that saved the bundle
-    /// used, loaded or measured, each trimmed to its pick: what another
-    /// environment is created from, or brought, as
+    /// used, loaded or measured, by table and each trimmed to its pick: what
+    /// another environment is created from, or brought, as
     /// [`EnvironmentOrigin::Answers`](super::EnvironmentOrigin::Answers) to
     /// run the same picks without tuning. None when the manifest names no
     /// executable.
@@ -126,7 +126,7 @@ impl EnvironmentBundle {
     ///
     /// [`Storage`](EnvironmentError::Storage): the bytes do not read, or
     /// they are not a bundle.
-    pub fn read_used_answers(&self) -> Result<Vec<AutotuneAnswer>, EnvironmentError> {
+    pub fn read_used_answers(&self) -> Result<Vec<TunedTable>, EnvironmentError> {
         self.read(|bundle| {
             let saved_by = bundle.manifest().saved_by;
             let used = saved_by.map(|build| UsedAnswers::read(bundle, build));

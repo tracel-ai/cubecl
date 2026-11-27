@@ -32,7 +32,7 @@ use crate::sync::{Arc, LazyLock, Mutex};
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
 mod autotune_answer;
-pub use autotune_answer::AutotuneAnswer;
+pub use autotune_answer::{AutotuneAnswer, TunedTable};
 
 mod build_stamp;
 pub use build_stamp::*;
