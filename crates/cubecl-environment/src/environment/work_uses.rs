@@ -6,6 +6,8 @@
 //! what the work will use again and removes the rest.
 
 use super::BuildStamp;
+#[cfg(any(native_cache, browser_cache))]
+use super::PruneTally;
 use crate::persistence::{Namespace, Store, StoreKey};
 use alloc::string::String;
 
@@ -17,6 +19,14 @@ use crate::persistence::{Database, encode};
 use alloc::vec::Vec;
 #[cfg(any(native_cache, browser_cache))]
 use serde::Serialize;
+
+#[cfg(any(native_cache, browser_cache))]
+mod answer_pruner;
+#[cfg(any(native_cache, browser_cache))]
+use answer_pruner::AnswerPruner;
+
+#[cfg(all(test, native_cache))]
+mod medium_tests;
 
 /// The version every namespace this build writes carries, as
 /// [`Namespace::scoped`] injects it.
@@ -194,6 +204,30 @@ impl RecordedUses {
     /// encoded as a [`Store`] encodes its keys.
     pub fn used<K: Serialize>(&self, content: &UsedContent, key: &K) -> bool {
         holds(self.uses.get(content), key)
+    }
+
+    /// Remove from `database`, in each autotune table this build's work used,
+    /// the answers it did not use, with the records other builds left of
+    /// that table, and tally the answers.
+    ///
+    /// # Guarantees
+    ///
+    /// - A table this build's work never used stays whole, with every record
+    ///   of it: another hardware's, another cubecl version's, a tuner's this
+    ///   build never ran.
+    /// - When this build recorded no use of any table, nothing is removed.
+    /// - No row is decoded: an answer is told by its key as its table's store
+    ///   encoded it.
+    pub fn prune_unused_answers(&self, database: &Database) -> PruneTally {
+        AnswerPruner::new(self).prune_used_tables(database)
+    }
+
+    /// Remove from `database` every autotune answer this build's work did
+    /// not use, in every table, and count the answers left: what a save of
+    /// the used answers leaves in its copy.
+    #[cfg(native_cache)]
+    pub(crate) fn keep_only_used_answers(&self, database: &Database) -> u64 {
+        AnswerPruner::new(self).keep_only_used(database)
     }
 
     /// Delete from `database` the records other builds left of `content`:

@@ -11,7 +11,14 @@
 //! prune keeps what this build recorded and removes the rest of this build's
 //! compiled kernels, every kernel another build compiled with the records of
 //! what its work launched, and the build records the caller does not keep.
-//! The autotune answers stay.
+//!
+//! The autotune answers stay unless the caller asks
+//! ([`AnswerPruning::KeepUsed`](cubecl_environment::environment::AnswerPruning::KeepUsed))
+//! for those this build's work did not use to go. Each tuner records the
+//! answers the work loads or stores among the work's uses, per table: such a
+//! prune keeps those, and removes the rest of each table this build used,
+//! with other builds' records of it. A table this build never used stays
+//! whole.
 //!
 //! "Build" is the compiled program, as its [`BuildStamp`](cubecl_environment::environment::BuildStamp) names it: a kernel is
 //! stored under the build that compiled it, and another build's is loaded
@@ -26,6 +33,8 @@
 //! [`EnvironmentId`]: cubecl_environment::environment::EnvironmentId
 
 mod base;
+#[cfg(compilation_cache)]
+mod environment;
 #[cfg(compilation_cache)]
 mod kernels;
 

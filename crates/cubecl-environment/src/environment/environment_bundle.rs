@@ -2,6 +2,11 @@
 //! loading it.
 
 use alloc::string::String;
+#[cfg(native_cache)]
+use alloc::vec::Vec;
+
+#[cfg(native_cache)]
+use crate::persistence::NamespaceRoot;
 
 #[cfg(native_cache)]
 use crate::bundle::SqliteBundle;
@@ -41,6 +46,9 @@ pub struct SaveOptions {
     /// the environment's own name when unset.
     #[serde(default)]
     pub name: Option<String>,
+    /// What of the environment the bundle holds.
+    #[serde(default)]
+    pub content: SavedContent,
 }
 
 impl SaveOptions {
@@ -53,6 +61,41 @@ impl SaveOptions {
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
+    }
+
+    /// Save `content` of the environment.
+    pub fn content(mut self, content: SavedContent) -> Self {
+        self.content = content;
+        self
+    }
+}
+
+/// What of an environment a saved bundle holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SavedContent {
+    /// Everything it holds.
+    #[default]
+    Everything,
+    /// The autotune answers the work of the executable saving it used, as
+    /// their tables store them, and nothing else: no kernel, no build record,
+    /// no record of what the work used.
+    ///
+    /// Merged into another environment, they are loaded instead of measured
+    /// by a build of the same cubecl version on the same hardware, which
+    /// reads the same tables. An answer the environment holds already stays,
+    /// and one measured there later replaces a brought one.
+    UsedAnswers,
+}
+
+#[cfg(native_cache)]
+impl SavedContent {
+    /// The roots of the namespaces a save of this content exports, before it
+    /// selects among their entries: none for every namespace.
+    pub(crate) fn exported_roots(&self) -> Vec<String> {
+        match self {
+            Self::Everything => Vec::new(),
+            Self::UsedAnswers => alloc::vec![NamespaceRoot::AUTOTUNE.into()],
+        }
     }
 }
 

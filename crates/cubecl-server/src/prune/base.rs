@@ -1,6 +1,6 @@
 use cubecl_environment::environment::{EnvironmentError, PruneOptions, Pruned};
 
-/// Pruning an environment: removing what this build's work never launched.
+/// Pruning an environment: removing what this build's work never used.
 ///
 /// A trait rather than a method, because an
 /// [`EnvironmentId`](cubecl_environment::environment::EnvironmentId) is declared
@@ -20,13 +20,17 @@ use cubecl_environment::environment::{EnvironmentError, PruneOptions, Pruned};
 /// - Every variant of a kernel this build compiled and recorded its work
 ///   launching stays.
 /// - When this build recorded no launch, every kernel it compiled stays.
-/// - The autotune answers, and every namespace that is neither a compiler's,
-///   a record of what a build's work used nor a build record, stay.
+/// - The autotune answers stay unless `options` asks for those this build's
+///   work did not use to go, and then every table this build did not use
+///   stays whole.
+/// - Every namespace that is neither a compiler's, an autotune table, a
+///   record of what a build's work used nor a build record stays.
 pub trait Prune {
     /// Remove the kernels this build compiled and its work never launched,
     /// those another build compiled with other builds' records of their
-    /// work, and the build records `options` does not keep. The space they
-    /// took is reclaimed by the next save, which copies what is left.
+    /// work, the autotune answers and the build records `options` does not
+    /// keep. The space they took is reclaimed by the next save, which copies
+    /// what is left.
     ///
     /// # Errors
     ///

@@ -15,8 +15,9 @@ pub struct EnvironmentSummary {
     /// not counted.
     pub kernels: u64,
     /// The autotune answers, one per key and candidate list a tuner stored
-    /// the fastest candidate for. An environment keeps every answer, so one
-    /// to a list no tuner runs any more still counts.
+    /// the fastest candidate for. An environment keeps every answer until a
+    /// prune asked to keep only the used ones, so one to a list no tuner runs
+    /// any more still counts.
     pub autotune_answers: u64,
     /// The build records, each one entry.
     pub records: u64,

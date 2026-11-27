@@ -3,7 +3,7 @@
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
-    EnvironmentSummary, SaveOptions,
+    EnvironmentSummary, SaveOptions, SavedContent, UsedContent, WorkUses,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -404,6 +404,50 @@ fn bytes_that_are_no_bundle_do_not_read() {
         bundle.read_description(),
         Err(EnvironmentError::Storage { .. })
     ));
+}
+
+/// A save of the used answers holds the answers this build's work used,
+/// and nothing else of the environment: no other answer, no kernel, no
+/// record of the work. Merged elsewhere, they read as they were stored.
+#[test]
+#[serial_test::serial]
+fn a_save_of_the_used_answers_holds_only_them() {
+    let _root = rooted();
+    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Empty).unwrap();
+    plant(&tuned);
+    let table = Namespace::scoped("autotune", "hardware/tuner");
+    let mut answers: Store<String, u32> = Store::new(StoreOptions::new().storage(table.clone()));
+    answers.insert("used".to_string(), 1).unwrap();
+    answers.insert("idle".to_string(), 2).unwrap();
+    let uses = UsedContent::Entries {
+        namespace: table.as_str().into(),
+    };
+    let mut record = WorkUses::from_store(Store::<String, ()>::new(
+        StoreOptions::new().storage(uses.namespace(BuildStamp::current())),
+    ));
+    record.record(&"used".to_string());
+    environment::activate(environment::DEFAULT);
+
+    let saved = tuned
+        .save(SaveOptions::new().content(SavedContent::UsedAnswers))
+        .unwrap();
+    let carried = EnvironmentId::create("carried", EnvironmentOrigin::Bundle(saved)).unwrap();
+
+    carried.activate().unwrap();
+    let mut carried_answers: Store<String, u32> =
+        Store::new(StoreOptions::new().storage(table).cache(CacheOption::Lazy));
+    let held = (
+        carried.summary().unwrap(),
+        carried_answers.get_mut(&"used".to_string()).copied(),
+        carried_answers.get_mut(&"idle".to_string()).copied(),
+    );
+    environment::activate(environment::DEFAULT);
+    let only_the_used_answer = EnvironmentSummary {
+        kernels: 0,
+        autotune_answers: 1,
+        records: 0,
+    };
+    assert_eq!(held, (only_the_used_answer, Some(1), None));
 }
 
 /// What [`plant`] writes, counted.

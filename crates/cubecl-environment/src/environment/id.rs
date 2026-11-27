@@ -55,6 +55,13 @@ pub enum EnvironmentError {
         /// The environment's name.
         name: String,
     },
+    /// A save of the autotune answers the work used would hold none: the
+    /// work used none in the environment, its tuners persist nothing, or the
+    /// answers it used are gone.
+    NoAnswersUsed {
+        /// The environment's name.
+        name: String,
+    },
     /// The storage refused a read or a write.
     Storage {
         /// Why, in the storage's words.
@@ -78,6 +85,10 @@ impl core::fmt::Display for EnvironmentError {
             Self::SelfFork { name } => {
                 write!(f, "the environment {name} cannot be forked into itself")
             }
+            Self::NoAnswersUsed { name } => write!(
+                f,
+                "the work used no autotune answer of the environment {name}"
+            ),
             Self::Storage { reason } => write!(f, "the environment storage failed: {reason}"),
         }
     }
@@ -102,8 +113,8 @@ mod storage {
     use crate::bytes::{Bytes, Reader};
     use crate::environment::scratch_file::ScratchFile;
     use crate::environment::{
-        EnvironmentSummary, SaveOptions, activate, active, active_namespaces, file_name, load,
-        path, root, sanitize,
+        BuildStamp, EnvironmentSummary, RecordedUses, SaveOptions, SavedContent, activate, active,
+        active_namespaces, file_name, load, path, root, sanitize,
     };
     use crate::persistence::database::same_file;
     use crate::persistence::{Access, Database, DatabaseStorage, Storage};
@@ -233,22 +244,28 @@ mod storage {
             }
         }
 
-        /// The environment serialized whole, under the name `options` gives
-        /// it, and stamped with this executable as the one that saved it.
+        /// The environment serialized, holding the content `options` says
+        /// under the name it gives it, and stamped with this executable as the
+        /// one that saved it.
         ///
         /// # Errors
         ///
-        /// The environment lives in another process's storage, or the storage
-        /// refused the read.
+        /// - [`NoAnswersUsed`](EnvironmentError::NoAnswersUsed): a save of
+        ///   the [used answers](SavedContent::UsedAnswers) would hold none.
+        /// - The environment lives in another process's storage, or the
+        ///   storage refused the read.
         pub fn save(&self, options: SaveOptions) -> Result<EnvironmentBundle, EnvironmentError> {
             self.check_local()?;
+            let SaveOptions { name, content } = options;
             let scratch = ScratchFile::new(&self.path());
             let options = ExportOptions {
-                name: options.name.unwrap_or_else(|| self.name.clone()),
+                name: name.unwrap_or_else(|| self.name.clone()),
+                namespaces: content.exported_roots(),
                 format: BundleFormat::Sqlite,
                 ..Default::default()
             };
             export(&[self.path()], scratch.path(), &options).map_err(EnvironmentError::storage)?;
+            self.select(&content, scratch.path())?;
             let saved = std::fs::read(scratch.path()).map_err(EnvironmentError::storage)?;
             Ok(EnvironmentBundle {
                 bytes: Bytes::from_bytes_vec(saved),
@@ -306,6 +323,28 @@ mod storage {
         pub fn database(&self, access: Access) -> Result<Database, EnvironmentError> {
             self.check_local()?;
             self.open(access)
+        }
+
+        /// Leave in the bundle exported to `path` only what `content` says.
+        fn select(&self, content: &SavedContent, path: &Path) -> Result<(), EnvironmentError> {
+            match content {
+                SavedContent::Everything => Ok(()),
+                SavedContent::UsedAnswers => self.keep_only_used_answers(path),
+            }
+        }
+
+        /// Leave in the bundle exported to `path` only the autotune answers
+        /// this executable's work used in the environment.
+        fn keep_only_used_answers(&self, path: &Path) -> Result<(), EnvironmentError> {
+            let uses = RecordedUses::read(&self.open(Access::ReadOnly)?, BuildStamp::current());
+            let bundle =
+                Database::open_at(path, Access::ReadWrite).map_err(EnvironmentError::storage)?;
+            if uses.keep_only_used_answers(&bundle) == 0 {
+                return Err(EnvironmentError::NoAnswersUsed {
+                    name: self.name.clone(),
+                });
+            }
+            bundle.into_standalone().map_err(EnvironmentError::storage)
         }
 
         fn open(&self, access: Access) -> Result<Database, EnvironmentError> {
@@ -382,3 +421,6 @@ mod storage {
         }
     }
 }
+
+#[cfg(all(test, native_cache))]
+mod medium_tests;

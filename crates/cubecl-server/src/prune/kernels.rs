@@ -1,28 +1,11 @@
 //! A prune of the compiled kernels, by the ones the loader recorded the work
 //! launching.
 
-use super::Prune;
 use crate::compiler::{KernelCacheKey, NamespaceRoot};
 use alloc::vec::Vec;
 use cubecl_environment::collections::{HashMap, HashSet};
-use cubecl_environment::environment::{
-    BuildStamp, EnvironmentError, EnvironmentId, PruneOptions, PruneTally, Pruned, RecordedUses,
-    UsedContent,
-};
-use cubecl_environment::persistence::{Access, Database};
-use cubecl_environment::records::Records;
-
-impl Prune for EnvironmentId {
-    fn prune(&self, options: PruneOptions) -> Result<Pruned, EnvironmentError> {
-        let database = self.database(Access::ReadWrite)?;
-        let build = BuildStamp::current();
-        let uses = RecordedUses::read(&database, build);
-        let kernels = KernelPruner::new(build).prune(&database, &uses);
-        uses.purge_other_builds(&database, &UsedContent::Kernels);
-        let records = Records::new(&database).retain(options.records);
-        Ok(Pruned { kernels, records })
-    }
-}
+use cubecl_environment::environment::{BuildStamp, PruneTally, RecordedUses, UsedContent};
+use cubecl_environment::persistence::Database;
 
 /// What an environment's records say of one compiled artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

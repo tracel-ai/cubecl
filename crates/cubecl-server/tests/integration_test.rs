@@ -4194,6 +4194,65 @@ fn a_prune_keeps_what_the_work_loaded() {
     );
 }
 
+/// A prune asked to keep only the used answers keeps those a tune stored,
+/// removes the rest of their table, and leaves whole a table this build
+/// never used: the tune itself records the answers it stores as the work's.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_keeping_the_used_answers_removes_the_rest_of_their_table() {
+    use cubecl_environment::environment::{AnswerPruning, EnvironmentId, PruneOptions};
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let client = test_client(&DummyDevice);
+    let set = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &set);
+    ProcessTuner::new("pruned-answers").tune(&set, &client, &handles);
+    let database = Database::open_active().unwrap();
+    let autotune = || -> Vec<String> {
+        database
+            .namespaces()
+            .into_iter()
+            .filter(|namespace| namespace.starts_with("autotune/"))
+            .collect()
+    };
+    let [answers] = autotune().try_into().unwrap();
+    let tuned = autotune_rows(&database, &answers);
+    let unused = b"an answer to an older candidate list";
+    database.insert(&answers, unused, b"value", Origin::Local);
+    let elsewhere = format!("{answers}-on-other-hardware");
+    database.insert(&elsewhere, b"key", b"value", Origin::Local);
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::new().answers(AnswerPruning::KeepUsed))
+        .unwrap();
+
+    assert_eq!(
+        (pruned.answers.kept, pruned.answers.removed),
+        (tuned, 1),
+        "the tuned answers stay and the unused one goes"
+    );
+    assert!(database.get(&answers, unused).is_none());
+    assert!(
+        database.get(&elsewhere, b"key").is_some(),
+        "a table this build never used stays whole"
+    );
+}
+
+/// How many rows `namespace` holds.
+#[cfg(all(feature = "std", persistence))]
+fn autotune_rows(database: &cubecl_environment::persistence::Database, namespace: &str) -> u64 {
+    let mut rows = 0;
+    database.scan(namespace, &mut |_, _| rows += 1);
+    rows
+}
+
 /// An application keeps its data in the environment beside the compilers',
 /// and a prune reads only the compilers' namespaces: an entry of its own that
 /// happens to decode as another build's kernel key survives.
