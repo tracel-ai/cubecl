@@ -73,7 +73,7 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         #[cfg(persistence)]
         {
             let stored = self.persister.persist(
-                &mut self.cache.lock(),
+                &self.cache,
                 key,
                 results,
                 fastest_index,

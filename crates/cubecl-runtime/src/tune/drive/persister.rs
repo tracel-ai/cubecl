@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use cubecl_environment::sync::Mutex;
 use core::time::Duration;
 
 use crate::tune::cache::record::{Answer, TuneRecorder};
@@ -34,8 +35,9 @@ impl<K: AutotuneKeyable> TunePersister<K> {
     }
 
     /// Persist `fastest_index` as the answer to `key`, with every candidate's `results`: in the
-    /// table of `tracker` unless it is `unmeasured`, and in the tune's record either way. Answers
-    /// whether the table took it.
+    /// table of the tracker `cache` holds unless it is `unmeasured`, locking it only for that
+    /// insert, and in the tune's record either way, with no lock held. Answers whether the table
+    /// took it.
     ///
     /// An unmeasured decision is a guess made to keep the device thread alive, and the failures
     /// that produce one — a profiling hiccup, timestamp query sets on a busy stream — are
@@ -43,7 +45,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
     /// the key again; letting it expire with this one costs a re-tune and buys a real measurement.
     pub fn persist(
         self,
-        tracker: &mut TuneTracker<K>,
+        cache: &Mutex<TuneTracker<K>>,
         key: K,
         results: Vec<AutotuneResult>,
         fastest_index: usize,
@@ -56,7 +58,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
             bounds: self.bounds,
             limit: self.limit,
         };
-        let stored = !unmeasured && tracker.store_answer(key, self.checksum, value);
+        let stored = !unmeasured && cache.lock().store_answer(key, self.checksum, value);
         self.recorder.record_answer(
             Answer {
                 winner: fastest_index,
