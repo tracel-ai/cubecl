@@ -9,7 +9,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::{
     analyses::dataflow_solver::pre::{AnticipatedMode, InsertMode},
-    passes::pre::run_pre,
+    passes::pre::{PRE_MAX_OPERATIONS_COUNT, run_pre},
 };
 use expect_test::expect;
 use pliron::{
@@ -28,13 +28,22 @@ fn run_pre_on_text(
     antic: AnticipatedMode,
     insert: InsertMode,
 ) -> Result<(IRStatus, String)> {
+    run_pre_on_text_bounded(input, antic, insert, PRE_MAX_OPERATIONS_COUNT)
+}
+
+fn run_pre_on_text_bounded(
+    input: &str,
+    antic: AnticipatedMode,
+    insert: InsertMode,
+    max_operations_count: usize,
+) -> Result<(IRStatus, String)> {
     init_env_logger_for_tests!();
     let ctx = &mut Context::new();
     let op = parse_from_str(spaced(Operation::top_level_parser()), ctx, input).expect_ok(ctx);
 
     verify_operation(op, ctx)?;
 
-    let status = run_pre(ctx, op, antic, insert)?;
+    let status = run_pre(ctx, op, antic, insert, max_operations_count)?;
     let after = Operation::get_op_dyn(op, ctx).disp(ctx).to_string();
 
     Ok((status, after))
@@ -250,7 +259,7 @@ fn assert_pre_result(
     verify_operation(op, ctx)?;
 
     let before = op.dyn_op(ctx).disp(ctx).to_string();
-    let status = run_pre(ctx, op, antic, insert)?;
+    let status = run_pre(ctx, op, antic, insert, PRE_MAX_OPERATIONS_COUNT)?;
 
     verify_operation(op, ctx)?;
 
@@ -386,9 +395,8 @@ fn pre_no_redundancy_is_unchanged() -> Result<()> {
     })
 }
 
-#[test]
-fn pre_eliminates_commutative_and_dependent_duplicates() -> Result<()> {
-    let input = r#"
+fn commutative_duplicates_input() -> &'static str {
+    r#"
     builtin.func @f: builtin.function <(
         builtin.integer ui32, builtin.integer ui32, builtin.integer ui32
     ) -> (builtin.integer ui32)> [] {
@@ -407,9 +415,12 @@ fn pre_eliminates_commutative_and_dependent_duplicates() -> Result<()> {
         pre.black_box bac;
         branch.return bac
     }
-    "#;
+    "#
+}
 
-    let (_, text) = run_lcm_on_text(input)?;
+#[test]
+fn pre_eliminates_commutative_and_dependent_duplicates() -> Result<()> {
+    let (_, text) = run_lcm_on_text(commutative_duplicates_input())?;
     expect![[r#"
         builtin.func @f: builtin.function <(builtin.integer ui32, builtin.integer ui32, builtin.integer ui32) -> (builtin.integer ui32)> 
         {
@@ -422,6 +433,18 @@ fn pre_eliminates_commutative_and_dependent_duplicates() -> Result<()> {
             pre.black_box abc_v4 !6;
             branch.return abc_v4 !7
         }"#]].assert_eq(&text);
+    Ok(())
+}
+
+#[test]
+fn pre_leaves_a_kernel_over_the_operation_limit_unchanged() -> Result<()> {
+    let (status, _) = run_pre_on_text_bounded(
+        commutative_duplicates_input(),
+        AnticipatedMode::Speculative,
+        InsertMode::Sparse,
+        4,
+    )?;
+    assert_eq!(status, IRStatus::Unchanged);
     Ok(())
 }
 
@@ -1128,12 +1151,24 @@ fn pre_is_idempotent_after_speculative_insertion() -> Result<()> {
     .expect_ok(ctx);
     verify_operation(op, ctx)?;
 
-    let first = run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
+    let first = run_pre(
+        ctx,
+        op,
+        AnticipatedMode::Speculative,
+        InsertMode::Sparse,
+        PRE_MAX_OPERATIONS_COUNT,
+    )?;
     assert_eq!(first, IRStatus::Changed);
     verify_operation(op, ctx)?;
     let once = op.dyn_op(ctx).disp(ctx).to_string();
 
-    let second = run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
+    let second = run_pre(
+        ctx,
+        op,
+        AnticipatedMode::Speculative,
+        InsertMode::Sparse,
+        PRE_MAX_OPERATIONS_COUNT,
+    )?;
     assert_eq!(second, IRStatus::Unchanged);
     verify_operation(op, ctx)?;
 

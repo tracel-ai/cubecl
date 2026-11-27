@@ -12,6 +12,7 @@ use cubecl_ir::{
         },
     },
     prelude::*,
+    rewrite::WALKCONFIG_ANY,
 };
 use hi_sparse_bitset::{cache::DynamicCache, ops};
 use itertools::Itertools;
@@ -44,6 +45,14 @@ use crate::{
     would_op_be_trivially_dead,
 };
 
+/// The most operations a kernel may hold for [`LCMPre`] and [`SSCMPre`] to run on it.
+///
+/// The analyses behind partial redundancy elimination keep a set of values at every program
+/// point, so their memory grows faster than the kernel: a kernel of 100,000 operations takes
+/// about 2 GB, and a compiler running one such kernel per thread runs out of host memory.
+/// A larger kernel skips the pass and stays correct, only less optimized.
+pub const PRE_MAX_OPERATIONS_COUNT: usize = 20_000;
+
 pub struct LCMPre;
 pub struct SSCMPre;
 
@@ -56,7 +65,13 @@ impl Pass for LCMPre {
         _: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
-        res.ir_changed |= run_pre(ctx, op, AnticipatedMode::Classical, InsertMode::Lazy)?;
+        res.ir_changed |= run_pre(
+            ctx,
+            op,
+            AnticipatedMode::Classical,
+            InsertMode::Lazy,
+            PRE_MAX_OPERATIONS_COUNT,
+        )?;
         Ok(res)
     }
 }
@@ -70,17 +85,37 @@ impl Pass for SSCMPre {
         _: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
-        res.ir_changed |= run_pre(ctx, op, AnticipatedMode::Speculative, InsertMode::Sparse)?;
+        res.ir_changed |= run_pre(
+            ctx,
+            op,
+            AnticipatedMode::Speculative,
+            InsertMode::Sparse,
+            PRE_MAX_OPERATIONS_COUNT,
+        )?;
         Ok(res)
     }
 }
 
+/// Eliminates the partially redundant expressions of `op`.
+///
+/// # Guarantees
+///
+/// Leaves `op` unchanged when it holds more than `max_operations_count` operations.
 pub fn run_pre(
     ctx: &mut Context,
     op: Ptr<Operation>,
     antic_mode: AnticipatedMode,
     insert_mode: InsertMode,
+    max_operations_count: usize,
 ) -> Result<IRStatus> {
+    let operations_count = count_operations(ctx, op);
+    if operations_count > max_operations_count {
+        log::debug!(
+            "skipped partial redundancy elimination: {operations_count} operations > {max_operations_count}"
+        );
+        return Ok(IRStatus::Unchanged);
+    }
+
     let rewriter = &mut IRRewriter::<DummyListener>::default();
 
     let mut solver = compute_lcm_analyses(ctx, op, antic_mode)?;
@@ -98,6 +133,17 @@ pub fn run_pre(
     status |= dce(op, ctx)?;
 
     Ok(status)
+}
+
+/// Counts the operations nested in `op`, `op` included.
+fn count_operations(ctx: &Context, op: Ptr<Operation>) -> usize {
+    let mut count = 0;
+    walk_op(ctx, &mut count, &WALKCONFIG_ANY, op, |_, count, node| {
+        if let IRNode::Operation(_) = node {
+            *count += 1;
+        }
+    });
+    count
 }
 
 type RegionMerge = (Ptr<Operation>, RegionSuccessor);
