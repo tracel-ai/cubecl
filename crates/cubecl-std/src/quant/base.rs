@@ -102,7 +102,7 @@ pub fn check_table_bindings(scheme: &QuantScheme, table_provided: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_scale_bindings, check_table_bindings};
+    use super::{check_global_levels, check_scale_bindings, check_table_bindings};
     use cubecl_common::quant::scheme::{
         QuantMode, QuantScheme, QuantStore, QuantValue, ScaleDtype,
     };
@@ -136,9 +136,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "is one for the whole tensor, but")]
-    fn a_coarser_level_of_rows_is_rejected() {
+    fn a_coarser_level_of_rows_binds_as_a_grid() {
         check_scale_bindings(&QuantScheme::mxfp4_row_factored(), 2);
+    }
+
+    /// A reader holding the coarser scale in a register has one value for every position.
+    #[test]
+    #[should_panic(expected = "is one for the whole tensor, but")]
+    fn a_coarser_level_of_rows_is_no_register_scale() {
+        check_global_levels(&QuantScheme::mxfp4_row_factored());
     }
 
     #[test]
