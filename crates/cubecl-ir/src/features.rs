@@ -40,6 +40,12 @@ pub struct Features {
     /// Whether vectors can be read from / stored to addresses not aligned
     /// with the `vector_size`
     pub unaligned_io: bool,
+    /// Whether the compiler addresses a binding of at most
+    /// [`NarrowBindings::MAX_BYTES`](crate::settings::NarrowBindings::MAX_BYTES) with 32-bit byte
+    /// offsets when a launch marks it in its
+    /// [`NarrowBindings`](crate::settings::NarrowBindings). Only then do launches mark bindings.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub narrow_bindings: bool,
 }
 
 /// Type support for a device

@@ -541,6 +541,7 @@ impl Launch {
                             .with_mode(self.settings.execution_mode)
                             .with_debug_info(self.settings.debug_info)
                             .with_float_contraction(self.settings.float_contraction)
+                            .with_narrow_bindings(self.settings.narrow_bindings)
                             .with_info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init

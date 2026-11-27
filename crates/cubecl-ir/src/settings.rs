@@ -121,6 +121,61 @@ pub enum FloatContraction {
     Off,
 }
 
+/// The buffer bindings of a launch that every byte offset into fits in 32 bits, by position.
+///
+/// A backend that knows a binding is this small can address it with a 32-bit byte offset from a
+/// base shared by the whole launch, rather than a 64-bit address per access: on AMD GPUs, a load
+/// with its base in scalar registers. A launch marks a binding only when the device reports
+/// [`Features::narrow_bindings`](crate::Features::narrow_bindings), so on every other device the
+/// set is empty and the kernel compiles as if it did not exist.
+///
+/// # Guarantees
+///
+/// - Holds only positions below 64; a binding past them is never marked, which is always safe.
+/// - The empty set is the default, so a kernel with no marked binding keeps its id.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct NarrowBindings {
+    /// Bit `p` set when binding `p` is marked.
+    positions: u64,
+}
+
+impl NarrowBindings {
+    /// The most bytes a binding may hold to be marked: every byte offset into it is below 2^32.
+    pub const MAX_BYTES: u64 = 1 << 32;
+
+    /// Whether a binding of `size_bytes` bytes may be marked.
+    pub fn fits_size_bytes(size_bytes: u64) -> bool {
+        size_bytes <= Self::MAX_BYTES
+    }
+
+    /// Marks binding `position`; a position of 64 or more is left unmarked.
+    pub fn insert_position(&mut self, position: usize) {
+        self.positions = with_position(self.positions, position);
+    }
+
+    /// Whether binding `position` is marked.
+    pub fn contains_position(&self, position: usize) -> bool {
+        holds_position(self.positions, position)
+    }
+}
+
+/// The bit of binding `position` in a [`NarrowBindings`], `None` past the 64 it holds.
+fn position_bit(position: usize) -> Option<u64> {
+    u32::try_from(position)
+        .ok()
+        .and_then(|position| 1u64.checked_shl(position))
+}
+
+/// `positions` with binding `position`'s bit set, unchanged past the 64 it holds.
+fn with_position(positions: u64, position: usize) -> u64 {
+    positions | position_bit(position).unwrap_or(0)
+}
+
+/// Whether `positions` has binding `position`'s bit set.
+fn holds_position(positions: u64, position: usize) -> bool {
+    position_bit(position).is_some_and(|bit| positions & bit != 0)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KernelSettings {
     /// The cube dim of the kernel
@@ -137,6 +192,8 @@ pub struct KernelSettings {
     pub execution_mode: ExecutionMode,
     /// Whether float multiply-adds may be fused.
     pub float_contraction: FloatContraction,
+    /// The bindings small enough to address with 32-bit byte offsets.
+    pub narrow_bindings: NarrowBindings,
 }
 
 impl KernelSettings {
@@ -149,6 +206,7 @@ impl KernelSettings {
             cluster_dim: None,
             execution_mode,
             float_contraction: FloatContraction::Allowed,
+            narrow_bindings: NarrowBindings::default(),
         }
     }
 }
@@ -197,5 +255,39 @@ impl KernelSettings {
     pub fn no_contraction(mut self) -> Self {
         self.float_contraction = FloatContraction::Off;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_binding_of_four_gib_fits() {
+        assert!(NarrowBindings::fits_size_bytes(0));
+        assert!(NarrowBindings::fits_size_bytes(NarrowBindings::MAX_BYTES));
+    }
+
+    #[test]
+    fn a_binding_past_four_gib_does_not_fit() {
+        assert!(!NarrowBindings::fits_size_bytes(
+            NarrowBindings::MAX_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn a_marked_binding_is_contained_alone() {
+        let mut bindings = NarrowBindings::default();
+        bindings.insert_position(3);
+        assert!(bindings.contains_position(3));
+        assert!(!bindings.contains_position(2));
+    }
+
+    #[test]
+    fn a_position_past_64_is_never_narrow() {
+        let mut bindings = NarrowBindings::default();
+        bindings.insert_position(64);
+        assert!(!bindings.contains_position(64));
+        assert_eq!(bindings, NarrowBindings::default());
     }
 }

@@ -13,7 +13,7 @@ use cubecl_common::{
 };
 use cubecl_ir::{
     AddressType,
-    settings::{DebugInfo, Dim3, ExecutionMode, FloatContraction},
+    settings::{DebugInfo, Dim3, ExecutionMode, FloatContraction, NarrowBindings},
 };
 use derive_more::{Eq, PartialEq};
 
@@ -55,6 +55,7 @@ pub struct KernelId {
     mode: ExecutionMode,
     debug_info: DebugInfo,
     float_contraction: FloatContraction,
+    narrow_bindings: NarrowBindings,
     info: Option<Info>,
 }
 
@@ -70,6 +71,7 @@ impl KernelId {
             address_type: Default::default(),
             debug_info: DebugInfo::None,
             float_contraction: FloatContraction::Allowed,
+            narrow_bindings: NarrowBindings::default(),
         }
     }
 
@@ -108,6 +110,11 @@ impl KernelId {
     /// Whether the kernel may fuse float multiply-adds.
     pub fn float_contraction(&self) -> FloatContraction {
         self.float_contraction
+    }
+
+    /// The bindings the kernel addresses with 32-bit byte offsets.
+    pub fn narrow_bindings(&self) -> NarrowBindings {
+        self.narrow_bindings
     }
 
     /// The id written the same way in every run: a persistent kernel cache key.
@@ -159,6 +166,16 @@ impl KernelId {
     pub fn with_float_contraction(self, float_contraction: FloatContraction) -> Self {
         Self {
             float_contraction,
+            ..self
+        }
+    }
+
+    /// The same id with the bindings it addresses with 32-bit byte offsets, which changes the
+    /// compiled kernel.
+    #[must_use]
+    pub fn with_narrow_bindings(self, narrow_bindings: NarrowBindings) -> Self {
+        Self {
+            narrow_bindings,
             ..self
         }
     }
@@ -221,6 +238,7 @@ fn hash_settings<H: Hasher>(id: &KernelId, state: &mut H) {
     id.info.hash(state);
     hash_unless_default(&id.debug_info, state);
     hash_unless_default(&id.float_contraction, state);
+    hash_unless_default(&id.narrow_bindings, state);
 }
 
 /// The in-process hash: the type by its id, then the settings.
@@ -239,7 +257,7 @@ fn stable_hash(id: &KernelId) -> StableHash {
 
 fn stable_format(id: &KernelId) -> String {
     format!(
-        "{}-{}-{:?}-{:?}-{:?}{}{}",
+        "{}-{}-{:?}-{:?}-{:?}{}{}{}",
         id.type_name,
         id.address_type,
         id.cube_dim,
@@ -247,6 +265,7 @@ fn stable_format(id: &KernelId) -> String {
         id.info,
         suffix_unless_default(&id.debug_info),
         suffix_unless_default(&id.float_contraction),
+        suffix_unless_default(&id.narrow_bindings),
     )
 }
 
@@ -262,7 +281,8 @@ fn debug_kernel_id(id: &KernelId, f: &mut Formatter<'_>) -> core::fmt::Result {
         .field("cube_dim", &id.cube_dim)
         .field("mode", &id.mode)
         .field("debug_info", &id.debug_info)
-        .field("float_contraction", &id.float_contraction);
+        .field("float_contraction", &id.float_contraction)
+        .field("narrow_bindings", &id.narrow_bindings);
     match &id.info {
         Some(info) => debug_str.field("info", info),
         None => debug_str.field("info", &id.info),
@@ -362,6 +382,28 @@ mod tests {
                 .stable_hash(),
             KernelId::new::<()>().stable_hash()
         );
+    }
+
+    #[test]
+    fn no_narrow_binding_keeps_the_stable_hash() {
+        assert_eq!(
+            KernelId::new::<()>()
+                .with_narrow_bindings(NarrowBindings::default())
+                .stable_hash(),
+            KernelId::new::<()>().stable_hash()
+        );
+    }
+
+    /// A kernel compiled with a binding marked is never handed a launch that leaves it unmarked.
+    #[test]
+    fn narrow_bindings_tell_kernels_apart() {
+        let mut first = NarrowBindings::default();
+        first.insert_position(0);
+        let plain = KernelId::new::<()>();
+        let narrow = plain.clone().with_narrow_bindings(first);
+        assert_ne!(plain, narrow);
+        assert_ne!(plain.stable_hash(), narrow.stable_hash());
+        assert_ne!(plain.stable_format(), narrow.stable_format());
     }
 
     #[test]
