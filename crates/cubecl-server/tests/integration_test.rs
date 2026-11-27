@@ -4072,17 +4072,18 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
 
 /// A prune keeps this build's kernels its work launched, every variant of
 /// them, and removes those only a race launched, those another build compiled
-/// with the records of what its work launched, and the build records; the
-/// autotune answers stay. The launches are written here as the loader records
-/// them: what this tests is the prune, the recording being the runtimes'.
+/// with the records of what its work launched, those written before the
+/// records had a root of their own, and the build records; the autotune
+/// answers stay. The launches are written here as the loader records them:
+/// what this tests is the prune, the recording being the runtimes'.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_keeps_what_the_work_loaded() {
     use cubecl_environment::environment::BuildStamp;
-    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions, UsedContent};
     use cubecl_environment::persistence::{Database, Namespace, Origin};
-    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -4120,16 +4121,14 @@ fn a_prune_keeps_what_the_work_loaded() {
         database.insert(artifacts.as_str(), key, b"binary", Origin::Local);
     }
     let (this_build, other_build) = (
-        WorkLaunchStore::namespace(build),
-        WorkLaunchStore::namespace(other),
+        UsedContent::Kernels.namespace(build),
+        UsedContent::Kernels.namespace(other),
     );
+    let legacy = Namespace::scoped("launched", format!("{build}"));
     database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
-    database.insert(
-        other_build.as_str(),
-        &cbor(&race),
-        &cbor(&()),
-        Origin::Local,
-    );
+    for namespace in [&other_build, &legacy] {
+        database.insert(namespace.as_str(), &cbor(&race), &cbor(&()), Origin::Local);
+    }
     database.insert(
         cubecl_environment::records::ROOT,
         b"record",
@@ -4168,6 +4167,12 @@ fn a_prune_keeps_what_the_work_loaded() {
             .iter()
             .any(|namespace| namespace == other_build.as_str()),
         "another build's launches go with its kernels"
+    );
+    assert!(
+        !namespaces
+            .iter()
+            .any(|namespace| namespace == legacy.as_str()),
+        "the launches recorded before the records had a root of their own go"
     );
     let present = |key: &[u8]| database.get(artifacts.as_str(), key).is_some();
     assert!(

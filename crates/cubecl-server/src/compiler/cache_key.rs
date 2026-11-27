@@ -19,7 +19,8 @@ use cubecl_environment::environment::BuildStamp;
 #[serde(deny_unknown_fields)]
 pub struct KernelCacheKey {
     /// Hash of the [kernel id](KernelId): what the
-    /// [work's launches](super::WorkLaunchStore) record, so an artifact is
+    /// [loader](super::KernelLoader) records of the kernels the work
+    /// launched, so an artifact is
     /// known by its kernel, whichever variant it is.
     pub id: StableHash,
     /// Hash of what else decides the artifact for that kernel: the variant a

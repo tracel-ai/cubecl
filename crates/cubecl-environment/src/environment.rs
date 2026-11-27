@@ -49,6 +49,12 @@ pub use prune::*;
 mod summary;
 pub use summary::*;
 
+mod work_uses;
+pub use work_uses::*;
+
+#[cfg(all(test, native_cache))]
+mod work_uses_tests;
+
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";
 

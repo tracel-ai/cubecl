@@ -19,8 +19,8 @@ pub enum NamespaceContent {
     AutotuneAnswers,
     /// How the environment was built.
     Records,
-    /// Anything else: the throughput measurements, the work's launches, an
-    /// application's own data.
+    /// Anything else: the throughput measurements, the records of what the
+    /// work used, an application's own data.
     Other,
 }
 
@@ -134,7 +134,8 @@ mod tests {
     use super::*;
 
     /// Only a compiler's namespace holds artifacts: the measurements, the
-    /// records, the work's launches and an application's data never do.
+    /// records, the records of what the work used and an application's data
+    /// never do.
     #[test]
     fn only_a_compilers_namespace_holds_artifacts() {
         for root in ArtifactRoot::ALL {
@@ -145,7 +146,7 @@ mod tests {
             "autotune/0.12.0/matmul",
             "throughput/0.12.0/probe",
             "records/v1/sessions",
-            "launched/0.12.0/00ff",
+            "used/0.12.0/00ff/kernels",
             "my-application/0.1.0/settings",
         ] {
             assert!(

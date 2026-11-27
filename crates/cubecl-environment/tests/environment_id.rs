@@ -415,7 +415,8 @@ const PLANTED: EnvironmentSummary = EnvironmentSummary {
 
 /// Activates `id` and writes an entry or more under every root a summary
 /// tells apart: compiled kernels, a compiler's source map, autotune answers,
-/// records, the work's launches, and an application's own namespace.
+/// records, a record of what the work used, and an application's own
+/// namespace.
 fn plant(id: &EnvironmentId) {
     id.activate().unwrap();
     for (root, entries) in [
@@ -424,7 +425,7 @@ fn plant(id: &EnvironmentId) {
         ("cuda-second-line", 2),
         ("autotune", 2),
         ("records", 1),
-        ("launched", 4),
+        ("used", 4),
         ("my-application", 5),
     ] {
         let mut store: Store<String, u32> =

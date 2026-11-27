@@ -25,7 +25,7 @@ pub struct EnvironmentSummary {
 impl EnvironmentSummary {
     /// Counts `namespaces`, each by its [root](NamespaceRoot). An
     /// application's own namespaces, the throughput measurements and the
-    /// work's launches count as none of the three.
+    /// records of what the work used count as none of the three.
     pub fn new(namespaces: &[NamespaceSummary]) -> Self {
         let mut summary = Self::default();
         for namespace in namespaces {
@@ -63,7 +63,7 @@ mod tests {
             namespace(&["autotune", "0.12.0/layout-v1/hardware/reduce"], 1),
             namespace(&["records", "v1/sessions"], 3),
             namespace(&["records", "v1/spans"], 4),
-            namespace(&["launched", "0.12.0/00ff"], 11),
+            namespace(&["used", "0.12.0/00ff/kernels"], 11),
             namespace(&["throughput", "0.12.0/probe-v2"], 13),
             namespace(&["my-application", "0.1.0/settings"], 17),
             namespace(&["autotune-notes", "0.1.0"], 19),
