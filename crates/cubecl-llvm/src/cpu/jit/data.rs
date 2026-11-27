@@ -1,22 +1,19 @@
-use crate::cpu::synchronization::SYNC_CUBE_STATE_LEN;
-use std::{
-    ffi::c_void,
-    sync::{Arc, atomic::AtomicU32},
-};
+use crate::cpu::synchronization::CubeBarrier;
+use std::{ffi::c_void, sync::Arc};
 
 /// Resources shared by all units of a launch.
 #[derive(Default)]
 pub struct SharedData {
     pub buffer_ptrs: Vec<*mut c_void>,
     pub metadata: Vec<u64>,
-    /// Shared barrier counters, initialized to zero.
-    pub sync_cube_state: [AtomicU32; SYNC_CUBE_STATE_LEN],
+    /// Reusable barrier that parks units when their peers are delayed.
+    pub sync_cube_state: CubeBarrier,
     /// Keeps buffer storage alive until the launch completes.
     pub keepalive: Vec<Box<dyn std::any::Any + Send>>,
 }
 
-/// SAFETY: Buffer and shared memory storage outlive the launch. Barrier counters are
-/// atomic, and `keepalive` contents are only dropped, never accessed concurrently.
+/// SAFETY: Buffer and shared memory storage outlive the launch. The barrier is thread-safe,
+/// and `keepalive` contents are only dropped, never accessed concurrently.
 unsafe impl Send for SharedData {}
 unsafe impl Sync for SharedData {}
 
