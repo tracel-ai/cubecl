@@ -6,6 +6,7 @@ use crate::shared::offline_kernels::{
     fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
     nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
     scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    transposed_stage_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -111,6 +112,35 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
         let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+    }
+}
+
+/// A `B` stage laid with each column's `k` contiguous, filled by blocks transposed in registers,
+/// is stored in lines of `k` and read by its fragment in whole runs: no 2-byte value crosses
+/// shared memory, and no register spills. RDNA reads a lane's 16 values of `k` 16 bytes at a time,
+/// CDNA its four 8 bytes at a time.
+#[test]
+fn a_k_contiguous_b_stage_loads_and_stores_whole_runs() {
+    for (arch, read, narrow_read, narrow_write) in [
+        ("gfx1151", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx1201", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx942", "ds_read_b64", "ds_read_u16", "ds_write_b16"),
+    ] {
+        let asm = asm_of(transposed_stage_product_kernel(&GfxArch::parse(arch)), arch);
+        keep_asm(&asm, &format!("transposed_stage_product_{arch}"));
+        assert!(asm.contains(read), "{arch}: the runs load whole:\n{asm}");
+        assert!(
+            !asm.contains(narrow_read),
+            "{arch}: no run loads element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains(narrow_write),
+            "{arch}: no column stores element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains("scratch_") && !asm.contains("buffer_store"),
+            "{arch}: no register spills:\n{asm}"
+        );
     }
 }
 

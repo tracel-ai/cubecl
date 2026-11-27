@@ -16,8 +16,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         DeviceIdentity, DeviceProperties, FragmentPositions, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
-        VectorSize,
+        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, StridedRunRead,
+        TargetProperties, VectorSize,
         amd::{AmdMatrixCore, GfxArch},
         features::Plane,
     },
@@ -339,20 +339,26 @@ fn target_properties(core: Option<AmdMatrixCore>) -> TargetProperties {
 }
 
 /// The target properties of a device whose matrix core is `core`, compiled by `backend`: its
-/// manual MMA's register layout, and whether the backend's fragment API states which lane holds
-/// which cell. The LLVM lowering lays a fragment out as the manual MMA does, so it states it;
-/// rocWMMA keeps it to itself. A part without a matrix core is laid out as RDNA3, whose plane
-/// width it shares.
+/// manual MMA's register layout, whether the backend's fragment API states which lane holds
+/// which cell, and how its fragment load reads a run laid across the rows of its memory. The LLVM
+/// lowering lays a fragment out as the manual MMA does, so it states it; rocWMMA keeps it to
+/// itself. The LLVM lowering loads a strided run one element at a time and a contiguous one in one
+/// access; HIP C++ loads both one element at a time, so neither is slower there. A part without a
+/// matrix core is laid out as RDNA3, whose plane width it shares.
 fn target_properties_for(core: Option<AmdMatrixCore>, backend: HipBackend) -> TargetProperties {
     let core = core.unwrap_or(AmdMatrixCore::Wmma(AmdWmma::Rdna3));
     let mma = core.mma_properties();
-    let fragment_positions = match backend {
-        HipBackend::Llvm => FragmentPositions::AsElementPositions,
-        HipBackend::Cpp => FragmentPositions::Hidden,
+    let (fragment_positions, strided_run_read) = match backend {
+        HipBackend::Llvm => (
+            FragmentPositions::AsElementPositions,
+            StridedRunRead::ElementWise,
+        ),
+        HipBackend::Cpp => (FragmentPositions::Hidden, StridedRunRead::Whole),
     };
     TargetProperties {
         mma: MmaProperties {
             fragment_positions,
+            strided_run_read,
             ..mma
         },
     }
@@ -544,5 +550,16 @@ mod tests {
                 "{core:?}"
             );
         }
+    }
+
+    /// The LLVM lowering reads a strided run of a fragment element by element; HIP C++ reads
+    /// either run alike.
+    #[test]
+    fn only_the_llvm_backend_reads_a_strided_run_element_wise() {
+        let core = Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3));
+        let llvm = target_properties_for(core, HipBackend::Llvm).mma;
+        assert_eq!(llvm.strided_run_read, StridedRunRead::ElementWise);
+        let cpp = target_properties_for(core, HipBackend::Cpp).mma;
+        assert_eq!(cpp.strided_run_read, StridedRunRead::Whole);
     }
 }
