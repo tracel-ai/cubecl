@@ -7,6 +7,7 @@ use cubecl::{
     unexpanded,
 };
 
+use crate::ops::matmul::leaf::laid_fragment_read;
 use crate::*;
 
 /// A tensor-core fragment plus the comptime config its load/store paths dispatch on.
@@ -87,8 +88,16 @@ impl CmmaData {
         cmma::fill(&mut self.fragment.downcast::<T>(), T::from_int(0));
     }
 
-    /// Fill this fragment from `mem`'s window, stepping rows by the physical row stride.
-    pub(crate) fn load_window<T: Numeric>(&mut self, mem: &Memory, #[comptime] row: usize) {
+    /// Fill this fragment from `mem`'s window over `space`, stepping rows by the physical row
+    /// stride: along `row` in the layout it was opened with where the window lies in its Space's
+    /// order, and as its stage lays it where the stage lies along a run of the contraction
+    /// ([`laid_fragment_read`]), whatever layout the fragment was opened with.
+    pub(crate) fn load_window<T: Numeric>(
+        &mut self,
+        mem: &Memory,
+        #[comptime] space: &Space,
+        #[comptime] row: usize,
+    ) {
         let element = mem.stage_element();
         comptime!(assert!(
             element.holds_values(),
@@ -96,15 +105,23 @@ impl CmmaData {
              unpack a packed source as it reads; contract it, which lands it, or decode it into a \
              stage (`stage.dequantize_from(&w.mul(&scales))`)"
         ));
+        let laid = comptime!(laid_fragment_read(self.ident, space, mem.layout.order));
+        let row = comptime!(laid.map_or(row, |(_, row)| row));
         let stride = mem.row_stride_at(row);
-        match comptime!(self.ident) {
-            MatrixIdent::Accumulator => cmma::load_with_layout(
+        match comptime!((self.ident, laid)) {
+            (MatrixIdent::Accumulator, _) => cmma::load_with_layout(
                 &mut self.fragment.downcast::<T>(),
                 mem.window_slice::<T>(),
                 stride,
                 comptime!(self.layout),
             ),
-            _ => cmma::load(
+            (_, Some((layout, _))) => cmma::load_with_layout(
+                &mut self.fragment.downcast::<T>(),
+                mem.window_slice::<T>(),
+                stride,
+                layout,
+            ),
+            (_, None) => cmma::load(
                 &mut self.fragment.downcast::<T>(),
                 mem.window_slice::<T>(),
                 stride,

@@ -41,12 +41,13 @@ impl Memory {
     }
 
     /// Whether this stage is filled from `src` by copying its lines as they lie, each unit's share
-    /// known: all [`fetch_straight`](Memory::fetch_straight) moves.
+    /// known, in its source's order: all [`fetch_straight`](Memory::fetch_straight) moves.
     #[allow(dead_code)] // Reached through its expand, from `Tile::fetches_straight_from`.
     pub(crate) fn fetches_straight(&self, src: &Memory) -> comptime_type!(bool) {
         let turns = self.known_turns();
         comptime!(
             turns.is_some()
+                && self.layout.order == StageOrder::AsSource
                 && self.store.packing.as_stored()
                 && src.store.packing.as_stored()
                 && self.access.whole

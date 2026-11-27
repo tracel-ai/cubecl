@@ -118,20 +118,59 @@ impl FragmentRead {
 }
 
 /// Where `window`'s innermost run lies against `out`, the window laid down in `order`: whether
-/// its innermost dimension is one of `out`'s, and the position of the last dimension on the
-/// other side, `None` where every dimension lies on the innermost's side.
-fn innermost_run(window: &Space, out: &Space, order: StageOrder) -> (bool, Option<usize>) {
+/// its innermost dimension is one of `out`'s, and the last dimension laid on the other side,
+/// `None` where every dimension lies on the innermost's side.
+fn innermost_run(window: &Space, out: &Space, order: StageOrder) -> (bool, Option<Dimension>) {
     match order {
         StageOrder::AsSource => innermost_run_in_space_order(window, out),
+        StageOrder::AlongRun {
+            dimension: moved, ..
+        } => innermost_run_in_space_order(&laid_along(window, moved), out),
     }
 }
 
 /// [`innermost_run`] of a window laid down in its Space's order, its last dimension innermost.
-fn innermost_run_in_space_order(window: &Space, out: &Space) -> (bool, Option<usize>) {
+fn innermost_run_in_space_order(window: &Space, out: &Space) -> (bool, Option<Dimension>) {
     let rank = window.rank();
     let kept = |p: usize| out.contains(window.dimension_at(p));
     let innermost = kept(rank - 1);
-    (innermost, (0..rank).rev().find(|&p| kept(p) != innermost))
+    let other_side = (0..rank).rev().find(|&p| kept(p) != innermost);
+    (innermost, other_side.map(|p| window.dimension_at(p)))
+}
+
+/// How an `ident` fragment reads a window over `space` laid down in `order`, where that order is
+/// not its Space's: the layout its lanes' runs of the contraction lie contiguous in, and the
+/// position of the dimension its rows step along. `None` for a window in its Space's order, which
+/// a fragment reads in the layout it was opened with.
+pub(crate) fn laid_fragment_read(
+    ident: MatrixIdent,
+    space: &Space,
+    order: StageOrder,
+) -> Option<(MatrixLayout, usize)> {
+    let StageOrder::AlongRun {
+        dimension: moved, ..
+    } = order
+    else {
+        return None;
+    };
+    let layout = match ident {
+        MatrixIdent::A => MatrixLayout::RowMajor,
+        MatrixIdent::B => MatrixLayout::ColMajor,
+        MatrixIdent::Accumulator => return None,
+    };
+    let laid = laid_along(space, moved);
+    let rows = laid.dimension_at(MatrixDimensions::edges(&laid).row_split);
+    Some((layout, space.position(rows)))
+}
+
+/// `window`'s dimensions in the order a stage laid along `moved` lays them down: `moved` last.
+fn laid_along(window: &Space, moved: Dimension) -> Space {
+    let laid: Vec<Dimension> = window
+        .dimensions()
+        .filter(|&dimension| dimension != moved)
+        .chain([moved])
+        .collect();
+    window.subspace(&laid)
 }
 
 /// Whether a factor reaches its fragment through its plane's landing rather than as it lies: a
@@ -171,7 +210,7 @@ impl Tile {
         let row = comptime!({
             let space = &self.place.space;
             let (_, other_side) = innermost_run(space, &read.out, read.order);
-            other_side.unwrap_or(space.rank() - 2)
+            other_side.map_or(space.rank() - 2, |dimension| space.position(dimension))
         });
         match &self.kind {
             TileKind::Memory(m) => cmma::load(frag, m.window_slice::<E>(), m.row_stride_at(row)),
@@ -299,7 +338,7 @@ impl Tile {
 /// dimension's side of the contraction. A landing is laid down in its Space's order.
 fn landed_cols(window: &Space, out: &Space) -> usize {
     let (_, other_side) = innermost_run(window, out, StageOrder::AsSource);
-    let first = other_side.map_or(0, |p| p + 1);
+    let first = other_side.map_or(0, |dimension| window.position(dimension) + 1);
     (first..window.rank())
         .map(|p| window.extent_at(p))
         .product()
@@ -379,7 +418,7 @@ mod tests {
         let rhs = Space::new(&[(K, 16), (n0, 2), (n1, 8)]);
         assert_eq!(
             innermost_run(&rhs, &out, StageOrder::AsSource),
-            (true, Some(0))
+            (true, Some(K))
         );
         assert_eq!(landed_cols(&rhs, &out), 16);
     }
@@ -395,6 +434,46 @@ mod tests {
             (true, None)
         );
         assert_eq!(landed_cols(&rhs, &out), 16);
+    }
+
+    /// A stage laid along its run of `k` is read as its physical order lays it, whatever order its
+    /// Space lists: a row-major rhs laid `k` innermost reads column-major, its rows stepping
+    /// along `n`.
+    #[test]
+    fn fragment_read_takes_the_physical_order() {
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let order = StageOrder::AlongRun {
+            dimension: K,
+            run: 8,
+        };
+        let read = FragmentRead::new(Side::Rhs, &rhs, &out(), order);
+        assert_eq!(read.layout, MatrixLayout::ColMajor);
+        assert_eq!(innermost_run(&rhs, &out(), order), (false, Some(N)));
+    }
+
+    /// A fragment opened in its Space's order reads a window laid along `k` as the stage lays it:
+    /// an rhs `[k, n]` column-major and an lhs `[k, m]` row-major, their rows stepping along the
+    /// other dimension; a window in its Space's order as the fragment was opened.
+    #[test]
+    fn a_fragment_reads_a_window_laid_along_k_as_it_lies() {
+        let order = StageOrder::AlongRun {
+            dimension: K,
+            run: 8,
+        };
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        assert_eq!(
+            laid_fragment_read(MatrixIdent::B, &rhs, order),
+            Some((MatrixLayout::ColMajor, 1))
+        );
+        let lhs = Space::new(&[(K, 16), (M, 16)]);
+        assert_eq!(
+            laid_fragment_read(MatrixIdent::A, &lhs, order),
+            Some((MatrixLayout::RowMajor, 1))
+        );
+        assert_eq!(
+            laid_fragment_read(MatrixIdent::B, &rhs, StageOrder::AsSource),
+            None
+        );
     }
 
     /// A scaled, repacked or global factor lands first; a plain shared one loads as it lies.

@@ -18,6 +18,9 @@ pub(crate) struct BufferLayout {
     /// Where a stage keeps each line of a block row.
     #[cube(comptime)]
     pub(crate) rows: RowArrangement,
+    /// The order a stage lays its axes down in; the source's for every other buffer.
+    #[cube(comptime)]
+    pub(crate) order: StageOrder,
     /// The table a pool of pages is read as sequences through ([`Paging`]); `None` for a buffer
     /// read where it lies.
     pub(crate) paging: ComptimeOption<PageTable>,
@@ -78,9 +81,78 @@ impl BufferLayout {
         self.logical_of_physical(&physical)
     }
 
-    /// Where line `i` of this buffer sits: `i` itself unless rows are padded.
+    /// The logical coordinates of `width`-wide line `j` of this buffer, counted row-major over its
+    /// logical extents, the innermost in lines of `width` values: the source's order, whatever
+    /// order the buffer lays its axes down in. What a fill reads its source by, a wider line at a
+    /// time, where the buffer lays each source line's values apart.
+    pub(crate) fn source_line_coords(&self, j: usize, #[comptime] width: usize) -> CoordsDyn {
+        let extent = logical_extent(&self.projection, &self.physical_shape);
+        let rank = comptime!(self.projection.logical_rank());
+        let mut lines = Coords::<u32>::new();
+        #[unroll]
+        for p in 0..rank {
+            if comptime!(p + 1 == rank) {
+                lines.push(extent.at(p).divided_by(comptime!(width as u32).runtime()));
+            } else {
+                lines.push(extent.at(p));
+            }
+        }
+        lines.unravel(j.cast::<u32>()).to_dyn()
+    }
+
+    /// Where value `v` of the `width`-wide line at the logical coordinates `line` sits.
+    pub(crate) fn cell_offset(
+        &self,
+        line: &CoordsDyn,
+        #[comptime] width: usize,
+        #[comptime] v: usize,
+    ) -> usize {
+        let rank = comptime!(self.projection.logical_rank());
+        let mut cell = CoordsDyn::new();
+        #[unroll]
+        for p in 0..rank {
+            if comptime!(p + 1 == rank) {
+                cell.push(
+                    line[p]
+                        .times(comptime!(width as u32).runtime())
+                        .plus(comptime!(v as u32).runtime()),
+                );
+            } else {
+                cell.push(line[p]);
+            }
+        }
+        self.to_source_pos(cell)
+    }
+
+    /// The cells from one value of a `width`-wide line along this buffer's last logical dimension
+    /// to the next ([`cell_offset`](BufferLayout::cell_offset)), where every such line lies
+    /// within one block along it and that block's extent and stride are constants: then a line's
+    /// values sit that far apart from its first. `None` elsewhere, a swizzled or paged buffer
+    /// among them.
+    pub(crate) fn line_cell_step(&self, #[comptime] width: usize) -> comptime_type!(Option<usize>) {
+        let rank = comptime!(self.projection.logical_rank());
+        let finest =
+            comptime!({
+                let last = self.projection.dimensions()[rank - 1];
+                *self.projection.carriers(last).last().expect(
+                    "BufferLayout: a logical dimension should be carried by a physical axis",
+                )
+            });
+        let extent = self.physical_shape.at(finest).constant();
+        let stride = self.physical_strides.at(finest).constant();
+        let plain = comptime!(self.rows.swizzle().is_none() && self.paging.is_none());
+        comptime!(match (extent, stride) {
+            (Some(extent), Some(stride)) if plain && (extent as usize).is_multiple_of(width) => {
+                Some(stride as usize)
+            }
+            _ => None,
+        })
+    }
+
+    /// Where line `i` of this buffer sits: `i` itself unless rows are padded or the axes are laid
+    /// down in another order than the source's.
     pub(crate) fn line_offset(&self, i: usize) -> usize {
-        if comptime!(self.rows.is_pitched()) {
+        if comptime!(self.rows.is_pitched() || self.order != StageOrder::AsSource) {
             let physical = self.line_physical(i);
             let mut offset = 0u32;
             #[unroll]
@@ -218,6 +290,7 @@ impl BufferLayout {
             physical_strides: self.physical_strides.clone(),
             projection: comptime!(self.projection.clone()),
             rows: comptime!(self.rows),
+            order: comptime!(self.order),
             paging,
         }
     }

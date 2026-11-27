@@ -321,6 +321,7 @@ impl Memory {
             physical_strides: strides,
             projection: comptime!(Projection::direct(positional.dimensions())),
             rows: RowArrangement::InOrder,
+            order: StageOrder::AsSource,
             paging: ComptimeOption::new_None(),
         }
     }
@@ -423,8 +424,8 @@ impl Memory {
     }
 
     /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
-    /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
-    /// and every dimension of `space` but the last two a single cell. The second-to-last dimension
+    /// direct, untiled store laid down in its source's order, its rows unswizzled and never paged,
+    /// read with no overhang to mask, and every dimension of `space` but the last two a single cell. The second-to-last dimension
     /// then steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through
     /// a row's cells, so a cell lies its row times the stride plus its column past the first.
     pub(crate) fn rows_step_by_stride(&self, #[comptime] space: &Space) -> comptime_type!(bool) {
@@ -435,6 +436,7 @@ impl Memory {
                 && !self.layout.projection.is_tiled()
                 && self.layout.paging.is_none()
                 && self.layout.rows.rows_are_runs()
+                && self.layout.order == StageOrder::AsSource
                 && !self.access.overhang.masks()
                 && self.store.packing == Packing::Plain
                 && rank >= 2

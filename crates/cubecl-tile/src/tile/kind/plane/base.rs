@@ -371,7 +371,7 @@ impl PlaneTile {
     ) {
         match self {
             PlaneTile::Cmma(d) => match &src.kind {
-                TileKind::Memory(m) => d.load_window::<T>(m, row),
+                TileKind::Memory(m) => d.load_window::<T>(m, &src.place.space, row),
                 TileKind::PlaneTile(_)
                 | TileKind::PlanePartition(_)
                 | TileKind::TmaGmem(_)
