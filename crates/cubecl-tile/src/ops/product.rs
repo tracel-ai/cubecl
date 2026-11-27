@@ -3,7 +3,7 @@
 
 use cubecl::prelude::*;
 
-use cubecl_std::tensor::layout::CoordsDyn;
+use cubecl_std::tensor::layout::{CoordsDyn, Layout, LayoutExpand};
 
 use crate::ops::contraction::{AccCoords, resolve_nd_coords};
 use crate::*;
@@ -31,7 +31,6 @@ impl Tile {
         let a_reader = a.nd_split::<A, W>();
         let b_reader = b.nd_split::<B, F>();
 
-        let a_step_at = comptime!(a.place.space.position(split.dimension));
         let extents = Coords::constant(split.groups.clone());
         let total = split.groups.iter().product::<usize>();
 
@@ -50,20 +49,18 @@ impl Tile {
             );
 
             // The step is a unit of `b`'s read, so its address is the group's.
-            let scales = b_reader
-                .view
-                .read(b_reader.map.anchor(b_base, comptime!(Vec::new())));
-            // `a`'s address moves with the step: its map is evaluated once here, each step an
-            // addition.
-            let moving = comptime!(vec![split.dimension]);
-            let a_anchor = a_reader.map.anchor(a_base.clone(), moving.clone());
+            let scales = b_reader.view.read(b_reader.map.to_source_pos(b_base));
+            // `a`'s address moves with the step: its map is evaluated once here, and each step
+            // walks `f` coordinates on from it.
+            let walk = comptime!(WalkUnits::along(split.dimension, 1));
+            let a_anchor = a_reader.map.anchor(a_base, &walk);
 
             #[unroll]
             for f in 0..split.per_read {
                 let value = a_reader.view.read(a_reader.map.advance(
                     &a_anchor,
-                    stepped(&a_base, comptime!(a_step_at), f),
-                    moving.clone(),
+                    &Coords::constant(comptime!(vec![f])),
+                    &walk,
                 ));
                 let left = Vector::<D, W>::cast_from(value);
                 let right = Vector::<D, W>::cast_from(scales.extract(f));

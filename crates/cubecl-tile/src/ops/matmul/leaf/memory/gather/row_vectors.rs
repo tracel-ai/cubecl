@@ -26,7 +26,7 @@ pub(super) struct RowVectors<'a, EL: Numeric, L: Size> {
     /// Split only on the anchored path: a split refuses a backward window, which never anchors.
     lhs: &'a Tile,
     vectors: Array<Vector<EL, L>>,
-    /// Each vector's physical anchor, `rank` entries a vector.
+    /// Each vector's anchor ([`Anchor`]), its words one after another.
     anchors: Array<u32>,
     /// Whether each vector's run in the current tap is in bounds, as `1` or `0`.
     run_in_bounds: Array<u32>,
@@ -37,20 +37,21 @@ pub(super) struct RowVectors<'a, EL: Numeric, L: Size> {
 #[cube]
 impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
     pub fn new(lhs: &'a Tile, #[comptime] problem: &GatherProblem) -> RowVectors<'a, EL, L> {
-        let advanceable = lhs.run_advanceable(problem.block.fastest_dimension());
+        let walk = comptime!(problem.block.fastest_walk());
+        let advanceable = lhs.run_anchorable(&walk);
         let reads = comptime!(match (problem.lhs, advanceable) {
             (LhsRole::PerCell, _) => RowReads::PerCell,
             (LhsRole::FreeOfColumn, false) => RowReads::Checked,
             (LhsRole::FreeOfColumn, true) => RowReads::Anchored,
         });
         let anchored = comptime!(reads == RowReads::Anchored);
-        let projection = lhs.projection();
-        let rank = comptime!(projection.physical_rank());
+        let projection = lhs.in_kernel_projection();
+        let words = comptime!(projection.anchor_len(&walk));
         let vectors = problem.row_vector_count();
         RowVectors::<'a, EL, L> {
             lhs,
             vectors: Array::new(vectors),
-            anchors: Array::new(comptime!(if anchored { vectors * rank } else { 1 })),
+            anchors: Array::new(comptime!(if anchored { vectors * words } else { 1 })),
             run_in_bounds: Array::new(comptime!(if anchored { vectors } else { 1 })),
             reads,
         }
@@ -73,9 +74,9 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
     ) {
         if comptime!(self.reads == RowReads::Anchored) {
             let split = self.lhs.nd_split::<EL, L>();
-            let rank = comptime!(split.rank);
+            let walk = comptime!(problem.block.fastest_walk());
+            let words = split.map.anchor_len(&walk);
             let rows_per_vector = problem.rows_per_vector();
-            let fastest = problem.block.fastest_dimension();
             let run = problem.block.fastest_extent();
             let first_step = step_coords(tap_coords, 0u32);
             let last_step = step_coords(tap_coords, comptime!((run - 1) as u32));
@@ -100,11 +101,10 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
                 );
                 let whole = lhs_view.is_in_bounds(first.clone()) && lhs_view.is_in_bounds(last);
                 self.run_in_bounds[row_vector] = if whole { 1u32 } else { 0u32 };
-                let anchor = split.map.anchor(first, comptime!(vec![fastest]));
-                #[unroll]
-                for pa in 0..rank {
-                    self.anchors[row_vector * comptime!(rank) + pa] = anchor[pa];
-                }
+                split
+                    .map
+                    .anchor(first, &walk)
+                    .store_into(&mut self.anchors, row_vector * comptime!(words));
             }
         }
     }
@@ -169,14 +169,12 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
         #[comptime] problem: GatherProblem,
     ) -> Vector<EL, L> {
         let split = self.lhs.nd_split::<EL, L>();
-        let rank = comptime!(split.rank);
-        let mut anchor = CoordsDyn::new();
-        #[unroll]
-        for pa in 0..rank {
-            anchor.push(self.anchors[row_vector * comptime!(rank) + pa]);
-        }
-        let fastest = problem.block.fastest_dimension();
-        let at = split.map.advance(&anchor, pos, comptime!(vec![fastest]));
+        let walk = comptime!(problem.block.fastest_walk());
+        let words = split.map.anchor_len(&walk);
+        let anchor = Anchor::load_from(&self.anchors, row_vector * comptime!(words), words);
+        let at = split
+            .map
+            .advance(&anchor, &split.map.counts_at(&pos, &walk), &walk);
         split.view.read_unchecked(at)
     }
 }

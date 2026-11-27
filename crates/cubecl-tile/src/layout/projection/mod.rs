@@ -8,6 +8,7 @@ pub(crate) mod buffer_layout;
 pub(crate) mod carriers;
 pub(crate) mod in_kernel;
 pub(crate) mod runtime_map;
+pub(crate) mod walk_units;
 pub(crate) mod witness;
 
 pub(crate) use axis_map::*;
@@ -15,6 +16,7 @@ pub(crate) use buffer_layout::*;
 pub(crate) use carriers::*;
 pub(crate) use in_kernel::*;
 pub(crate) use runtime_map::*;
+pub(crate) use walk_units::*;
 pub(crate) use witness::Witness;
 
 pub use axes_builder::{AxesBuilder, split};

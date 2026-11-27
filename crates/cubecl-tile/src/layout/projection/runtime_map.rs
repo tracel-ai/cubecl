@@ -5,8 +5,8 @@ use cubecl::prelude::*;
 use crate::Coords;
 
 /// The runtime half of a [`Projection`](crate::Projection): its dynamic coefficients and divisors,
-/// the window origin's phase under each divisor, and where the tile starts along each folded
-/// dimension.
+/// the window origin's phase under each divisor, where the tile starts along each dimension read
+/// as digits, and the digits' place values and extents read off the buffer.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct RuntimeMap {
@@ -18,6 +18,9 @@ pub(crate) struct RuntimeMap {
     /// [`digit_dimensions`](crate::Projection::digit_dimensions) order: a window is never moved
     /// along a digit, so a read adds this before taking it.
     pub(crate) digit_starts: Coords<u32>,
+    /// The [`Radix::Dynamic`](crate::Radix) place values and extents of the digits, in
+    /// [`digit_radix_index`](crate::Projection::digit_radix_index) order.
+    pub(crate) digit_radices: Coords<u32>,
 }
 
 #[cube]
@@ -28,6 +31,7 @@ impl RuntimeMap {
             coefficients: Coords::<u32>::new(),
             residues: Coords::constant(comptime!(vec![0; physical_rank])),
             digit_starts: Coords::<u32>::new(),
+            digit_radices: Coords::<u32>::new(),
         }
     }
 
@@ -37,6 +41,7 @@ impl RuntimeMap {
             coefficients: self.coefficients.stored(),
             residues: self.residues.stored(),
             digit_starts: self.digit_starts.stored(),
+            digit_radices: self.digit_radices.stored(),
         }
     }
 
@@ -45,5 +50,6 @@ impl RuntimeMap {
         self.coefficients.store_from(&src.coefficients);
         self.residues.store_from(&src.residues);
         self.digit_starts.store_from(&src.digit_starts);
+        self.digit_radices.store_from(&src.digit_radices);
     }
 }

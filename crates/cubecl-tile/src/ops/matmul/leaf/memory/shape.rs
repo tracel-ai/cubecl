@@ -157,6 +157,17 @@ impl ContractShape {
         self.reduce[self.reduce.len() - 1]
     }
 
+    /// The walk over every contracted dimension, a coordinate a count: how a cell's contracted
+    /// positions are reached from where they are all zero.
+    pub(crate) fn reduce_walk(&self) -> WalkUnits {
+        WalkUnits::over(&self.reduce.iter().map(|&d| (d, 1)).collect::<Vec<_>>())
+    }
+
+    /// The walk along the fastest contracted dimension alone, a coordinate a count.
+    pub(crate) fn fastest_walk(&self) -> WalkUnits {
+        WalkUnits::along(self.fastest_dimension(), 1)
+    }
+
     /// The fastest contracted dimension's extent, in scalars.
     pub(crate) fn fastest_extent(&self) -> usize {
         self.reduce_extents[self.reduce_extents.len() - 1]

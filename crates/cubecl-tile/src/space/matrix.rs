@@ -2,7 +2,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use crate::{Extent, Space};
+use crate::{Digit, Extent, Quotient, Radix, Space, TermStep, WalkUnits};
 
 /// Which of a tile's dimensions form a 2-D matrix: a batch prefix, then the row group, then the
 /// column group.
@@ -131,6 +131,68 @@ impl MatrixDimensions {
         run
     }
 
+    /// The walk that moving `coords_per_count` columns a count is over `space`, whose dimensions
+    /// count `counts` coordinates each: the column index read as one digit per column dimension
+    /// ([`Digit::step`]), each dimension it moves walked by its digit's step, those it holds and
+    /// those one coordinate long left out. `None` where a column dimension would carry into the
+    /// next, which no constant step per dimension is.
+    pub(crate) fn col_walk(
+        &self,
+        space: &Space,
+        counts: &[usize],
+        coords_per_count: usize,
+    ) -> Option<WalkUnits> {
+        MatrixDimensions::group_walk(
+            space,
+            counts,
+            self.col_split..space.rank(),
+            coords_per_count,
+        )
+    }
+
+    /// [`col_walk`](Self::col_walk) along the rows.
+    pub(crate) fn row_walk(
+        &self,
+        space: &Space,
+        counts: &[usize],
+        coords_per_count: usize,
+    ) -> Option<WalkUnits> {
+        MatrixDimensions::group_walk(
+            space,
+            counts,
+            self.row_split..self.col_split,
+            coords_per_count,
+        )
+    }
+
+    /// The walk that moving `coords_per_count` along the index `group` unravels over is.
+    fn group_walk(
+        space: &Space,
+        counts: &[usize],
+        group: core::ops::Range<usize>,
+        coords_per_count: usize,
+    ) -> Option<WalkUnits> {
+        // A dimension one coordinate long never moves, so the first longer one is the coarsest.
+        let moving: Vec<usize> = group.clone().filter(|&p| counts[p] > 1).collect();
+        let mut walked = Vec::new();
+        for (at, &p) in moving.iter().enumerate() {
+            let digit = Digit {
+                place_value: Radix::Static(counts[p + 1..group.end].iter().product()),
+                extent: Radix::Static(counts[p]),
+                quotient: match at {
+                    0 => Quotient::Whole,
+                    _ => Quotient::Modulo,
+                },
+            };
+            match digit.step(coords_per_count) {
+                TermStep::Adds(0) | TermStep::Holds => {}
+                TermStep::Adds(step) => walked.push((space.dimension_at(p), step as usize)),
+                TermStep::AddsCoefficient(_) | TermStep::Reevaluates => return None,
+            }
+        }
+        Some(WalkUnits::over(&walked))
+    }
+
     /// The dimensions giving a `rows x cols` matrix, both scalar, found from the innermost
     /// dimension outwards.
     pub(crate) fn new(space: &Space, rows: usize, cols: usize) -> Result<Self, NoMatrix> {
@@ -227,6 +289,30 @@ mod tests {
     const OH: Dimension = Dimension(0);
     const RH: Dimension = Dimension(1);
     const CI: Dimension = Dimension(2);
+
+    /// Over `k` in blocks of 16 lines, a step of 32 lines moves the block by two and holds the
+    /// position inside it; a step of 8 moves inside a block and would carry into the next one.
+    #[test]
+    fn a_column_walk_steps_each_dimension_of_the_group_or_carries() {
+        const KB: Dimension = Dimension(3);
+        let blocked = Space::new(&[(OH, 8), (KB, 4), (CI, 16)]);
+        let dimensions = MatrixDimensions::new(&blocked, 8, 64).unwrap();
+        let counts = [8, 4, 16];
+        assert_eq!(
+            dimensions.col_walk(&blocked, &counts, 32),
+            Some(WalkUnits::along(KB, 2))
+        );
+        assert_eq!(dimensions.col_walk(&blocked, &counts, 8), None);
+        let whole = Space::new(&[(OH, 8), (CI, 64)]);
+        assert_eq!(
+            MatrixDimensions::trailing(&whole).col_walk(&whole, &[8, 8], 2),
+            Some(WalkUnits::along(CI, 2))
+        );
+        assert_eq!(
+            MatrixDimensions::trailing(&whole).row_walk(&whole, &[8, 8], 3),
+            Some(WalkUnits::along(OH, 3))
+        );
+    }
 
     /// A run along the columns takes the innermost dimensions whole, outwards, until it is covered.
     #[test]
