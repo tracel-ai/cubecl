@@ -15,7 +15,7 @@ use crate::tune::drive::settler::TuneSettler;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::measure::outcome::best_scored;
 use crate::tune::measure::sample_time::sample_time;
-use crate::tune::{AutotuneError, AutotuneKeyable, AutotuneOutcome, AutotuneResult};
+use crate::tune::{AutotuneError, AutotuneKey, AutotuneOutcome, AutotuneResult};
 
 /// One candidate of a fixed-count batch, launched.
 pub enum LaunchedBench {
@@ -62,7 +62,7 @@ pub struct ResolvedBench {
 
 /// Commits a tune: resolves the samples still queued, picks the decided candidate, and hands it to the
 /// [`TuneSettler`]. Holds no borrow, so the browser event loop can run it.
-pub struct TuneCommitter<K: AutotuneKeyable> {
+pub struct TuneCommitter<K: AutotuneKey> {
     key: K,
     /// Each candidate's result, by tunable index (Position Usage).
     results: Vec<AutotuneResult>,
@@ -70,7 +70,7 @@ pub struct TuneCommitter<K: AutotuneKeyable> {
     settler: TuneSettler<K>,
 }
 
-impl<K: AutotuneKeyable> TuneCommitter<K> {
+impl<K: AutotuneKey> TuneCommitter<K> {
     /// A committer of the tune of `key`, every one of `names` skipped until its result is
     /// recorded.
     pub fn new<'n>(
@@ -158,7 +158,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
     }
 }
 
-impl<K: AutotuneKeyable> TuneCommitter<K> {
+impl<K: AutotuneKey> TuneCommitter<K> {
     async fn commit_resolved(
         mut self,
         pending: Vec<LaunchedBench>,

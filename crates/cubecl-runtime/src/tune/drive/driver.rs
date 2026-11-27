@@ -16,7 +16,7 @@ use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::{
-    AutotuneCheckable, AutotuneKeyable, AutotuneResult, TunableSet, TuneDeviceAccess, TuneInputs,
+    AutotuneKey, AutotuneOutput, AutotuneResult, TunableSet, TuneDeviceAccess, TuneInputs,
 };
 
 /// How a [`TuneDriver`] measures.
@@ -31,7 +31,7 @@ pub struct DriveOptions {
 /// Drives one tune of a key: benchmarks its candidates batch by batch, the adaptive way or a
 /// fixed sample count each, then hands what they measured to its [`TuneCommitter`]. `'t` borrows
 /// the tunable set, `'i` the benchmark inputs.
-pub struct TuneDriver<'t, 'i, K: AutotuneKeyable, F: TuneInputs, Out> {
+pub struct TuneDriver<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     committer: TuneCommitter<K>,
     /// Every candidate's function, by tunable index (Position Usage).
     autotunables: Vec<&'t TuneFn<F, Out>>,
@@ -48,8 +48,7 @@ pub struct TuneDriver<'t, 'i, K: AutotuneKeyable, F: TuneInputs, Out> {
     track_steps: bool,
 }
 
-impl<'t, 'i, K: AutotuneKeyable, F: TuneInputs, Out: AutotuneCheckable>
-    TuneDriver<'t, 'i, K, F, Out>
+impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneOutput> TuneDriver<'t, 'i, K, F, Out>
 where
     <F as TuneInputs>::At<'i>: Clone + Send,
 {
@@ -97,8 +96,7 @@ where
     }
 }
 
-impl<'t, 'i, K: AutotuneKeyable, F: TuneInputs, Out: AutotuneCheckable>
-    TuneDriver<'t, 'i, K, F, Out>
+impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneOutput> TuneDriver<'t, 'i, K, F, Out>
 where
     <F as TuneInputs>::At<'i>: Clone + Send,
 {

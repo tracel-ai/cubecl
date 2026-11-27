@@ -7,7 +7,7 @@
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
 use crate::tune::cache::table::TuneTable;
-use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
+use crate::tune::{AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -122,7 +122,7 @@ pub struct Answer {
     pub stored: bool,
 }
 
-impl<K: AutotuneKeyable> TuneRecorder<K> {
+impl<K: AutotuneKey> TuneRecorder<K> {
     /// Begin recording the tune of `key` in `table`. The key is cloned only when the environment
     /// records.
     pub fn new(table: &TuneTable, key: &K, checksum: &str) -> Self {

@@ -3,7 +3,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::config::autotune::AutotuneLevel;
 
-/// A priority bucket for tunables, computed from the [autotune key](crate::tune::AutotuneKeyable).
+/// A priority bucket for tunables, computed from the [autotune key](crate::tune::AutotuneKey).
 ///
 /// # Assumptions
 ///

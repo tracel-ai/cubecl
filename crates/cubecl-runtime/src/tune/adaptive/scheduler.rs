@@ -17,7 +17,7 @@ use crate::tune::measure::outcome::best_scored;
 use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::{AutotuneCheckable, AutotuneError, AutotuneResult, TuneInputs, TuneStage};
+use crate::tune::{AutotuneError, AutotuneOutput, AutotuneResult, TuneInputs, TuneStage};
 
 /// The outcome of benchmarking one batch of the plan.
 #[derive(Debug)]
@@ -41,7 +41,7 @@ pub struct BatchOutcome {
 
 impl BatchOutcome {
     /// The outcome of a batch of `indices` that could not be measured, the device not held.
-    fn hold_failed<F: TuneInputs, Out: AutotuneCheckable>(
+    fn hold_failed<F: TuneInputs, Out: AutotuneOutput>(
         indices: &[usize],
         autotunables: &[&TuneFn<F, Out>],
         reason: &ServerError,
@@ -155,7 +155,7 @@ impl<'i> Scheduler<'i> {
     ) -> PlanOutcome
     where
         F: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let mut steps = Vec::new();
@@ -204,7 +204,7 @@ impl<'i> Scheduler<'i> {
     /// exclusive device access for the entire round robin: candidates are interleaved, so
     /// releasing the device between them would let unrelated work land in the middle of a
     /// measurement.
-    fn schedule_batch<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    fn schedule_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
@@ -221,7 +221,7 @@ impl<'i> Scheduler<'i> {
     }
 
     /// Measure `batch` in a measuring stage, its stream executing what it launches.
-    fn measure<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    fn measure<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
@@ -238,7 +238,7 @@ impl<'i> Scheduler<'i> {
         outcome
     }
 
-    async fn drive<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn drive<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
@@ -291,7 +291,7 @@ impl<'i> Scheduler<'i> {
     /// The [first pass](FirstPassPlanner), its samples resolved inline so the batch can stop
     /// before the remaining kernels compile: the one place where paying a device round trip per
     /// sample is worth it. Answers the slot of the candidate a short circuit confirmed, if one did.
-    async fn first_pass_all<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn first_pass_all<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         planner: &mut FirstPassPlanner,
         candidates: &mut [CandidateTracker],
@@ -329,7 +329,7 @@ impl<'i> Scheduler<'i> {
     }
 
     /// Compile the candidates at `slots` together, in a gathering stage.
-    fn compile_ahead<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    fn compile_ahead<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         slots: &[usize],
         candidates: &mut [CandidateTracker],
@@ -442,7 +442,7 @@ impl<'i> Scheduler<'i> {
 
     /// Warm up a candidate and take its first sample. A candidate that rejected the problem while
     /// compiling is out of the round already.
-    async fn first_pass<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn first_pass<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
@@ -465,7 +465,7 @@ impl<'i> Scheduler<'i> {
     /// The slot of the first of `candidates`, in priority order, confirmed under the time limit,
     /// each one that has a sample under it first taking the confirmation samples it lacks. `None`
     /// without a limit or with the short circuit off.
-    async fn confirm_under_limit<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn confirm_under_limit<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
@@ -499,7 +499,7 @@ impl<'i> Scheduler<'i> {
     }
 
     /// Queue one sample and resolve it immediately. Returns whether the candidate survived.
-    async fn take_sample<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn take_sample<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
@@ -518,7 +518,7 @@ impl<'i> Scheduler<'i> {
     }
 
     /// Queue one measured sample of `operation`, the eviction first.
-    fn sample<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    fn sample<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
@@ -532,7 +532,7 @@ impl<'i> Scheduler<'i> {
 
     /// The later rounds, each resolved whole, answering as
     /// [`first_pass_all`](Self::first_pass_all) does.
-    async fn sample_rounds<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    async fn sample_rounds<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         candidates: &mut [CandidateTracker],
         autotunables: &[&TuneFn<F, Out>],
@@ -564,7 +564,7 @@ impl<'i> Scheduler<'i> {
     /// Queue one sample of every live candidate short of `max_sample_count` samples. A candidate
     /// that took confirmation samples in the first pass is ahead of the others, so the ceiling is
     /// enforced per candidate rather than by round count.
-    fn queue_round<'a, F: TuneInputs, Out: AutotuneCheckable>(
+    fn queue_round<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         candidates: &mut [CandidateTracker],
         autotunables: &[&TuneFn<F, Out>],
@@ -760,7 +760,7 @@ const MIN_SURVIVOR_COUNT: usize = 2;
 /// Only this stream discards, so another thread's launches still run. A candidate that rejects
 /// the problem or panics keeps its error, as its warmup would have reported it: it is never a
 /// kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
-fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
+fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
     candidates: impl Iterator<Item = &'c mut CandidateTracker>,
     autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,

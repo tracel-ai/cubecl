@@ -125,7 +125,7 @@ impl AutotuneKey {
     }
 
     fn generate_key_impl(&self) -> TokenStream {
-        let key = tune_type("AutotuneKeyable");
+        let key = tune_type("AutotuneKey");
         let name = &self.ident;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         quote![impl #generics #key for #name #generic_names #where_clause {}]

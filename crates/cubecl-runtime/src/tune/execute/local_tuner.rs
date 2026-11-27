@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::tune::execute::tune_executor::TuneExecutor;
-use crate::tune::{AutotuneCheckable, AutotuneKeyable, TunableSet, TuneInputs};
+use crate::tune::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs};
 use alloc::sync::Arc;
 use core::hash::Hash;
 
@@ -28,7 +28,7 @@ use core::hash::Hash;
 /// });
 /// let output = TUNER.execute(&device, &client, tunables, inputs);
 /// ```
-pub struct LocalTuner<AK: AutotuneKeyable, ID> {
+pub struct LocalTuner<AK: AutotuneKey, ID> {
     executor: TuneExecutor<AK, ID>,
 }
 
@@ -46,7 +46,7 @@ macro_rules! local_tuner {
 
 impl<AK, ID> LocalTuner<AK, ID>
 where
-    AK: AutotuneKeyable,
+    AK: AutotuneKey,
     ID: Hash + PartialEq + Eq + Clone,
 {
     /// A tuner whose answers are stored in the table `name` names, for each hardware.
@@ -77,7 +77,7 @@ where
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         Id: Send + Sync + 'static,
         I: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
     {
         self.executor.init(id, init_set)
     }
@@ -158,7 +158,7 @@ where
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         Id: Send + Sync,
     {
         self.executor.execute(id, client, operations, inputs)
@@ -182,7 +182,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for FakeAutotuneKey {}
+    impl AutotuneKey for FakeAutotuneKey {}
 
     #[test]
     fn a_cleared_tuner_plans_its_keys_afresh() {

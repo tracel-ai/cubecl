@@ -11,7 +11,7 @@ use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::candidate_orderer::{CandidateOrderer, names_hash};
 use crate::tune::{
-    AutotuneKeyable, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,
+    AutotuneKey, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,
     Tunable, TuneDeviceAccess, TuneInputs,
 };
 
@@ -26,7 +26,7 @@ use crate::tune::{
 ///   a set is told apart from another, in memory and in the persistent cache, by its
 ///   [checksum](Self::compute_checksum) alone, so a kernel changed behind an unchanged name keeps
 ///   the answers tuned before the change.
-pub struct TunableSet<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id = ()> {
+pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     candidates: CandidateOrderer<K, F, Output, Id>,
     /// The hash of the candidates' names, kept in step with them: every launch looks its tuner up
     /// by it.
@@ -38,7 +38,7 @@ pub struct TunableSet<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id = (
     short_circuit: bool,
 }
 
-impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     /// A set with no candidate, keyed by `key_gen` and measured on what `input_gen` makes of the
     /// reference inputs.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
@@ -146,7 +146,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     }
 }
 
-impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
     pub(crate) fn device_access(&self) -> TuneDeviceAccess {
         self.device_access
     }

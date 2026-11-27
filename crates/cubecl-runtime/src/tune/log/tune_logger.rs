@@ -8,7 +8,7 @@ use crate::config::{Logger, autotune::AutotuneLogLevel};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::CheckResult;
 use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
+    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
 };
 
 /// Logs what one tune did into its [`AutotuneLogContext`].
@@ -70,7 +70,7 @@ impl TuneLogger {
     ///
     /// A decided candidate with no measurement writes no line for humans: an all-failed plan can
     /// decide one, which already warned with the full results.
-    pub fn log_result<K: AutotuneKeyable>(
+    pub fn log_result<K: AutotuneKey>(
         &self,
         logger: &mut Logger,
         key: &K,
@@ -92,7 +92,7 @@ impl TuneLogger {
     /// Report the cross-checks of a tune that stopped on a lost card, which no decision carries:
     /// written to the log, as a warning.
     #[cfg(not(target_family = "wasm"))]
-    pub fn report_stopped<K: AutotuneKeyable>(&self, key: &K) {
+    pub fn report_stopped<K: AutotuneKey>(&self, key: &K) {
         if let Some(report) = self.stopped_report(key) {
             log::warn!("{report}");
         }
@@ -100,7 +100,7 @@ impl TuneLogger {
 
     /// The report of the cross-checks of the stopped tune of `key`, where the tune collected some.
     #[cfg(not(target_family = "wasm"))]
-    pub fn stopped_report<K: AutotuneKeyable>(&self, key: &K) -> Option<String> {
+    pub fn stopped_report<K: AutotuneKey>(&self, key: &K) -> Option<String> {
         self.context
             .as_ref()
             .and_then(|context| context.checks.as_ref())
@@ -137,7 +137,7 @@ struct ResultReporter<'a, K> {
     decided_index: usize,
 }
 
-impl<K: AutotuneKeyable> ResultReporter<'_, K> {
+impl<K: AutotuneKey> ResultReporter<'_, K> {
     /// The decision: one JSON object.
     pub fn report_decision(&self, logger: &mut Logger) {
         if !logger.config().autotune.decisions_enabled() {
@@ -183,7 +183,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
     }
 }
 
-impl<K: AutotuneKeyable> ResultReporter<'_, K> {
+impl<K: AutotuneKey> ResultReporter<'_, K> {
     fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let context = self
             .log_context

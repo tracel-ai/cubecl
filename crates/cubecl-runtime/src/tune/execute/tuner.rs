@@ -20,9 +20,7 @@ use crate::tune::hook::hook_binder::enter_stage;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::measure::candidate_gathering::CandidateGathering;
 use crate::tune::measure::candidate_sampler::CandidateSampler;
-use crate::tune::{
-    AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs, TuneStage,
-};
+use crate::tune::{AutotuneKey, AutotuneOutput, CheckResult, TunableSet, TuneInputs, TuneStage};
 
 /// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.
 ///
@@ -30,7 +28,7 @@ use crate::tune::{
 ///
 /// - Every tune of one tuner runs the same candidate list: the answers are keyed by the key alone.
 #[derive(Debug)]
-pub struct Tuner<K: AutotuneKeyable> {
+pub struct Tuner<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
     logger: Arc<Mutex<Logger>>,
 }
@@ -39,7 +37,7 @@ pub struct Tuner<K: AutotuneKeyable> {
 /// its tune was registered, or nothing where it only gathers kernels.
 type Opened<K> = Option<(PendingUnmarker<K>, Option<TuneRegistration>)>;
 
-impl<K: AutotuneKeyable> Tuner<K> {
+impl<K: AutotuneKey> Tuner<K> {
     /// A tuner whose unsettled keys are read from the persistent cache when persistence is
     /// available (feature `persistence`: a file natively, OPFS in the browser), in the table every
     /// device of `hardware` shares.
@@ -91,7 +89,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// - A tune that unwinds leaves the key to the next call; one that stops on a lost card leaves
     ///   it to another card.
     /// - An answer picked with nothing measured is kept in memory, never in the store.
-    pub fn tune<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
+    pub fn tune<'a, F: TuneInputs, Out: AutotuneOutput, Id: Sync>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
@@ -125,7 +123,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     }
 }
 
-impl<K: AutotuneKeyable> Tuner<K> {
+impl<K: AutotuneKey> Tuner<K> {
     /// Open the tune of `key` under the lock, or answer it without one: from memory, from the
     /// store, or at once for a set of one candidate.
     ///
@@ -188,7 +186,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// The driver of the tune of `key`, prepared to measure: its inputs generated, the kernels a
     /// `CompileOnly` override queued compiled, its plan, bounds and record begun. `settling` is
     /// the unmarker of the key's pending mark and where its tune is registered.
-    fn prepare_driver<'t, 'a, F: TuneInputs, Out: AutotuneCheckable, Id>(
+    fn prepare_driver<'t, 'a, F: TuneInputs, Out: AutotuneOutput, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
@@ -260,7 +258,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// contains a candidate that panics as the measuring pass does: it serves nothing. The key is
     /// tracked compiled on the card once the pass ran; a device that cannot be held queues
     /// nothing, and leaves the key to the next call.
-    fn compile_plan<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
+    fn compile_plan<'a, F: TuneInputs, Out: AutotuneOutput, Id: Sync>(
         &self,
         key: &K,
         inputs: &F::At<'a>,

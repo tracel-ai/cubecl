@@ -5,7 +5,7 @@ use core::hash::Hash;
 use cubecl_environment::collections::HashMap;
 
 use crate::tune::execute::tuner::Tuner;
-use crate::tune::{AutotuneKeyable, TunableSet, TuneInputs};
+use crate::tune::{AutotuneKey, TunableSet, TuneInputs};
 use crate::{client::Client, device::HardwareIdentity};
 
 /// The separator of the module path a local tuner is named by.
@@ -14,7 +14,7 @@ const MODULE_PATH_SEPARATOR: &str = "::";
 const TABLE_NAME_SEPARATOR: &str = "-";
 
 /// Opens the tuners of a [`LocalTuner`](crate::tune::LocalTuner), keeping each id's.
-pub struct TunerOpener<AK: AutotuneKeyable, ID> {
+pub struct TunerOpener<AK: AutotuneKey, ID> {
     /// An id's tuners, by id then by the checksum of the list each runs (Keyed Usage), made on the
     /// first execute.
     by_id: Option<TunersById<AK, ID>>,
@@ -34,7 +34,7 @@ pub struct TunerIdentity {
     pub checksum: u64,
 }
 
-impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TunerOpener<AK, ID> {
+impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TunerOpener<AK, ID> {
     pub const fn new() -> Self {
         Self {
             by_id: None,
