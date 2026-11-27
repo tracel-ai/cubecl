@@ -23,6 +23,8 @@ pub(crate) struct StageSpec {
     pub(crate) depth: usize,
     pub(crate) storage: StageStorage,
     pub(crate) width: Option<usize>,
+    /// The Dimension a contraction sums the staged operands along, where the caller states one.
+    pub(crate) contracted: Option<Dimension>,
     /// The element a stage that decodes its operand holds; `f32` where `None`.
     pub(crate) decoded: Option<ElemType>,
     pub(crate) owner: StageOwner,
@@ -84,6 +86,7 @@ pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
         spec.width,
         spec.owner,
         spec.decoded,
+        spec.contracted,
     );
     let stage = Tile::new::<Staged>(
         stage.kind,

@@ -2,6 +2,7 @@
 
 use crate::launch::Delivery;
 use crate::{ChunkSwizzle, Decline, Dimension, Instruction, LineBytes, Space, StageForm};
+use cubecl::ir::MmaProperties;
 use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
@@ -33,6 +34,68 @@ pub enum StageStorage {
 pub enum StageOrder {
     /// The order of the stage's Space, as the source holds it: its last dimension innermost.
     AsSource,
+}
+
+impl StageOrder {
+    /// The order the fragments of `mma`'s target read the stage `stage` describes in at full
+    /// width.
+    ///
+    /// # Guarantees
+    ///
+    /// - The source's order for a stage its fill does not copy as it lies
+    ///   ([`StageSource::copied_as_it_lies`]), or that any delivery but the units' own loads and
+    ///   stores ([`Delivery::SyncPerUnit`]) fills: a copy engine moves each source line whole.
+    /// - The source's order on every target.
+    pub(crate) fn for_fragments(stage: &FactorStage, _mma: &MmaProperties) -> Self {
+        if stage.delivery != Delivery::SyncPerUnit || !stage.source.copied_as_it_lies() {
+            return StageOrder::AsSource;
+        }
+        StageOrder::AsSource
+    }
+}
+
+/// The facts of one stage of an operand that the order its fragments read it in is decided by
+/// ([`StageStorage::ordered_for_fragments`]), alike where the Lowering lays the stage out and
+/// where a host sizes it ([`StageStorage::bytes_read_by_fragments`]).
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct FactorStage {
+    /// The Space the stage covers.
+    pub space: Space,
+    /// The Dimension a contraction sums the operand along, as the caller staging it states it:
+    /// `None` for an operand it states none for, such as attention's keys and values.
+    pub contracted: Option<Dimension>,
+    /// The bits of one of the stage's values.
+    pub elem_bits: usize,
+    /// The values one line of the operand's source holds.
+    pub vector_size: usize,
+    /// Who moves the operand's bytes into the stage.
+    pub delivery: Delivery,
+    /// What the stage's fill does with the operand's values.
+    pub source: StageSource,
+}
+
+/// What a stage's fill does with its operand's values: the facts that decide whether it copies
+/// them as they lie ([`copied_as_it_lies`](Self::copied_as_it_lies)).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct StageSource {
+    /// The stage holds the values the operand serves, neither decoded by its fill nor kept as
+    /// the words they are stored in.
+    pub served: bool,
+    /// The operand's values are plain: not packed, not scaled and indexing no table.
+    pub plain: bool,
+    /// The stage's lines are as wide as the operand's own.
+    pub own_width: bool,
+    /// The operand is a window of memory, neither read through a tensor map nor computed.
+    pub memory: bool,
+    /// The operand's projection maps its Space directly onto its buffer, gathering nothing.
+    pub direct: bool,
+}
+
+impl StageSource {
+    /// Whether the stage's fill copies the operand's values as they lie: every fact holds.
+    pub fn copied_as_it_lies(&self) -> bool {
+        self.served && self.plain && self.own_width && self.memory && self.direct
+    }
 }
 
 /// How a [`Tiled`](StageStorage::Tiled) block lays each row down, in 16-byte chunks.
@@ -204,6 +267,52 @@ impl StageStorage {
         let line = vector_size * elem_bits / 8;
         StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
+
+    /// This storage as the Lowering lays out the stage `stage` describes, for the fragments of
+    /// `mma`'s target to read: a tiled stage in the order they read it in
+    /// ([`StageOrder::for_fragments`]), any other as it is.
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its row chunks.
+    pub fn ordered_for_fragments(&self, stage: &FactorStage, mma: &MmaProperties) -> Self {
+        match self {
+            Self::Tiled { block, chunks, .. } => Self::Tiled {
+                block: block.clone(),
+                chunks: *chunks,
+                order: StageOrder::for_fragments(stage, mma),
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// Bytes the stage `stage` describes holds where the fragments of `mma`'s target read it:
+    /// [`bytes`](Self::bytes) of the storage the Lowering lays it out in
+    /// ([`ordered_for_fragments`](Self::ordered_for_fragments)). What a host sizes a stage the
+    /// Lowering builds by.
+    ///
+    /// # Assumptions
+    ///
+    /// - As [`bytes`](Self::bytes) over `stage.space`.
+    /// - `stage` is the one the Lowering builds for the stage: one region's child Space of the
+    ///   operand, the source's line width, the staged element's bits and what the fill does with
+    ///   the operand's values.
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes are those the Lowering lays the stage out in, before it aligns the stage and
+    ///   gives each plane a copy of its own.
+    ///
+    /// # Panics
+    ///
+    /// - As [`bytes`](Self::bytes).
+    pub fn bytes_read_by_fragments(&self, stage: &FactorStage, mma: &MmaProperties) -> usize {
+        self.ordered_for_fragments(stage, mma).bytes(
+            &stage.space,
+            stage.vector_size,
+            stage.elem_bits,
+        )
+    }
 }
 
 impl StageStorage {
@@ -242,4 +351,136 @@ fn block_space(block: &[(Dimension, usize)], space: &Space) -> Option<Space> {
             .collect::<Vec<_>>(),
     );
     (&nested != space).then_some(nested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+
+    /// A fill that copies its operand's values as they lie.
+    const AS_IT_LIES: StageSource = StageSource {
+        served: true,
+        plain: true,
+        own_width: true,
+        memory: true,
+        direct: true,
+    };
+
+    /// A row-major rhs `[k, n]` of `f16` in 8-wide lines copied as it lies, stated `contracted`
+    /// and moved in by `delivery`.
+    fn rhs(contracted: Option<Dimension>, delivery: Delivery) -> FactorStage {
+        FactorStage {
+            space: Space::new(&[(K, 16), (N, 32)]),
+            contracted,
+            elem_bits: 16,
+            vector_size: 8,
+            delivery,
+            source: AS_IT_LIES,
+        }
+    }
+
+    /// Every storage a host states for a factor's stage.
+    fn storages() -> [StageStorage; 4] {
+        let tiled = |chunks| StageStorage::Tiled {
+            block: vec![(M, 16), (N, 16), (K, 16)],
+            chunks,
+            order: StageOrder::AsSource,
+        };
+        [
+            tiled(RowChunks::InOrder),
+            tiled(RowChunks::Swizzled),
+            tiled(RowChunks::Padded),
+            StageStorage::STRIDED,
+        ]
+    }
+
+    /// The deliveries a host fills a factor's stage by, the units' own and a copy engine's.
+    const DELIVERIES: [Delivery; 2] = [Delivery::SyncPerUnit, Delivery::AsyncPerUnit];
+
+    /// On a default target, a stage stating `contracted` is laid out as stated.
+    fn assert_laid_out_as_stated(contracted: Option<Dimension>) {
+        let mma = MmaProperties::default();
+        for delivery in DELIVERIES {
+            let stage = rhs(contracted, delivery);
+            for storage in storages() {
+                let laid = storage.ordered_for_fragments(&stage, &mma);
+                assert_eq!(laid, storage, "{delivery:?}");
+            }
+        }
+    }
+
+    /// On a default target, a stage stating `contracted` is sized as stated.
+    fn assert_sized_as_stated(contracted: Option<Dimension>) {
+        let mma = MmaProperties::default();
+        for delivery in DELIVERIES {
+            let stage = rhs(contracted, delivery);
+            for storage in storages() {
+                let bytes = storage.bytes(&stage.space, stage.vector_size, stage.elem_bits);
+                let sized = storage.bytes_read_by_fragments(&stage, &mma);
+                assert_eq!(sized, bytes, "{storage:?} {delivery:?}");
+            }
+        }
+    }
+
+    /// A matmul's factor, its contraction stated along `k`, is laid out as it states.
+    #[test]
+    fn a_factor_stating_its_contraction_is_laid_out_as_stated() {
+        assert_laid_out_as_stated(Some(K));
+    }
+
+    /// A matmul's factor, its contraction stated along `k`, is sized as it states.
+    #[test]
+    fn a_factor_stating_its_contraction_is_sized_as_stated() {
+        assert_sized_as_stated(Some(K));
+    }
+
+    /// An attention's keys and values, stating no contraction, are laid out as they state.
+    #[test]
+    fn a_stage_stating_no_contraction_is_laid_out_as_stated() {
+        assert_laid_out_as_stated(None);
+    }
+
+    /// An attention's keys and values, stating no contraction, are sized as they state.
+    #[test]
+    fn a_stage_stating_no_contraction_is_sized_as_stated() {
+        assert_sized_as_stated(None);
+    }
+
+    #[test]
+    fn a_fill_copies_its_operand_as_it_lies_where_every_fact_holds() {
+        assert!(AS_IT_LIES.copied_as_it_lies());
+    }
+
+    #[test]
+    fn a_fill_copies_no_operand_as_it_lies_where_one_fact_fails() {
+        let failing = [
+            StageSource {
+                served: false,
+                ..AS_IT_LIES
+            },
+            StageSource {
+                plain: false,
+                ..AS_IT_LIES
+            },
+            StageSource {
+                own_width: false,
+                ..AS_IT_LIES
+            },
+            StageSource {
+                memory: false,
+                ..AS_IT_LIES
+            },
+            StageSource {
+                direct: false,
+                ..AS_IT_LIES
+            },
+        ];
+        for source in failing {
+            assert!(!source.copied_as_it_lies(), "{source:?}");
+        }
+    }
 }
