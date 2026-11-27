@@ -1673,7 +1673,7 @@ impl Conv2d {
     }
 
     /// The weight gradient's shape, `P` contracted whole in one leaf that steps along it:
-    /// `dw[rh, rw, ci, co] = Σ_p in[h(p, rh), w(p, rw), ci] · dout[p, co]`. [`conv_kernel`] writes
+    /// `dw[rh, rw, ci, co] = Σ_p in[h(p, rh), w(p, rw), ci] · grad[p, co]`. [`conv_kernel`] writes
     /// each region's sum rather than adding it, so a walked contraction is not checked here.
     fn check_folded_contracted(&self) {
         let positions = self.oh * self.ow;
