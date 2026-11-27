@@ -55,9 +55,10 @@ use cubecl_macros::{comptime_type, cube, intrinsic};
 
 use alloc::format;
 use cubecl_ir::{
-    ElementPositions, ExpandValue, MmaProperties, OperandFact, Scope, VectorSize,
+    ElementPositions, ExpandValue, FragmentPositions, MmaProperties, OperandFact, Scope,
+    VectorSize,
     attributes::ZeroAttr,
-    dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
+    dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, RegistersOp, StMatrixOp},
     ident,
     interfaces::TypedExt,
     pliron::value::Value,
@@ -155,6 +156,29 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     pub unsafe fn downcast_unchecked<O: CubePrimitive>(&self) -> Matrix<O, S> {
         unexpanded!()
     }
+
+    /// The cells this lane holds of the fragment, `N` to a register, in the order
+    /// [`MmaDefinition::position_of_nth`] numbers a lane's elements of the manual MMA of the
+    /// fragment's role, shape and element.
+    ///
+    /// # Assumptions
+    ///
+    /// - The target states which lane holds which cell of a fragment
+    ///   ([`FragmentPositions::AsElementPositions`]).
+    /// - `N` divides the cells a lane holds.
+    ///
+    /// # Guarantees
+    ///
+    /// - Cell `i` of the registers, counted across them, is the fragment's cell at
+    ///   `position_of_nth(lane, i)`.
+    /// - The fragment is left as it is.
+    ///
+    /// # Panics
+    ///
+    /// - At expansion, where either Assumption is broken.
+    pub fn to_registers<N: Size>(&self) -> Array<Vector<C::Scalar, N>> {
+        unexpanded!()
+    }
 }
 
 impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
@@ -173,6 +197,50 @@ impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
             "Matrix::downcast: the fragment holds {held:?}, not {named:?}"
         );
         self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_to_registers_method<N: Size>(
+        &self,
+        scope: &Scope,
+    ) -> NativeExpand<Array<Vector<C::Scalar, N>>>
+    where
+        C: CubePrimitive,
+    {
+        let mma = &scope.state().target_properties.mma;
+        assert_eq!(
+            mma.fragment_positions,
+            FragmentPositions::AsElementPositions,
+            "Matrix::to_registers: the target should state which lane holds which cell of a \
+             fragment"
+        );
+        let matrix = {
+            let ctx = scope.ctx();
+            *self
+                .elem
+                .unwrap_ptr(ctx)
+                .deref(ctx)
+                .downcast_ref::<MatrixType>()
+                .expect("Matrix::to_registers: a fragment should point at a matrix")
+        };
+        let shape = matrix.shape;
+        let (cells, copies) = match matrix.ident {
+            MatrixIdent::A => (shape.m * shape.k, mma.register_copy_count_a),
+            MatrixIdent::B => (shape.k * shape.n, mma.register_copy_count_b),
+            MatrixIdent::Accumulator => (shape.m * shape.n, mma.register_copy_count_acc),
+        };
+        let packing = matrix.elem_ty.packing_factor(scope.ctx());
+        let held = cells / packing * copies / mma.const_plane_lane_count as usize;
+        let width = N::__expand_value(scope);
+        assert!(
+            held.is_multiple_of(width),
+            "Matrix::to_registers: {width}-wide registers should divide the {held} cells a lane \
+             holds"
+        );
+        let registers = Array::__expand_new(scope, held / width);
+        let out = registers.__extract_list(scope);
+        scope.register(&RegistersOp::new(scope.ctx_mut(), self.elem, out));
+        registers
     }
 
     #[doc(hidden)]

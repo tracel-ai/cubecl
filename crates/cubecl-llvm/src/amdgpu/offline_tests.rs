@@ -3,9 +3,9 @@
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
     cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
-    fence_send_kernel, keep_largest_kernel, manual_product_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
 };
 use cubecl_core::Compiler;
 use cubecl_core::ir::{
-    AddressType,
+    AddressType, FragmentPositions, MmaProperties, TargetProperties,
     amd::{AmdMatrixCore, AmdMfma, AmdWmma, GfxArch},
 };
 use cubecl_core::prelude::{MemoryOrder, SyncScope};
@@ -248,6 +248,41 @@ fn int8_tiles_multiply_on_mfma() {
     assert_eq!(asm.matches("v_mfma_i32_16x16x32_i8").count(), 1, "{asm}");
     let asm = asm_of(tile_product_kernel::<i8, i8, i32>((16, 16, 32)), "gfx90a");
     assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
+}
+
+/// The target properties of `core` with its fragments' positions stated, as the HIP runtime
+/// states them for its LLVM backend.
+fn stating_positions(core: AmdMatrixCore) -> TargetProperties {
+    TargetProperties {
+        mma: MmaProperties {
+            fragment_positions: FragmentPositions::AsElementPositions,
+            ..core.mma_properties()
+        },
+    }
+}
+
+/// A sum copied out of its fragment into registers compiles on RDNA3, RDNA4 and MI300, the
+/// product still one matrix instruction and no register spilled to scratch: an `f32` sum on
+/// each, and RDNA3's 16-bit sum, which its accumulator holds padded.
+#[test]
+fn a_fragment_copies_into_registers_on_every_matrix_core() {
+    let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+    let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+    let parts = [
+        ("gfx1151", rdna3, 32, "v_wmma_f32_16x16x16_f16"),
+        ("gfx1201", rdna4, 32, "v_wmma_f32_16x16x16_f16"),
+        (MI300, CDNA3, MI300_PLANE_DIM, "v_mfma_f32_16x16x16_f16"),
+    ];
+    for (arch, core, plane_dim, product) in parts {
+        let kernel = fragment_registers_kernel::<f32>(stating_positions(core), plane_dim);
+        let asm = asm_of(kernel, arch);
+        assert!(asm.contains(product), "{arch}:\n{asm}");
+        assert!(!asm.contains("scratch_"), "{arch}:\n{asm}");
+    }
+    let kernel = fragment_registers_kernel::<half::f16>(stating_positions(rdna3), 32);
+    let asm = asm_of(kernel, "gfx1151");
+    assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{asm}");
+    assert!(!asm.contains("scratch_"), "{asm}");
 }
 
 /// The architecture the MI300 tests compile for.

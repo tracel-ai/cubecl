@@ -46,6 +46,25 @@ pub struct MmaProperties {
     /// matrix instruction
     #[cfg_attr(feature = "serde", serde(skip))]
     pub element_positions: OperandFact<Option<ElementPositions>>,
+    /// Whether the compiler states which lane holds which cell of a fragment of the fragment API.
+    pub fragment_positions: FragmentPositions,
+}
+
+/// Whether a compiler states which lane holds which cell of a fragment of the fragment API.
+///
+/// # Guarantees
+///
+/// - Where positions are stated, a fragment's registers, read with `Matrix::to_registers`, hold
+///   its cells where [`element_positions`](MmaProperties::element_positions) places a lane's
+///   elements, in that order.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
+pub enum FragmentPositions {
+    /// The compiler hides which lane holds a cell, as `wmma`, rocWMMA, SPIR-V and Metal do.
+    #[default]
+    Hidden,
+    /// A fragment's registers hold their cells where the manual MMA's element positions say.
+    AsElementPositions,
 }
 
 /// What a target says of each operand of its manual matrix instructions, by the operand's role and
@@ -124,6 +143,33 @@ impl MmaProperties {
         shape: MatrixShape,
         elem: ElemType,
     ) -> VectorSize {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.contiguous_elements.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// Where the elements a lane holds of operand `ident`, of `elem`, in a contraction of `shape`
+    /// lie in it, where the target states it: what a kernel reads off its own definition of it,
+    /// for code that picks one ahead.
+    pub fn element_positions_of(
+        &self,
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+    ) -> Option<ElementPositions> {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.element_positions.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// `fact` of operand `ident`, of `elem`, in a contraction of `shape`, asked in a context of
+    /// its own.
+    fn with_matrix<T>(
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+        fact: impl FnOnce(&Context, TypedHandle<MatrixType>) -> T,
+    ) -> T {
         let ctx = Context::default();
         let matrix = MatrixType::get(
             &ctx,
@@ -133,7 +179,7 @@ impl MmaProperties {
             MatrixLayout::ColMajor,
             MatrixScope::Plane,
         );
-        self.contiguous_elements.apply(&ctx, ident, matrix)
+        fact(&ctx, matrix)
     }
 }
 
@@ -150,6 +196,7 @@ impl Default for MmaProperties {
             register_copy_count_acc: 1,
             contiguous_elements: Default::default(),
             element_positions: Default::default(),
+            fragment_positions: FragmentPositions::default(),
         }
     }
 }

@@ -720,6 +720,82 @@ fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
+/// One `16 × 16 × 16` `f16` product summed in `CD`, whose sum each lane copies out of its
+/// fragment into its registers and writes out, its `cells` registers one after another.
+#[cube(launch)]
+fn fragment_registers<CD: Numeric>(
+    lhs: &[half::f16],
+    rhs: &[half::f16],
+    out: &mut [CD],
+    #[comptime] cells: usize,
+) {
+    let a = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16u32,
+    );
+    let b = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16u32,
+    );
+    let c = cmma::Matrix::<CD>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        CD::from_int(0),
+    );
+    cmma::execute(&a, &b, &c, &c);
+    let registers = c.to_registers::<Const<1>>();
+    let first = UNIT_POS_PLANE as usize * cells;
+    #[unroll]
+    for i in 0..cells {
+        out[first + i] = registers[i].extract(0usize);
+    }
+}
+
+/// [`fragment_registers`] for one plane of `plane_dim` units, under `target`.
+pub(crate) fn fragment_registers_kernel<CD: Numeric + cubecl_core::CubeElement>(
+    target: TargetProperties,
+    plane_dim: u32,
+) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(plane_dim),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(plane_dim)).clone();
+    let half = half::f16::cube_type();
+    props.features.matmul.cmma.insert(MmaConfig {
+        a_type: half,
+        b_type: half,
+        cd_type: CD::cube_type(),
+        m: 16,
+        n: 16,
+        k: 16,
+    });
+    let cells = 256 / plane_dim as usize;
+    fragment_registers::FragmentRegisters::<CD>::new(
+        settings,
+        Arc::new(props),
+        Arc::new(target),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        cells,
+    )
+}
+
 /// Each lane of the plane loads the elements of role `ident` it holds of `def`'s tile into
 /// `registers`, from `source`, where a row is `row_stride` elements after the one before it and
 /// a column `col_stride`.

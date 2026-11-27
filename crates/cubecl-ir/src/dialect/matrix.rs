@@ -144,6 +144,19 @@ pub struct CastOp {
     pub output: Value,
 }
 
+/// Copy the cells a lane holds of a fragment into an array of registers, in the order the
+/// target's element positions place them. Only a compiler that states its fragment positions
+/// lowers it.
+#[cube_op(name = "matrix.registers")]
+#[result_ty(none)]
+#[op_traits(CanMaterialize, HasSideEffects)]
+pub struct RegistersOp {
+    #[operand(ptr_read)]
+    pub matrix: Value,
+    #[operand(ptr_write)]
+    pub registers: Value,
+}
+
 #[cube_op(name = "matrix.ldmatrix")]
 #[result_ty(none)]
 #[op_traits(CanMaterialize, HasSideEffects)]
