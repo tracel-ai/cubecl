@@ -12,13 +12,13 @@ use crate::config::{CubeClRuntimeConfig, RuntimeConfig};
 use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneRegistration};
 use crate::tune::cache::tracker::{TuneAnswer, TuneTracker};
-use crate::tune::cache::tune_logger::TuneLogger;
-use crate::tune::drive::candidate_sampler::CandidateSampler;
 use crate::tune::drive::committer::TuneCommitter;
 use crate::tune::drive::driver::{DriveOptions, TuneDriver};
-use crate::tune::drive::gathering::CandidateGatherer;
-use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::drive::settler::TuneSettler;
+use crate::tune::execute::pending_unmarker::PendingUnmarker;
+use crate::tune::log::tune_logger::TuneLogger;
+use crate::tune::measure::candidate_gathering::CandidateGatherer;
+use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::{AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs};
 
 /// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.

@@ -9,7 +9,7 @@ use crate::tune::hook::binding::{
 };
 use crate::tune::hook::clone_input_generator::CloneInputGenerator;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::candidate_planner::{CandidatePlanner, names_hash};
+use crate::tune::set::candidate_orderer::{CandidatePlanner, names_hash};
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{
     AutotuneKeyable, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,

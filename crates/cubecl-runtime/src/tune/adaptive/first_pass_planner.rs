@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use crate::tune::adaptive::patience::PatienceTracker;
+use crate::tune::adaptive::patience_tracker::PatienceTracker;
 use crate::tune::plan::batch::Batch;
 
 /// The next candidate a batch's first pass measures, and the candidates to compile before it.

@@ -29,7 +29,6 @@
 mod bounds;
 mod device_access;
 mod error;
-mod log;
 
 #[cfg(not(target_family = "wasm"))]
 mod adaptive;
@@ -38,6 +37,8 @@ mod drive;
 mod execute;
 mod hook;
 mod key;
+mod log;
+mod measure;
 mod plan;
 mod set;
 
@@ -51,13 +52,13 @@ pub use set::checkable::AutotuneCheckable;
 // autotune bounds and benchmark reporting share one definition.
 #[cfg(persistence)]
 pub use cache::record::{PlannedCandidate, Trial, TuneRecord};
-pub use cache::tracker::{AutotuneResult, LAYOUT_PREFIX};
+pub use cache::table::LAYOUT_PREFIX;
 #[cfg(persistence)]
-pub use cache::tracker::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
+pub use cache::table::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
 pub use cubecl_common::work::Work;
 pub use device_access::TuneDeviceAccess;
-pub use error::{AutotuneError, AutotuneOutcome};
-pub use execute::local::LocalTuner;
+pub use error::AutotuneError;
+pub use execute::local_tuner::LocalTuner;
 pub use hook::evictor::Evictor;
 pub use hook::input_generator::InputGenerator;
 pub use hook::key_generator::KeyGenerator;
@@ -65,8 +66,9 @@ pub use hook::stage_enterer::StageEnterer;
 pub use hook::tune_stage::TuneStage;
 pub use key::keyable::AutotuneKeyable;
 #[cfg(std_io)]
-pub use log::AutotuneDecision;
-pub use log::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
+pub use log::context::AutotuneDecision;
+pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
+pub use measure::outcome::{AutotuneOutcome, AutotuneResult};
 pub use plan::planner::Placement;
 pub use set::group::{OrderedSettings, Patience, TuneGroup};
 pub use set::tunable::Tunable;

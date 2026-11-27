@@ -1,32 +1,21 @@
-#[cfg(persistence)]
-use alloc::vec::Vec;
-
 use cubecl_common::device::ServiceId;
 use cubecl_environment::collections::{HashMap, HashSet};
 #[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Namespace, NamespaceRoot, Store, StoreOptions};
-#[cfg(serializable)]
-use serde::{Deserialize, Serialize};
+use cubecl_environment::persistence::{CacheOption, Store, StoreOptions};
 
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::execution::TuneOutcome;
 use crate::execution::TuneRegistration;
+use crate::tune::AutotuneKeyable;
 #[cfg(persistence)]
-use crate::namespace_version::NamespaceVersion;
-use crate::tune::{AutotuneError, AutotuneKeyable, AutotuneOutcome};
+use crate::tune::cache::table::{
+    PersistentCacheKey, PersistentCacheValue, TuneTable, TuneTableName,
+};
 #[cfg(persistence)]
 use alloc::string::String;
-
-/// The version of how tables are named and what their rows hold, bumped when either changes.
-///
-/// Version 2 stores `decided_index` and `threshold_fraction` where version 1 stored
-/// `fastest_index` and `threshold`: a table of version 1 is dropped rather than misread.
-#[cfg(persistence)]
-static TABLE_NAMING_VERSION: NamespaceVersion =
-    NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 2);
 
 /// What a [`TuneTracker`] knows of one key.
 #[derive(Debug)]
@@ -59,114 +48,6 @@ impl CacheEntry {
     }
 }
 
-/// The table entry an answer is stored under.
-#[cfg(persistence)]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
-pub struct PersistentCacheKey<K> {
-    /// The autotune key identifying the operation.
-    pub key: K,
-    /// The checksum of the candidate list the key was tuned under: an answer to another list is
-    /// an answer to another question.
-    pub checksum: String,
-}
-
-/// The answer a table stores for one entry.
-///
-/// Only [`decided_index`](Self::decided_index) is read back: a look-up seeds the in-memory cache
-/// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
-/// the fact — why a kernel won, against which measurements, and under which bounds — which is the
-/// question that cannot be answered from a live process once tuning is over. That is also why the
-/// type is `pub`: reading an entry back is the point.
-#[cfg(persistence)]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct PersistentCacheValue {
-    /// The index of the candidate the key runs: the one the tune decided, which a round robin or
-    /// a short circuit may pick over the best-scored one.
-    pub decided_index: usize,
-    /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
-    pub results: Vec<AutotuneResult>,
-    /// Optional input size bounds for which the autotune result applies.
-    ///
-    /// Defaulted, so entries written before this field existed still decode. Without it every
-    /// cached key on every existing installation would fail to read and re-tune from scratch.
-    #[serde(default)]
-    pub bounds: Option<crate::tune::Bounds>,
-    /// Optional execution time limit for the autotune process.
-    ///
-    /// Defaulted for the same reason as [`bounds`](Self::bounds).
-    #[serde(default)]
-    pub limit: Option<core::time::Duration>,
-}
-
-/// One candidate's result in a tune.
-///
-/// # Guarantees
-///
-/// - Two results compare equal when both measured equally, or when both failed, whatever they
-///   failed of.
-#[cfg_attr(serializable, derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct AutotuneResult {
-    /// What the candidate measured, or why it has no measurement.
-    pub outcome: Result<AutotuneOutcome, AutotuneError>,
-}
-
-impl AutotuneResult {
-    pub(crate) fn from_error(error: AutotuneError) -> Self {
-        Self {
-            outcome: Err(error),
-        }
-    }
-
-    pub(crate) fn from_outcome(outcome: AutotuneOutcome) -> Self {
-        Self {
-            outcome: Ok(outcome),
-        }
-    }
-
-    /// What the candidate measured, if it measured.
-    pub(crate) fn measured(&self) -> Option<&AutotuneOutcome> {
-        self.outcome.as_ref().ok()
-    }
-
-    /// The score a tune that compares the results ranks this one by, the worst there is where it
-    /// failed.
-    pub(crate) fn score(&self) -> u64 {
-        self.outcome
-            .as_ref()
-            .map_or(u64::MAX, |outcome| outcome.computation.score())
-    }
-
-    /// Whether the candidate executed and only its timing failed.
-    pub(crate) fn executed_unmeasured(&self) -> bool {
-        self.outcome
-            .as_ref()
-            .is_err_and(AutotuneError::executed_unmeasured)
-    }
-}
-
-/// The index of the measured result of `results` that scores best: the first of them among
-/// equals.
-pub fn best_scored<'a>(results: impl Iterator<Item = &'a AutotuneResult>) -> Option<usize> {
-    results
-        .filter_map(AutotuneResult::measured)
-        .min_by_key(|outcome| outcome.computation.score())
-        .map(|outcome| outcome.index)
-}
-
-impl Eq for AutotuneResult {}
-impl PartialEq for AutotuneResult {
-    fn eq(&self, other: &Self) -> bool {
-        match (&self.outcome, &other.outcome) {
-            (Ok(lhs), Ok(rhs)) => lhs == rhs,
-            (Ok(_), Err(_)) => false,
-            (Err(_), Ok(_)) => false,
-            // We don't have to check the error
-            (Err(_), Err(_)) => true,
-        }
-    }
-}
-
 /// Tracks the answers one tuner holds: tuned picks and tunes in flight in memory, the cards found
 /// lost, and, where tunes persist, the table every device of its hardware shares.
 #[derive(Debug)]
@@ -184,17 +65,6 @@ pub struct TuneTracker<K> {
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
     #[cfg(persistence)]
     table: TuneTable,
-}
-
-/// The table a [`TuneTracker`] stores its answers in, whether or not it persists them.
-#[cfg(persistence)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TuneTable {
-    /// The namespace the table is stored under: what a [record](crate::tune::TuneRecord) names it by.
-    pub namespace: String,
-    /// The environment generation the in-memory answers were built under, or last reset to; see
-    /// [`cubecl_environment::environment::generation`].
-    pub generation: u32,
 }
 
 /// What a tuner answers for a key.
@@ -217,32 +87,6 @@ pub enum TuneAnswer {
     /// Memory holds no decision for the key: it was never tuned, only gathered, or reset by an
     /// environment switch.
     Miss,
-}
-
-/// What the segment numbering a table layout starts with, as in `layout-v1`.
-pub const LAYOUT_PREFIX: &str = "layout-v";
-
-/// What names the table one tuner stores its answers in on one hardware.
-///
-/// # Assumptions
-///
-/// - Neither name holds a `/`: the namespace joins them with one.
-#[cfg(persistence)]
-#[derive(Clone, Copy, Debug)]
-pub struct TuneTableName<'a> {
-    /// The hardware the answers were measured on, as its [`HardwareIdentity`] displays.
-    pub hardware: &'a str,
-    /// The tuner, named by the code that declared it.
-    pub tuner: &'a str,
-}
-
-#[cfg(persistence)]
-impl TuneTableName<'_> {
-    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
-    pub fn namespace(&self) -> Namespace {
-        let Self { hardware, tuner } = self;
-        TABLE_NAMING_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))
-    }
 }
 
 impl<K: AutotuneKeyable> TuneTracker<K> {
@@ -507,6 +351,7 @@ fn log_store_error<K: core::fmt::Debug, V: core::fmt::Debug>(err: StoreError<K, 
 mod small_tests {
     use super::*;
     use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
     use cubecl_common::device::DeviceId;
 
     fn tracker() -> TuneTracker<String> {
@@ -668,18 +513,6 @@ mod small_tests {
             TuneAnswer::Miss
         ));
         assert!(!tracker.store_answer(key(), "checksum".into(), value));
-    }
-
-    #[test]
-    fn a_failed_result_scores_worst_and_two_failures_are_equal() {
-        let failure = || {
-            AutotuneResult::from_error(AutotuneError::Skip {
-                name: "skipped".into(),
-            })
-        };
-
-        assert_eq!(failure().score(), u64::MAX);
-        assert_eq!(failure(), failure());
     }
 }
 

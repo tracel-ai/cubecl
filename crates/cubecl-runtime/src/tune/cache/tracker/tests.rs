@@ -5,7 +5,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
-use cubecl_environment::persistence::MemoryStorage;
+use cubecl_environment::persistence::{MemoryStorage, Namespace};
 
 const KEY: &str = "matmul-64x64";
 /// Sorts before [`CURRENT`], so a table read in key order meets it first.

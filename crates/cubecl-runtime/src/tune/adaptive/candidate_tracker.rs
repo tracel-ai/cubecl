@@ -3,7 +3,7 @@ use core::time::Duration;
 use cubecl_common::profile::{Instant, ProfileDuration, ProfileTicks, TimingMethod};
 
 use crate::tune::adaptive::sample_keeper::{SampleKeeper, SampleSummary};
-use crate::tune::drive::sample_time::measured;
+use crate::tune::measure::sample_time::measured;
 use crate::tune::{AutotuneError, AutotuneOutcome, AutotuneResult};
 
 /// Tracks one candidate kernel of a batch and the evidence gathered about it so far.

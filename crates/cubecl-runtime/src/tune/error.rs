@@ -1,30 +1,7 @@
 use alloc::string::String;
-use cubecl_common::benchmark::BenchmarkComputations;
 use derive_more::Display;
 
 use crate::server::LaunchError;
-
-/// One candidate's measurement, as a tune ranks it.
-#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
-#[derive(new, Debug, Clone, PartialEq, Eq)]
-pub struct AutotuneOutcome {
-    /// The candidate's name.
-    pub name: String,
-    /// The candidate's index in its set.
-    pub index: usize,
-    /// What its samples measured.
-    pub computation: BenchmarkComputations,
-}
-
-impl core::fmt::Display for AutotuneOutcome {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Autotune[{}] name {} => {:?}",
-            self.index, self.name, self.computation
-        )
-    }
-}
 
 /// Why a candidate has no measurement.
 ///

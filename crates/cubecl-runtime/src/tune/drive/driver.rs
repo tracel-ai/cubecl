@@ -8,12 +8,12 @@ use crate::config::RuntimeConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
 use crate::tune::cache::tracker::TuneAnswer;
-use crate::tune::drive::candidate_sampler::CandidateSampler;
 use crate::tune::drive::committer::{
     LaunchedBench, QueuedBench, ResolvedBench, TuneCommitter, unmeasured_pick,
 };
 use crate::tune::drive::tune_benchmark::tune_benchmark;
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
+use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;

@@ -2,8 +2,8 @@ use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::config::RuntimeConfig;
 
-use crate::tune::drive::candidate_sampler::{CandidateSampler, hold_failed};
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::measure::candidate_sampler::{CandidateSampler, hold_failed};
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs, TuneStage};
 

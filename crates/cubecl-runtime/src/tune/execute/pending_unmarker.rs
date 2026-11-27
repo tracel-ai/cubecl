@@ -54,7 +54,8 @@ impl<K: AutotuneKeyable> Drop for PendingUnmarker<K> {
 #[cfg(all(test, persistence))]
 mod tests {
     use super::*;
-    use crate::tune::cache::tracker::{TuneAnswer, TuneTable};
+    use crate::tune::cache::table::TuneTable;
+    use crate::tune::cache::tracker::TuneAnswer;
     use alloc::string::{String, ToString};
 
     fn tracker(generation: u32) -> TuneTracker<String> {

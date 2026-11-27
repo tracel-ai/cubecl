@@ -1,6 +1,6 @@
-//! What a tune leaves behind: answers in memory and in the table, records, and logs.
+//! What tunes leave behind: answers in memory and in the table, and the records of how they went.
 
 #[cfg(persistence)]
 pub mod record;
+pub mod table;
 pub mod tracker;
-pub mod tune_logger;

@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::hash::Hash;
 use cubecl_environment::collections::HashMap;
 
-use crate::tune::drive::tuner::Tuner;
+use crate::tune::execute::tuner::Tuner;
 use crate::tune::{AutotuneKeyable, TunableSet, TuneInputs};
 use crate::{client::Client, device::HardwareIdentity};
 

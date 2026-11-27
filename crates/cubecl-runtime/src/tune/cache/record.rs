@@ -6,7 +6,7 @@
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
-use crate::tune::cache::tracker::TuneTable;
+use crate::tune::cache::table::TuneTable;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{

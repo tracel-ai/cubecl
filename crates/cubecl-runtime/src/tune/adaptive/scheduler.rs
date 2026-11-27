@@ -10,10 +10,10 @@ use cubecl_common::profile::{Instant, ProfileDuration};
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
 use crate::tune::adaptive::candidate_tracker::CandidateTracker;
-use crate::tune::adaptive::first_pass::{CompileWindows, FirstPassPlanner};
-use crate::tune::cache::tracker::best_scored;
-use crate::tune::drive::candidate_sampler::{CandidateSampler, hold_failed};
+use crate::tune::adaptive::first_pass_planner::{CompileWindows, FirstPassPlanner};
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::measure::candidate_sampler::{CandidateSampler, hold_failed};
+use crate::tune::measure::outcome::best_scored;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;
@@ -738,7 +738,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
         crate::execution::StreamMode::Discard,
         sampler.client(),
     );
-    let gathering = crate::tune::drive::gathering::CandidateGatherer::gather();
+    let gathering = crate::tune::measure::candidate_gathering::CandidateGatherer::gather();
     for candidate in candidates {
         if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
             sampler.contain_race(autotunables[candidate.state().index], inputs.clone())

@@ -1,6 +1,6 @@
 //! The candidates of a tune, and what a set of them is built from.
 
-pub mod candidate_planner;
+pub mod candidate_orderer;
 pub mod checkable;
 pub mod group;
 pub mod membership;

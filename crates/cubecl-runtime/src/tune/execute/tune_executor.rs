@@ -142,8 +142,8 @@ where
     #[cfg(feature = "autotune-checks")]
     {
         use crate::execution::ProcessMode;
-        use crate::tune::drive::candidate_sampler::CandidateSampler;
-        use crate::tune::drive::gathering::CandidateGatherer;
+        use crate::tune::measure::candidate_gathering::CandidateGatherer;
+        use crate::tune::measure::candidate_sampler::CandidateSampler;
         use alloc::string::ToString;
 
         if ProcessMode::current() == ProcessMode::CompileOnly || CandidateGatherer::is_gathering() {

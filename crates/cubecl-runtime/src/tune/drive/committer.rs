@@ -7,10 +7,11 @@ use cubecl_common::profile::ProfileDuration;
 #[cfg(not(target_family = "wasm"))]
 use cubecl_common::device::ServiceId;
 
-use crate::tune::cache::tracker::{TuneAnswer, best_scored};
-use crate::tune::cache::tune_logger::TuneLogger;
-use crate::tune::drive::sample_time::measured;
+use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::drive::settler::TuneSettler;
+use crate::tune::log::tune_logger::TuneLogger;
+use crate::tune::measure::outcome::best_scored;
+use crate::tune::measure::sample_time::measured;
 use crate::tune::{AutotuneError, AutotuneKeyable, AutotuneOutcome, AutotuneResult};
 
 /// One candidate of a fixed-count batch, launched.

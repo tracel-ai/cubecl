@@ -9,8 +9,8 @@ use crate::execution::{TuneOutcome, TuneRegistration};
 #[cfg(not(target_family = "wasm"))]
 use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::cache::tracker::TuneTracker;
-use crate::tune::cache::tune_logger::TuneLogger;
-use crate::tune::drive::pending_unmarker::PendingUnmarker;
+use crate::tune::execute::pending_unmarker::PendingUnmarker;
+use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::{AutotuneKeyable, AutotuneResult};
 
 /// Settles the key one tune answered: reports the answer, keeps it in memory, settles the tune's
