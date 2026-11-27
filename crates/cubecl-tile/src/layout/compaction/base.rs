@@ -22,6 +22,11 @@ impl Compaction {
         extent_of: impl Fn(Dimension) -> usize,
     ) -> Compaction {
         projection.refuse_backward("Compaction");
+        assert!(
+            projection.digit_dimensions().is_empty(),
+            "Compaction: a folded operand's window covers every value of each digit, not the cells a tile \
+             reads, so it is staged dense (`StageStorage::Tiled`)"
+        );
         let rank = projection.physical_rank();
         let mut steps = SmallVec::new();
         let mut extents = SmallVec::new();
