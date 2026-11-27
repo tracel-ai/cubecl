@@ -252,8 +252,8 @@ pub fn roofline_bounds(
 ) -> Bounds {
     Bounds {
         bounds: alloc::vec![
-            compute_bound(client, compute_key, work, thresholds.compute),
-            memory_bound(client, MemoryAccess::Copy, work, thresholds.memory),
+            compute_bound(client, compute_key, work, thresholds.compute_fraction),
+            memory_bound(client, MemoryAccess::Copy, work, thresholds.memory_fraction),
         ],
         launch_overhead: measure_launch_overhead(client),
     }
@@ -274,7 +274,7 @@ pub fn compute_bound(
             amount: work.compute_ops,
             peak_per_s: peak.ops_per_s(),
         },
-        threshold,
+        threshold_fraction: threshold,
     }
 }
 
@@ -305,7 +305,7 @@ pub fn memory_bound(
             amount: work.bytes,
             peak_per_s: peak.bytes_per_s(&memory_key),
         },
-        threshold,
+        threshold_fraction: threshold,
     }
 }
 

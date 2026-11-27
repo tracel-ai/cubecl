@@ -18,26 +18,34 @@ use alloc::string::{String, ToString};
 /// winner overwrites afterwards is scratch until then. Whether that reaches past the cache is
 /// the set's call — an operand-sized write evicts an operand-sized cache, no more.
 ///
-/// The eviction is issued outside the profiled region, so it costs the round time rather than
-/// the sample, as long as it goes through the stream the sample is profiled on: the tuner
-/// orders nothing between the two, and a launch on another stream can overlap the sample or
-/// land after it.
+/// # Assumptions
 ///
-/// A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
-/// measurement aid, and losing one is not worth failing the tune for.
+/// - An eviction launches on the stream the sample is profiled on: the tuner orders nothing
+///   between the two, and a launch on another stream can overlap the sample or land after it.
+///
+/// # Guarantees
+///
+/// - The eviction is issued outside the profiled region, so it costs the round time rather than
+///   the sample.
+/// - A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
+///   measurement aid, and losing one is not worth failing the tune for.
 #[diagnostic::on_unimplemented(
-    message = "`{Self}` is not a valid eviction",
-    label = "invalid eviction"
+    message = "`{Self}` is not a valid evictor",
+    label = "invalid evictor"
 )]
-pub trait Eviction<K, I: TuneInputs>: Send + Sync + 'static {
-    /// Evict what the last measured launch left in cache, for a given key and the reference
-    /// inputs the tune was called with.
+pub trait Evictor<K, I: TuneInputs>: Send + Sync + 'static {
+    /// Evict what the last measured launch left in cache, for `key` and the reference inputs the
+    /// tune was called with.
+    ///
+    /// # Errors
+    ///
+    /// When the eviction could not be queued; the sample is then measured warm.
     fn evict<'a>(&self, key: &K, inputs: &I::At<'a>) -> Result<(), AutotuneError>;
 }
 
-/// `Fn(&K, &A) -> Result<(), E>` acts as an [`Eviction`] when `A` is an owned type. For
+/// `Fn(&K, &A) -> Result<(), E>` acts as an [`Evictor`] when `A` is an owned type. For
 /// multi-input kernels, `A` is a tuple that the closure destructures internally.
-impl<K, Func, A, Err> Eviction<K, A> for Func
+impl<K, Func, A, Err> Evictor<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,
     K: 'static,
@@ -53,10 +61,14 @@ where
     }
 }
 
-/// An [`Eviction`] bound to one key and the reference inputs of one tune: what a benchmark
-/// loop calls before each sample.
-///
-/// `FnMut` rather than `Fn` because the loop lends it out exclusively: the closure holds the
-/// inputs, which are only `Send`, and a shared borrow would need them `Sync` to reach the
-/// device thread the samples are launched from.
-pub type Evictor<'i> = dyn FnMut() -> Result<(), AutotuneError> + Send + 'i;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_eviction_is_an_error() {
+        let failing = |_: &u8, _: &u8| Err::<(), _>("the scratch is gone");
+
+        assert!(Evictor::<u8, u8>::evict(&failing, &1, &2).is_err());
+    }
+}

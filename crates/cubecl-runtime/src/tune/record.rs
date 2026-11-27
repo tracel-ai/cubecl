@@ -6,9 +6,12 @@
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
+use crate::tune::plan::TunePlanner;
+use crate::tune::tune_cache::TuneTable;
+use crate::tune::tune_fn::TuneFn;
 use crate::tune::{
-    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, Placement, TuneCache,
-    TunePlan,
+    AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, Placement,
+    TuneInputs,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -26,7 +29,7 @@ pub struct TuneRecord<K> {
     pub entry: PersistentCacheKey<K>,
     /// The index of the candidate the key runs.
     pub winner: usize,
-    /// The candidates that ran, in the order they ran.
+    /// The candidates that ran, in the order they ran (Arrival Usage).
     pub trials: Vec<Trial>,
     /// The candidate that met the time limit and ended the tune before the
     /// rest of the plan ran.
@@ -44,7 +47,7 @@ pub struct TuneRecord<K> {
     pub stored: bool,
     /// Every candidate in the order the plan releases them, whether or not
     /// it ran: the priorities that decided the order, read when the tune
-    /// began. Empty in a record written before plans were kept.
+    /// began, in that order (Arrival Usage). Empty in a record written before plans were kept.
     #[serde(default)]
     pub plan: Vec<PlannedCandidate>,
 }
@@ -61,8 +64,9 @@ pub struct PlannedCandidate {
     /// when every earlier one failed. `None` when each of its groups gave it
     /// a negative priority for this key.
     pub batch: Option<usize>,
-    /// Its place in each group it belongs to; empty for a candidate in no
-    /// group, which trails every batch.
+    /// Its place in each group it belongs to, in the order it joined them
+    /// (Arrival Usage); empty for a candidate in no group, which trails every
+    /// batch.
     pub groups: Vec<Placement>,
 }
 
@@ -80,37 +84,38 @@ impl<K> Record for TuneRecord<K> {
     const KIND: &'static str = "autotune";
 }
 
-/// A tune being recorded: stamped when it began, written when it ends. Every
-/// call is a no-op when the environment records nothing.
+/// Records a tune: stamped when it began, written when it ends. Every call is a no-op when the
+/// environment records nothing.
 #[derive(Debug)]
-pub struct TuneRecording<K> {
+pub struct TuneRecorder<K> {
     open: Option<OpenRecording<K>>,
 }
 
-/// What a [`TuneRecording`] holds while the environment records.
+/// What a [`TuneRecorder`] holds while the environment records.
 #[derive(Debug)]
-struct OpenRecording<K> {
-    span: Span,
-    table: String,
-    entry: PersistentCacheKey<K>,
-    launches_discarded: bool,
-    plan: Vec<PlannedCandidate>,
+pub struct OpenRecording<K> {
+    pub span: Span,
+    pub table: String,
+    pub entry: PersistentCacheKey<K>,
+    pub launches_discarded: bool,
+    /// Every candidate, in the order the plan releases them (Arrival Usage).
+    pub plan: Vec<PlannedCandidate>,
 }
 
-/// What [`TuneRecording::finish`] needs to know of the answer.
+/// What [`TuneRecorder::record_answer`] needs to know of the answer.
 pub struct Answer {
     pub winner: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
 }
 
-impl<K: AutotuneKey> TuneRecording<K> {
-    /// Begin recording the tune of `key` in `cache`'s table. The key is
-    /// cloned only when the environment records.
-    pub fn new(cache: &TuneCache<K>, key: &K, checksum: &str) -> Self {
+impl<K: AutotuneKeyable> TuneRecorder<K> {
+    /// Begin recording the tune of `key` in `table`. The key is cloned only when the environment
+    /// records.
+    pub fn new(table: &TuneTable, key: &K, checksum: &str) -> Self {
         let open = Span::new().map(|span| OpenRecording {
             span,
-            table: cache.table().into(),
+            table: table.namespace.clone(),
             entry: PersistentCacheKey {
                 key: key.clone(),
                 checksum: checksum.into(),
@@ -122,21 +127,27 @@ impl<K: AutotuneKey> TuneRecording<K> {
         Self { open }
     }
 
-    /// Whether the tune is recorded, and so has to track its steps: the
-    /// record's trials are the ones the log context collects.
+    /// Whether the tune is recorded, and so has to track its steps: the record's trials are the
+    /// ones the log context collects.
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
 
-    /// Keep the plan the tune runs, its candidates named by `names`.
-    pub fn plan(&mut self, plan: &TunePlan, names: &[&str]) {
-        if let Some(open) = &mut self.open {
-            open.plan = plan.account(names);
-        }
+    /// Keep the plan the tune runs over `autotunables`.
+    pub fn record_plan<F: TuneInputs, Out: 'static>(
+        &mut self,
+        plan: &TunePlanner,
+        autotunables: &[&TuneFn<F, Out>],
+    ) {
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        let names: Vec<&str> = autotunables.iter().map(|tune| tune.name()).collect();
+        open.plan = plan.account(&names);
     }
 
     /// Write the record of the tune that just answered.
-    pub fn finish(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
+    pub fn record_answer(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
         let Some(open) = self.open else {
             return;
         };
@@ -144,17 +155,7 @@ impl<K: AutotuneKey> TuneRecording<K> {
         let Some(wall) = open.span.elapsed() else {
             return;
         };
-        let mut trials = Vec::new();
-        let mut short_circuit = None;
-        for event in log_context.iter().flat_map(|context| &context.events) {
-            match event {
-                AutotuneLogEvent::TuningStep(name, wall) => trials.push(Trial {
-                    name: name.clone(),
-                    wall: *wall,
-                }),
-                AutotuneLogEvent::ShortCircuit(name) => short_circuit = Some(name.clone()),
-            }
-        }
+        let (trials, short_circuit) = trials(log_context);
         let record = TuneRecord {
             table: open.table,
             entry: open.entry,
@@ -166,13 +167,90 @@ impl<K: AutotuneKey> TuneRecording<K> {
             stored: answer.stored,
             plan: open.plan,
         };
-        // A stored winner is the environment changing; an answer kept in
-        // memory is not.
-        let effect = if record.stored {
-            RecordEffect::Changed
-        } else {
-            RecordEffect::Observed
+        open.span.close(effect_when_stored(record.stored), &record);
+    }
+}
+
+/// The trials `log_context` collected, in the order they ran, and the candidate that short
+/// circuited the tune, if one did.
+fn trials(log_context: Option<&AutotuneLogContext>) -> (Vec<Trial>, Option<String>) {
+    let events = log_context.iter().flat_map(|context| &context.events);
+    let trials = events
+        .clone()
+        .filter_map(|event| match event {
+            AutotuneLogEvent::TuningStep(name, wall) => Some(Trial {
+                name: name.clone(),
+                wall: *wall,
+            }),
+            AutotuneLogEvent::ShortCircuit(_) => None,
+        })
+        .collect();
+    let short_circuit = events
+        .filter_map(|event| match event {
+            AutotuneLogEvent::ShortCircuit(name) => Some(name.clone()),
+            AutotuneLogEvent::TuningStep(..) => None,
+        })
+        .next_back();
+    (trials, short_circuit)
+}
+
+/// A stored winner is the environment changing; an answer kept in memory is not.
+fn effect_when_stored(stored: bool) -> RecordEffect {
+    match stored {
+        true => RecordEffect::Changed,
+        false => RecordEffect::Observed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::boxed::Box;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    #[test]
+    fn a_closed_recorder_records_nothing() {
+        let mut recorder = TuneRecorder::<String> { open: None };
+        let candidate = TuneFn::<(), ()>::new("candidate".to_string(), Box::new(|_| Ok(())));
+        let plan = TunePlanner::new::<String, (), (), ()>(&String::new(), &[]);
+
+        recorder.record_plan(&plan, &[&candidate]);
+        assert!(!recorder.is_open());
+        recorder.record_answer(
+            Answer {
+                winner: 0,
+                stored: true,
+            },
+            None,
+        );
+    }
+
+    #[test]
+    fn the_trials_are_the_steps_in_order_and_the_last_short_circuit_stops() {
+        let step = |name: &str, micros| {
+            AutotuneLogEvent::TuningStep(name.to_string(), Duration::from_micros(micros))
         };
-        open.span.close(effect, &record);
+        let context = AutotuneLogContext {
+            events: vec![
+                step("first", 1),
+                step("second", 2),
+                AutotuneLogEvent::ShortCircuit("second".to_string()),
+            ],
+            ..Default::default()
+        };
+
+        let (ran, short_circuit) = trials(Some(&context));
+
+        let names: Vec<_> = ran.iter().map(|trial| trial.name.as_str()).collect();
+        assert_eq!(names, ["first", "second"]);
+        assert_eq!(short_circuit.as_deref(), Some("second"));
+        assert_eq!(trials(None), (Vec::new(), None));
+    }
+
+    #[test]
+    fn only_a_stored_answer_changes_the_environment() {
+        assert_eq!(effect_when_stored(true), RecordEffect::Changed);
+        assert_eq!(effect_when_stored(false), RecordEffect::Observed);
     }
 }

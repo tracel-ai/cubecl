@@ -4,24 +4,29 @@
 /// Held while a key's candidates run with their launches discarded, under a
 /// `CompileOnly` override or to compile a batch together, so a key their
 /// launches reach knows it was reached inside them.
-pub struct CandidateGathering {
+///
+/// # Assumptions
+///
+/// - Gatherers drop in the order opposite to the one they were opened in, on the thread that
+///   opened them.
+pub struct CandidateGatherer {
     _private: (),
 }
 
-impl CandidateGathering {
-    /// Gather a key's candidates until the guard drops.
-    pub fn new() -> Self {
+impl CandidateGatherer {
+    /// Gather a key's candidates on this thread until the gatherer drops.
+    pub fn gather() -> Self {
         depth::enter();
         Self { _private: () }
     }
 
     /// Whether another key's candidates are running on this thread.
-    pub fn active() -> bool {
+    pub fn is_gathering() -> bool {
         depth::get() > 0
     }
 }
 
-impl Drop for CandidateGathering {
+impl Drop for CandidateGatherer {
     fn drop(&mut self) {
         depth::leave();
     }
@@ -65,5 +70,22 @@ mod depth {
 
     pub fn leave() {
         DEPTH.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_thread_gathers_until_its_last_gatherer_drops() {
+        let outer = CandidateGatherer::gather();
+        let inner = CandidateGatherer::gather();
+        drop(inner);
+        let still = CandidateGatherer::is_gathering();
+        drop(outer);
+
+        assert!(still);
+        assert!(!CandidateGatherer::is_gathering());
     }
 }

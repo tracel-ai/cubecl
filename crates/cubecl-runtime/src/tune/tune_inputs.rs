@@ -12,12 +12,20 @@
 /// by defining a `FusionTuneInputs<R, O>` marker with
 /// `At<'a> = TuneInput<'a, R, O>`. Such a marker must not implement `Clone`, otherwise
 /// it would overlap with the blanket impl below.
+///
+/// # Assumptions
+///
+/// - [`spare`](Self::spare) is cheap: every call to an elected candidate takes one.
+///
+/// # Guarantees
+///
+/// - Owned inputs, through the blanket implementation, always have a spare: a clone.
 pub trait TuneInputs: Send + Sync + 'static {
     /// The concrete input type at lifetime `'a`.
     type At<'a>: Clone + Send;
 
     /// A copy of a call's inputs, to run another candidate on when the elected one rejects
-    /// the call: every call takes one, so it must be cheap.
+    /// the call.
     ///
     /// `None`, the default, is for inputs whose copy cannot stand in for the call's, such as ones
     /// that borrow what the candidate writes: their elected candidate must serve every call of

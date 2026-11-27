@@ -9,8 +9,8 @@ use std::{
 use cubecl_server::{
     server::Handle,
     tune::{
-        AutotuneBound, Bounds, CloneInputGenerator, OrderedSettings, Patience, ResourceBound,
-        Tunable, TunableSet, TuneDeviceAccess, TuneGroup, TuneStage,
+        AutotuneBound, Bounds, OrderedSettings, Patience, ResourceBound, Tunable, TunableSet,
+        TuneDeviceAccess, TuneGroup, TuneStage,
     },
 };
 use std::sync::Mutex;
@@ -34,10 +34,9 @@ pub fn addition_set(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
     );
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("{}-{}", "add", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         op_add_slow.run(inputs)
@@ -83,10 +82,9 @@ pub fn identified_addition_set(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
     );
-    TunableSet::new(
-        move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TunableSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("{}-{}", "add", log_shape_input_key(&shapes))
+    })
     .with(Tunable::identified(Addition::Correct, move |inputs| {
         op_add.run(inputs)
     }))
@@ -105,10 +103,9 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
         KernelTask::new(DummyElementwiseMultiplication),
         client.clone(),
     );
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("{}-{}", "mul", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("mul_slow_wrong", move |inputs| {
         op_mul_slow.run(inputs)
     }))
@@ -133,10 +130,9 @@ pub fn bounded_addition_set_slow_first(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("{}-{}", "add_bounded", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("{}-{}", "add_bounded", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         op_add_slow.run(inputs)
     }))
@@ -148,7 +144,7 @@ pub fn bounded_addition_set_slow_first(
                     amount: 1,
                     peak_per_s: throughput,
                 },
-                threshold,
+                threshold_fraction: threshold,
             }],
             launch_overhead: Duration::ZERO,
         }
@@ -202,10 +198,9 @@ pub fn ranked_addition_set(
     );
     let count = candidates.len();
 
-    let mut set = TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_ranked-{uid}-{}", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    );
+    let mut set = TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_ranked-{uid}-{}", log_shape_input_key(&shapes))
+    });
 
     for (place, candidate) in candidates.into_iter().enumerate() {
         let RankedCandidate {
@@ -267,12 +262,9 @@ pub fn bounded_addition_set_no_short_circuit(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| {
-            format!("{}-{}", "add_bounded_nosc", log_shape_input_key(&shapes))
-        },
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("{}-{}", "add_bounded_nosc", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         op_add_slow.run(inputs)
     }))
@@ -284,7 +276,7 @@ pub fn bounded_addition_set_no_short_circuit(
                     amount: 1,
                     peak_per_s: 1.0,
                 },
-                threshold: 1.0,
+                threshold_fraction: 1.0,
             }],
             launch_overhead: Duration::ZERO,
         }
@@ -360,10 +352,9 @@ pub fn addition_set_with_rejected_candidate(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_rejected-{uid}-{}", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_rejected-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_rejected", move |_inputs| {
         calls.fetch_add(1, Ordering::Relaxed);
         Result::<(), String>::Err("unsupported by this device".to_string())
@@ -383,15 +374,12 @@ pub fn addition_set_rejected_then_unmeasured(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| {
-            format!(
-                "add_rejected_unmeasured-{uid}-{}",
-                log_shape_input_key(&shapes)
-            )
-        },
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!(
+            "add_rejected_unmeasured-{uid}-{}",
+            log_shape_input_key(&shapes)
+        )
+    })
     .with(Tunable::new("add_rejected", move |_inputs| {
         crate::dummy::REFUSE_PROFILES.store(true, Ordering::Relaxed);
         Result::<(), String>::Err("unsupported by this device".to_string())
@@ -422,10 +410,9 @@ pub fn addition_set_with_slow_candidate(
         client.clone(),
     );
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_slow-{uid}-{}", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_slow-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add", move |inputs| {
         fast_calls.fetch_add(1, Ordering::Relaxed);
         op_add.run(inputs)
@@ -461,12 +448,9 @@ pub fn addition_set_with_failing_compilation(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| {
-            format!("add_no_compile-{uid}-{}", log_shape_input_key(&shapes))
-        },
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_no_compile-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
     .with(Tunable::new("add_no_compile", move |inputs| {
         op_broken.run(inputs)
@@ -493,12 +477,9 @@ pub fn addition_set_with_failing_compilation_first(
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| {
-            format!("no_compile_first-{uid}-{}", log_shape_input_key(&shapes))
-        },
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("no_compile_first-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_no_compile", move |inputs| {
         op_broken.run(inputs)
     }))
@@ -563,10 +544,9 @@ pub fn addition_set_with_stage_enterer(
     };
     let record_slow = record.clone();
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_staged-{uid}-{}", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_staged-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         record_slow();
         op_add_slow.run(inputs)
@@ -615,10 +595,9 @@ pub fn addition_set_launched_elsewhere(
     };
     let elsewhere_slow = elsewhere.clone();
 
-    TestSet::new(
-        move |_input: &Vec<Handle>| format!("add_elsewhere-{uid}-{}", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
-    )
+    TestSet::new_cloning_inputs(move |_input: &Vec<Handle>| {
+        format!("add_elsewhere-{uid}-{}", log_shape_input_key(&shapes))
+    })
     .with(Tunable::new("add_slow_wrong", move |inputs| {
         elsewhere_slow(op_add_slow.clone(), inputs)
     }))

@@ -3,37 +3,90 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
+use cubecl_common::profile::{Instant, ProfileDuration, ProfileTicks, TimingMethod};
 
-use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::server::ServerError;
-use crate::tune::Evictor;
-use crate::tune::base::Batch;
+use crate::tune::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::candidate_sampler::{CandidateSampler, hold_failed};
 use crate::tune::first_pass::{CompileWindows, FirstPassPlanner};
-use crate::tune::sampler::{SampleSet, measured};
-use crate::tune::stage::{BoundStageEnterer, enter_stage};
+use crate::tune::plan::{Batch, TunePlanner};
+use crate::tune::sample_time::measured;
+use crate::tune::sampler::SampleKeeper;
+use crate::tune::tune_fn::TuneFn;
 use crate::tune::{
-    AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
+    AutotuneCheckable, AutotuneError, AutotuneOutcome, AutotuneResult, TuneInputs, TuneStage,
 };
-use crate::tune::{TuneDeviceAccess, TuneStage};
 
-/// The outcome of benchmarking one batch of the [`TunePlan`].
+/// The outcome of benchmarking one batch of the plan.
 #[derive(Debug)]
 pub struct BatchOutcome {
+    /// Each candidate's result, by tunable index (Arrival Usage).
     pub results: Vec<(usize, AutotuneResult)>,
+    /// What each candidate cost, in batch order (Arrival Usage).
     pub steps: Vec<(String, Duration)>,
     pub short_circuit: Option<String>,
     pub any_success: bool,
-    /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
+    /// The index the round robin picked, when it produced one. See [`Scheduler::outcome`] for why
     /// the caller must not re-derive it by comparing the results.
     pub decided: Option<usize>,
-    /// The candidates never measured: skipped by their groups' patience, or not reached
-    /// before a short circuit.
+    /// The candidates never measured, skipped by their groups' patience or not reached before a
+    /// short circuit, in batch order (Arrival Usage).
     pub unmeasured: Vec<usize>,
 }
 
-/// Round robin benchmarking with early elimination.
+impl BatchOutcome {
+    /// The outcome of a batch of `indices` that could not be measured, the device not held.
+    fn hold_failed<F: TuneInputs, Out: AutotuneCheckable>(
+        indices: &[usize],
+        autotunables: &[&TuneFn<F, Out>],
+        reason: &ServerError,
+    ) -> Self {
+        Self {
+            results: indices
+                .iter()
+                .map(|&index| {
+                    let error = hold_failed(autotunables[index].name(), reason);
+                    (index, AutotuneResult::error(error))
+                })
+                .collect(),
+            steps: Vec::new(),
+            short_circuit: None,
+            any_success: false,
+            decided: None,
+            unmeasured: Vec::new(),
+        }
+    }
+}
+
+/// What walking the plan produced: everything the tuner has to report or commit.
+#[derive(Debug)]
+pub struct PlanOutcome {
+    /// What each candidate measured cost, in the order they ran (Arrival Usage).
+    pub steps: Vec<(String, Duration)>,
+    pub short_circuit: Option<String>,
+    /// The index the round robin picked, when it produced one.
+    pub decided: Option<usize>,
+    /// Whether every batch of the plan ran without a candidate measured.
+    pub exhausted: bool,
+}
+
+/// How a [`Scheduler`] measures.
+#[derive(Debug, Clone)]
+pub struct ScheduleOptions {
+    pub config: BenchConfig,
+    /// The slowest median close enough to the peak, when the set has bounds and the short circuit
+    /// is on.
+    pub short_circuit_limit: Option<Duration>,
+    pub track_steps: bool,
+    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the window a round
+    /// that may stop early compiles ahead of measuring.
+    ///
+    /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
+    pub compile_parallelism: usize,
+}
+
+/// Schedules a tune's candidates: round robin benchmarking with early elimination.
 ///
 /// A first pass measures the candidates one at a time in priority order, each with one warmup
 /// and one sample resolved inline, compiling them ahead a window at a time. After each, a group
@@ -43,315 +96,316 @@ pub struct BatchOutcome {
 /// at once: resolving per sample would serialize a device round trip per measurement, which for
 /// short kernels costs more than the samples it saves.
 ///
-/// The sample cap bounds the work at `max_sample_count` per candidate, so the sampling itself can never
-/// cost more than a fixed-count pass. The batch still can: the short circuit exits on the first
-/// candidate confirmed under the limit, and eliminating cheap candidates early can push that exit
-/// past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total tuning
-/// cost on one card and −20% on another, both dominated by where the short circuit fires rather
-/// than by the sample budget.
-pub struct Schedule<'i> {
-    pub config: BenchConfig,
-    pub limit: Option<Duration>,
-    pub short_circuit: bool,
-    pub track_steps: bool,
-    /// How many kernels compile at once ([`CompilationConfig::parallelism`]): the window a round
-    /// that may stop early compiles ahead of measuring.
-    ///
-    /// [`CompilationConfig::parallelism`]: crate::config::compilation::CompilationConfig::parallelism
-    pub compile_parallelism: usize,
+/// The sample cap bounds the work at `max_sample_count` per candidate, so the sampling itself can
+/// never cost more than a fixed-count pass. The batch still can: the short circuit exits on the
+/// first candidate confirmed under the limit, and eliminating cheap candidates early can push that
+/// exit past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total
+/// tuning cost on one card and −20% on another, both dominated by where the short circuit fires
+/// rather than by the sample budget.
+pub struct Scheduler<'i> {
+    options: ScheduleOptions,
     /// What runs before every measured sample, when the set registered one.
-    pub evictor: Option<Box<Evictor<'i>>>,
-    pub stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
-    /// How the batches hold the device, and how their samples are timed.
-    pub access: TuneDeviceAccess,
+    evictor: Option<Box<BoundEvictor<'i>>>,
+    stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
+    /// The samples a round queued, by slot, resolved together (Scratch Usage).
+    pending: Vec<(usize, ProfileDuration)>,
+    /// The candidates a round may eliminate, by slot and best time (Scratch Usage).
+    eliminable: Vec<(usize, Duration)>,
 }
 
-impl Schedule<'_> {
+impl<'i> Scheduler<'i> {
+    pub fn new(
+        options: ScheduleOptions,
+        evictor: Option<Box<BoundEvictor<'i>>>,
+        stage_enterer: Option<Box<BoundStageEnterer<'i>>>,
+    ) -> Self {
+        Self {
+            options,
+            evictor,
+            stage_enterer,
+            pending: Vec::new(),
+            eliminable: Vec::new(),
+        }
+    }
+
+    /// Walk the plan batch by batch, on `sampler`'s device, until one produces a usable
+    /// measurement, each candidate's result written in `results` by tunable index.
+    ///
+    /// # Assumptions
+    ///
+    /// - `results` holds a result per candidate of `autotunables`.
+    pub fn schedule_plan<'a, F, Out>(
+        &mut self,
+        plan: &mut TunePlanner,
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: &<F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+        results: &mut [AutotuneResult],
+    ) -> PlanOutcome
+    where
+        F: TuneInputs,
+        Out: AutotuneCheckable,
+        <F as TuneInputs>::At<'a>: Clone + Send,
+    {
+        let mut steps = Vec::new();
+        let mut retry = None;
+
+        loop {
+            let batch = retry.take().unwrap_or_else(|| plan.plan_next());
+            if batch.is_empty() {
+                return PlanOutcome {
+                    steps,
+                    short_circuit: None,
+                    decided: None,
+                    exhausted: true,
+                };
+            }
+
+            let outcome = self.schedule_batch(batch, autotunables, inputs.clone(), sampler);
+            for (index, result) in outcome.results {
+                results[index] = result;
+            }
+            steps.extend(outcome.steps);
+
+            if outcome.any_success {
+                return PlanOutcome {
+                    steps,
+                    short_circuit: outcome.short_circuit,
+                    decided: outcome.decided,
+                    exhausted: false,
+                };
+            }
+
+            // Every candidate measured failed, so the ones their groups' patience skipped never
+            // had their chance: measure them before the plan moves on.
+            retry =
+                (!outcome.unmeasured.is_empty()).then(|| Batch::unconditional(outcome.unmeasured));
+        }
+    }
+}
+
+impl<'i> Scheduler<'i> {
     /// Benchmark one batch of candidates, blocking until the batch is decided.
     ///
-    /// Under [`TuneDeviceAccess::Exclusive`], takes exclusive device access for the entire round
-    /// robin: candidates are interleaved, so releasing the device between them would let unrelated
-    /// work land in the middle of a measurement.
-    pub fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
+    /// Under [`TuneDeviceAccess::Exclusive`](crate::tune::TuneDeviceAccess::Exclusive), takes
+    /// exclusive device access for the entire round robin: candidates are interleaved, so
+    /// releasing the device between them would let unrelated work land in the middle of a
+    /// measurement.
+    fn schedule_batch<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &Client,
+        sampler: CandidateSampler<'_>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let fallback = batch.indices();
-        let access = self.access;
-        let run = || {
-            let measuring = crate::execution::StreamModeOverride::new(
-                crate::execution::StreamMode::Execute,
-                client,
-            );
-            let stage = enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Measuring);
-
-            let outcome = cubecl_environment::future::block_on(self.drive(
-                batch,
-                autotunables,
-                inputs,
-                client,
-            ));
-            core::mem::drop(stage);
-            core::mem::drop(measuring);
-            outcome
-        };
-
-        match access.hold(client, run) {
-            Ok(outcome) => outcome,
-            Err(err) => BatchOutcome {
-                results: fallback
-                    .into_iter()
-                    .map(|index| {
-                        let error = AutotuneError::Unknown {
-                            name: autotunables[index].name().to_string(),
-                            err: err.to_string(),
-                        };
-                        (index, AutotuneResult::error(error))
-                    })
-                    .collect(),
-                steps: Vec::new(),
-                short_circuit: None,
-                any_success: false,
-                decided: None,
-                unmeasured: Vec::new(),
-            },
-        }
+        let indices: Vec<usize> = batch.indices().collect();
+        sampler
+            .hold(|| self.measure(batch, autotunables, inputs, sampler))
+            .unwrap_or_else(|err| BatchOutcome::hold_failed(&indices, autotunables, &err))
     }
 
-    async fn drive<'a, F: TuneInputs, Out: AutotuneOutput>(
+    /// Measure `batch` in a measuring stage, its stream executing what it launches.
+    fn measure<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         batch: Batch,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &Client,
+        sampler: CandidateSampler<'_>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        let (min_sample_count, max_sample_count) = self.config.sample_count_range();
+        let measuring = crate::execution::StreamModeOverride::new(
+            crate::execution::StreamMode::Execute,
+            sampler.client(),
+        );
+        let stage = enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Measuring);
+        let outcome =
+            cubecl_environment::future::block_on(self.drive(batch, autotunables, inputs, sampler));
+        core::mem::drop(stage);
+        core::mem::drop(measuring);
+        outcome
+    }
 
+    async fn drive<'a, F: TuneInputs, Out: AutotuneCheckable>(
+        &mut self,
+        batch: Batch,
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: <F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+    ) -> BatchOutcome
+    where
+        <F as TuneInputs>::At<'a>: Clone,
+    {
         let windows = self.compile_windows(batch.entries.len(), !batch.patience.is_empty());
         let mut planner = FirstPassPlanner::new(&batch, windows);
-        let mut candidates: Vec<Candidate> = batch
+        let mut candidates: Vec<CandidateTracker> = batch
             .entries
             .into_iter()
-            .map(|entry| Candidate::new(entry.index, autotunables[entry.index].name().to_string()))
+            .map(|entry| {
+                CandidateTracker::new(entry.index, autotunables[entry.index].name().to_string())
+            })
             .collect();
 
-        let mut short_circuit = None;
+        let first_pass = self
+            .first_pass_all(
+                &mut planner,
+                &mut candidates,
+                autotunables,
+                &inputs,
+                sampler,
+            )
+            .await;
 
-        // First pass: one warmup and one sample each, resolved inline so the batch can stop
-        // before the remaining kernels are ever compiled. This is the one place where paying a
-        // device round trip per sample is worth it.
+        // A candidate the first pass never measured was skipped by its groups' patience.
+        candidates
+            .iter_mut()
+            .filter(|candidate| candidate.samples.summary().count == 0)
+            .for_each(CandidateTracker::skip);
+
+        let confirmed = match first_pass {
+            Some(slot) => Some(slot),
+            None => {
+                self.sample_rounds(&mut candidates, autotunables, &inputs, sampler)
+                    .await
+            }
+        };
+
+        self.outcome(candidates, confirmed)
+    }
+
+    /// The first pass: one warmup and one sample each, resolved inline so the batch can stop
+    /// before the remaining kernels are ever compiled. This is the one place where paying a
+    /// device round trip per sample is worth it. Answers the slot of the candidate a short circuit
+    /// confirmed, if one did.
+    async fn first_pass_all<'a, F: TuneInputs, Out: AutotuneCheckable>(
+        &mut self,
+        planner: &mut FirstPassPlanner,
+        candidates: &mut [CandidateTracker],
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: &<F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+    ) -> Option<usize>
+    where
+        <F as TuneInputs>::At<'a>: Clone,
+    {
         while let Some(step) = planner.plan_next() {
             let slot = step.slot;
-            let launched = self.track_steps.then(Instant::now);
-            if !step.compile.is_empty() {
-                let ahead = candidates
-                    .iter_mut()
-                    .enumerate()
-                    .filter(|(slot, _)| step.compile.binary_search(slot).is_ok())
-                    .map(|(_, candidate)| candidate);
-                let gathering =
-                    enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Gathering);
-                compile_together(ahead, autotunables, &inputs, client, self.access);
-                core::mem::drop(gathering);
-            }
-            // A candidate that rejected the problem while compiling is out of the round already.
-            if candidates[slot].live {
-                let operation = autotunables[candidates[slot].index];
-                self.first_pass(operation, &inputs, client, &mut candidates[slot])
-                    .await;
-            }
-            if let Some(launched) = launched {
-                candidates[slot].elapsed += launched.elapsed();
-            }
+            let launched = self.options.track_steps.then(Instant::now);
+            self.compile_ahead(&step.compile, candidates, autotunables, inputs, sampler);
+            self.first_pass(autotunables, inputs, &mut candidates[slot], sampler)
+                .await;
+            candidates[slot].charge(launched.map(|launched| launched.elapsed()));
 
-            let candidate = &candidates[slot];
-            if candidate.live
-                && let Some(best) = candidate.samples.best()
-            {
+            if let Some(best) = candidates[slot].live_best() {
                 planner.record(slot, best);
             }
 
             if planner.may_short_circuit()
                 && let Some(confirmed) = self
-                    .confirm_under_limit(autotunables, &inputs, client, &mut candidates[..=slot])
+                    .confirm_under_limit(autotunables, inputs, &mut candidates[..=slot], sampler)
                     .await
             {
-                short_circuit = Some(confirmed);
-                break;
+                return Some(confirmed);
             }
         }
+        None
+    }
 
-        // A candidate the first pass never measured was skipped by its groups' patience.
-        for candidate in candidates.iter_mut().filter(|c| c.samples.is_empty()) {
-            candidate.skip();
+    /// Compile the candidates at `slots` together, in a gathering stage.
+    fn compile_ahead<'a, F: TuneInputs, Out: AutotuneCheckable>(
+        &mut self,
+        slots: &[usize],
+        candidates: &mut [CandidateTracker],
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: &<F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+    ) where
+        <F as TuneInputs>::At<'a>: Clone,
+    {
+        if slots.is_empty() {
+            return;
         }
-
-        // Later rounds resolve the whole round at once: a profile only submits its readback
-        // when first polled, so resolving one at a time would serialize a device round trip
-        // per measurement, which for short kernels costs more than the samples it saves.
-        for round in 1..max_sample_count {
-            if short_circuit.is_some() {
-                break;
-            }
-
-            let live = candidates.iter().filter(|c| c.live).count();
-            if live == 0 || (live == 1 && round >= min_sample_count) {
-                break;
-            }
-
-            let mut pending = Vec::with_capacity(live);
-
-            for (slot, candidate) in candidates.iter_mut().enumerate() {
-                // A candidate that took confirmation samples in the first pass is ahead of the
-                // others, so the ceiling is enforced per candidate rather than by round count.
-                if !candidate.live || candidate.samples.len() >= max_sample_count {
-                    continue;
-                }
-
-                let launched = self.track_steps.then(Instant::now);
-
-                match autotunables[candidate.index].sample_once(
-                    inputs.clone(),
-                    client,
-                    self.evictor.as_deref_mut(),
-                    self.access,
-                ) {
-                    Ok(profile) => {
-                        candidate.method.get_or_insert(profile.timing_method());
-                        pending.push((slot, profile));
-                    }
-                    Err(err) => candidate.fail(err),
-                }
-
-                if let Some(launched) = launched {
-                    candidate.elapsed += launched.elapsed();
-                }
-            }
-
-            if pending.is_empty() {
-                break;
-            }
-
-            // Each profile is timed individually rather than timing the join: they resolve
-            // concurrently, so the round's wall clock cannot be split across candidates, but the
-            // wait for one candidate's own readback can.
-            let (slots, profiles): (Vec<_>, Vec<_>) = pending.into_iter().unzip();
-            let resolved = futures_util::future::join_all(profiles.into_iter().map(
-                |profile: ProfileDuration| async {
-                    let started = Instant::now();
-                    let ticks = profile.resolve().await;
-                    (ticks, started.elapsed())
-                },
-            ))
-            .await;
-
-            for (slot, (ticks, waited)) in slots.into_iter().zip(resolved) {
-                match measured(ticks) {
-                    Some(duration) => candidates[slot].samples.push(duration),
-                    // A sample that is no time disqualifies its candidate rather than being
-                    // recorded as a zero, which would be the fastest sample in the round and
-                    // would short-circuit on it.
-                    None => {
-                        let name = candidates[slot].name.to_string();
-                        candidates[slot].fail(AutotuneError::NotMeasured { name });
-                    }
-                }
-                if self.track_steps {
-                    candidates[slot].elapsed += waited;
-                }
-            }
-
-            if let Some(confirmed) = self.short_circuit_hit(&candidates) {
-                short_circuit = Some(confirmed);
-                break;
-            }
-
-            if round + 1 >= min_sample_count {
-                self.eliminate(&mut candidates, min_sample_count);
-
-                let mut live = candidates.iter().filter(|c| c.live).peekable();
-                if live.peek().is_some() && live.all(|c| c.samples.converged()) {
-                    break;
-                }
-            }
-        }
-
-        self.outcome(candidates, short_circuit)
+        let ahead = candidates
+            .iter_mut()
+            .enumerate()
+            .filter(|(slot, _)| slots.binary_search(slot).is_ok())
+            .map(|(_, candidate)| candidate);
+        let gathering = enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Gathering);
+        compile_together(ahead, autotunables, inputs, sampler);
+        core::mem::drop(gathering);
     }
 
     /// Fold the finished candidates into the batch outcome, naming the winner.
     ///
     /// The winner is picked here rather than left to the caller's comparison of the results,
     /// because by this point the candidates no longer hold comparable evidence: an eliminated one
-    /// stopped at `min_sample_count` while a survivor kept sampling, and `BenchmarkComputations::score`
-    /// inflates with observed spread, which grows with the sample count. Scoring them against each
-    /// other would hand a candidate an advantage for having been dropped early. Elimination
-    /// decides who is eligible; the score only ranks the survivors. A batch that a short circuit
-    /// ended is decided by the candidate at slot `confirmed`, the one confirmed under the limit:
-    /// the others may hold fewer samples than its confirmations.
-    fn outcome(&self, candidates: Vec<Candidate>, confirmed: Option<usize>) -> BatchOutcome {
-        let mut steps = Vec::new();
-        let mut results = Vec::with_capacity(candidates.len());
-        let mut any_success = false;
-        let mut decided: Option<(usize, u64)> = None;
-        let mut unmeasured = Vec::new();
+    /// stopped at `min_sample_count` while a survivor kept sampling, and
+    /// `BenchmarkComputations::score` inflates with observed spread, which grows with the sample
+    /// count. Scoring them against each other would hand a candidate an advantage for having been
+    /// dropped early. Elimination decides who is eligible; the score only ranks the survivors. A
+    /// batch that a short circuit ended is decided by the candidate at slot `confirmed`, the one
+    /// confirmed under the limit: the others may hold fewer samples than its confirmations.
+    fn outcome(&self, candidates: Vec<CandidateTracker>, confirmed: Option<usize>) -> BatchOutcome {
         let short_circuit = confirmed.map(|slot| candidates[slot].name.clone());
-
-        for (slot, candidate) in candidates.into_iter().enumerate() {
-            if self.track_steps {
-                steps.push((candidate.name.clone(), candidate.elapsed));
-            }
-
-            let index = candidate.index;
-            let survived = candidate.live;
-            if candidate.samples.is_empty() && candidate.error.is_none() {
-                unmeasured.push(index);
-            }
-            let result = candidate.into_result();
-
-            if let Ok(outcome) = result.outcome.as_ref() {
-                any_success = true;
-
-                let score = outcome.computation.score();
-                let ranked = survived && confirmed.is_none_or(|hit| hit == slot);
-                if ranked && decided.is_none_or(|(_, best)| score < best) {
-                    decided = Some((index, score));
-                }
-            }
-
-            results.push((index, result));
-        }
+        let steps = candidates
+            .iter()
+            .filter(|_| self.options.track_steps)
+            .map(|candidate| (candidate.name.clone(), candidate.elapsed))
+            .collect();
+        let unmeasured = candidates
+            .iter()
+            .filter(|candidate| candidate.is_unmeasured())
+            .map(|candidate| candidate.index)
+            .collect();
+        let ranked = |slot: usize, candidate: &CandidateTracker| {
+            candidate.live && confirmed.is_none_or(|hit| hit == slot)
+        };
+        let ranked_results: Vec<(bool, (usize, AutotuneResult))> = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(slot, candidate)| {
+                (
+                    ranked(slot, &candidate),
+                    (candidate.index, candidate.into_result()),
+                )
+            })
+            .collect();
+        let decided = ranked_results
+            .iter()
+            .filter(|(ranked, _)| *ranked)
+            .filter_map(|(_, (_, result))| result.outcome.as_ref().ok())
+            .min_by_key(|outcome| outcome.computation.score())
+            .map(|outcome| outcome.index);
+        let results: Vec<(usize, AutotuneResult)> = ranked_results
+            .into_iter()
+            .map(|(_, result)| result)
+            .collect();
 
         BatchOutcome {
+            any_success: results.iter().any(|(_, result)| result.outcome.is_ok()),
             results,
             steps,
             short_circuit,
-            any_success,
-            decided: decided.map(|(index, _)| index),
+            decided,
             unmeasured,
         }
     }
 
     /// How many of a batch of `len` candidates the first pass compiles together when the next
-    /// one to measure is not compiled yet. Where the round may stop early, `patient` or bounded
-    /// by a time limit, its first window holds as many as compile at once, so a round that stops
+    /// one to measure is not compiled yet. Where the round may stop early, `patient` or bounded by
+    /// a time limit, its first window holds as many as compile at once, so a round that stops
     /// there compiles at most one window it never measures. A `patient` batch, whose groups may
     /// skip the rest of their members, keeps to that window, so a pass its patience ends compiles
-    /// at most one window it never measures too. Elsewhere the rest of the batch compiles at once: a bounded round its
-    /// first window did not end rarely ends on the next, and window after window would wait on
-    /// each window's slowest kernel, then on its measurements, with the compiler idle. Either way
-    /// the windows decide when kernels compile, never which are measured.
+    /// at most one window it never measures too. Elsewhere the rest of the batch compiles at once:
+    /// a bounded round its first window did not end rarely ends on the next, and window after
+    /// window would wait on each window's slowest kernel, then on its measurements, with the
+    /// compiler idle. Either way the windows decide when kernels compile, never which are measured.
     fn compile_windows(&self, len: usize, patient: bool) -> CompileWindows {
-        let bounded = self.limit.is_some() && self.short_circuit;
+        let bounded = self.options.short_circuit_limit.is_some();
         CompileWindows {
             first_count: self.window_count(len, patient || bounded),
             later_count: self.window_count(len, patient),
@@ -362,58 +416,62 @@ impl Schedule<'_> {
     /// the round may stop before measuring the rest, `stoppable`, and the whole batch elsewhere.
     fn window_count(&self, len: usize, stoppable: bool) -> usize {
         if stoppable {
-            return self.compile_parallelism;
+            return self.options.compile_parallelism;
         }
         len
     }
 
-    /// Warm up a candidate and take its first sample.
-    async fn first_pass<'a, F: TuneInputs, Out: AutotuneOutput>(
+    /// Warm up a candidate and take its first sample. A candidate that rejected the problem while
+    /// compiling is out of the round already.
+    async fn first_pass<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
-        operation: &TuneFn<F, Out>,
+        autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &Client,
-        candidate: &mut Candidate,
+        candidate: &mut CandidateTracker,
+        sampler: CandidateSampler<'_>,
     ) where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.warmup_once(inputs.clone(), client, self.access) {
-            Ok(()) => {
-                self.take_sample(operation, inputs, client, candidate).await;
-            }
-            Err(err) => candidate.fail(err),
+        if !candidate.live {
+            return;
         }
+        let operation = autotunables[candidate.index];
+        if let Err(err) = sampler.warmup_once(operation, inputs.clone()) {
+            return candidate.fail(err);
+        }
+        self.take_sample(operation, inputs, candidate, sampler)
+            .await;
     }
 
     /// The slot of the first of `candidates`, in priority order, confirmed under the time limit,
     /// each one that has a sample under it first taking the confirmation samples it lacks. `None`
     /// without a limit or with the short circuit off.
-    async fn confirm_under_limit<'a, F: TuneInputs, Out: AutotuneOutput>(
+    async fn confirm_under_limit<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &Client,
-        candidates: &mut [Candidate],
+        candidates: &mut [CandidateTracker],
+        sampler: CandidateSampler<'_>,
     ) -> Option<usize>
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        let limit = self.limit.filter(|_| self.short_circuit)?;
-        let required = self.config.clamped_short_circuit_sample_count();
+        let limit = self.options.short_circuit_limit?;
+        let required = self.options.config.clamped_short_circuit_sample_count();
 
         for (slot, candidate) in candidates
             .iter_mut()
             .enumerate()
-            .filter(|(_, c)| c.live && c.samples.any_under(limit))
+            .filter(|(_, candidate)| candidate.live && candidate.samples.any_under(limit))
         {
             let operation = autotunables[candidate.index];
-            let launched = self.track_steps.then(Instant::now);
-            while candidate.samples.len() < required
-                && self.take_sample(operation, inputs, client, candidate).await
+            let launched = self.options.track_steps.then(Instant::now);
+            while candidate.samples.summary().count < required
+                && self
+                    .take_sample(operation, inputs, candidate, sampler)
+                    .await
             {}
-            if let Some(launched) = launched {
-                candidate.elapsed += launched.elapsed();
-            }
+            candidate.charge(launched.map(|launched| launched.elapsed()));
             if candidate.confirmed_under(limit, required) {
                 return Some(slot);
             }
@@ -423,40 +481,124 @@ impl Schedule<'_> {
     }
 
     /// Queue one sample and resolve it immediately. Returns whether the candidate survived.
-    async fn take_sample<'a, F: TuneInputs, Out: AutotuneOutput>(
+    async fn take_sample<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &Client,
-        candidate: &mut Candidate,
+        candidate: &mut CandidateTracker,
+        sampler: CandidateSampler<'_>,
     ) -> bool
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.sample_once(
-            inputs.clone(),
-            client,
-            self.evictor.as_deref_mut(),
-            self.access,
-        ) {
-            Ok(profile) => {
-                candidate.method.get_or_insert(profile.timing_method());
-                match measured(profile.resolve().await) {
-                    Some(duration) => {
-                        candidate.samples.push(duration);
-                        true
-                    }
-                    None => {
-                        let name = candidate.name.to_string();
-                        candidate.fail(AutotuneError::NotMeasured { name });
-                        false
-                    }
-                }
+        let sampled = sampler.sample_once(operation, inputs.clone(), self.evictor.as_deref_mut());
+        let profile = match sampled.map(|profile| candidate.queued(profile)) {
+            Ok(profile) => profile,
+            Err(err) => return candidate.disqualify(err),
+        };
+        candidate.track_ticks(profile.resolve().await);
+        candidate.live
+    }
+
+    /// Later rounds, resolved a whole round at once: a profile only submits its readback when
+    /// first polled, so resolving one at a time would serialize a device round trip per
+    /// measurement, which for short kernels costs more than the samples it saves. Answers the slot
+    /// of the candidate a short circuit confirmed, if one did.
+    async fn sample_rounds<'a, F: TuneInputs, Out: AutotuneCheckable>(
+        &mut self,
+        candidates: &mut [CandidateTracker],
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: &<F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+    ) -> Option<usize>
+    where
+        <F as TuneInputs>::At<'a>: Clone,
+    {
+        let (min_sample_count, max_sample_count) = self.options.config.sample_count_range();
+
+        for round in 1..max_sample_count {
+            let live = live_count(candidates);
+            if live == 0 || (live == 1 && round >= min_sample_count) {
+                return None;
             }
-            Err(err) => {
-                candidate.fail(err);
-                false
+
+            self.queue_round(candidates, autotunables, inputs, sampler, max_sample_count);
+            match self.end_round(candidates, round, min_sample_count).await {
+                RoundEnd::Continue => {}
+                RoundEnd::ShortCircuit(slot) => return Some(slot),
+                RoundEnd::Done => return None,
             }
+        }
+
+        None
+    }
+
+    /// Queue one sample of every live candidate short of `max_sample_count` samples. A candidate
+    /// that took confirmation samples in the first pass is ahead of the others, so the ceiling is
+    /// enforced per candidate rather than by round count.
+    fn queue_round<'a, F: TuneInputs, Out: AutotuneCheckable>(
+        &mut self,
+        candidates: &mut [CandidateTracker],
+        autotunables: &[&TuneFn<F, Out>],
+        inputs: &<F as TuneInputs>::At<'a>,
+        sampler: CandidateSampler<'_>,
+        max_sample_count: usize,
+    ) where
+        <F as TuneInputs>::At<'a>: Clone,
+    {
+        for (slot, candidate) in candidates.iter_mut().enumerate().filter(|(_, candidate)| {
+            candidate.live && candidate.samples.summary().count < max_sample_count
+        }) {
+            let launched = self.options.track_steps.then(Instant::now);
+            let operation = autotunables[candidate.index];
+            match sampler.sample_once(operation, inputs.clone(), self.evictor.as_deref_mut()) {
+                Ok(profile) => self.pending.push((slot, candidate.queued(profile))),
+                Err(err) => candidate.fail(err),
+            }
+            candidate.charge(launched.map(|launched| launched.elapsed()));
+        }
+    }
+
+    /// Resolve the samples the round queued, and say how the round ends.
+    async fn end_round(
+        &mut self,
+        candidates: &mut [CandidateTracker],
+        round: usize,
+        min_sample_count: usize,
+    ) -> RoundEnd {
+        if self.pending.is_empty() {
+            return RoundEnd::Done;
+        }
+        self.resolve_round(candidates).await;
+        if let Some(confirmed) = self.short_circuit_hit(candidates) {
+            return RoundEnd::ShortCircuit(confirmed);
+        }
+        if round + 1 < min_sample_count {
+            return RoundEnd::Continue;
+        }
+        self.eliminate(candidates, min_sample_count);
+        RoundEnd::after_elimination(candidates)
+    }
+
+    /// Resolve every sample the round queued, together.
+    ///
+    /// Each profile is timed individually rather than timing the join: they resolve concurrently,
+    /// so the round's wall clock cannot be split across candidates, but the wait for one
+    /// candidate's own readback can.
+    async fn resolve_round(&mut self, candidates: &mut [CandidateTracker]) {
+        let track_steps = self.options.track_steps;
+        let resolved = futures_util::future::join_all(self.pending.drain(..).map(
+            |(slot, profile)| async move {
+                let started = Instant::now();
+                let ticks = profile.resolve().await;
+                (slot, ticks, started.elapsed())
+            },
+        ))
+        .await;
+
+        for (slot, ticks, waited) in resolved {
+            candidates[slot].track_ticks(ticks);
+            candidates[slot].charge(track_steps.then_some(waited));
         }
     }
 
@@ -465,183 +607,104 @@ impl Schedule<'_> {
     /// The decision is persisted and reused on later runs, so it needs more than one sample:
     /// a single lucky measurement would pin a suboptimal kernel permanently.
     /// Returns the slot of the candidate confirmed under the limit.
-    fn short_circuit_hit(&self, candidates: &[Candidate]) -> Option<usize> {
-        let limit = self.limit?;
-        if !self.short_circuit {
-            return None;
-        }
-
-        let required = self.config.clamped_short_circuit_sample_count();
+    fn short_circuit_hit(&self, candidates: &[CandidateTracker]) -> Option<usize> {
+        let limit = self.options.short_circuit_limit?;
+        let required = self.options.config.clamped_short_circuit_sample_count();
         candidates
             .iter()
-            .position(|c| c.confirmed_under(limit, required))
+            .position(|candidate| candidate.confirmed_under(limit, required))
     }
 
     /// Drop candidates whose best time is past the speed factor.
     ///
     /// Comparing minima is already outlier resistant: a slow sample cannot lower a candidate's
     /// best, so nothing is eliminated on the strength of one bad measurement.
-    fn eliminate(&self, candidates: &mut [Candidate], min_sample_count: usize) {
+    fn eliminate(&mut self, candidates: &mut [CandidateTracker], min_sample_count: usize) {
         let Some(best) = candidates
             .iter()
-            .filter(|c| c.live)
-            .filter_map(|c| c.samples.best())
+            .filter_map(CandidateTracker::live_best)
             .min()
         else {
             return;
         };
 
-        let threshold = best.mul_f64(self.config.clamped_speed_factor());
-        let live = candidates.iter().filter(|c| c.live).count();
-        let budget = live.saturating_sub(MIN_SURVIVORS);
+        let threshold = best.mul_f64(self.options.config.clamped_speed_factor());
+        let budget = live_count(candidates).saturating_sub(MIN_SURVIVOR_COUNT);
         if budget == 0 {
             return;
         }
 
-        let mut eliminable: Vec<(usize, Duration)> = candidates
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.live && c.samples.len() >= min_sample_count)
-            .filter_map(|(slot, c)| c.samples.best().map(|best| (slot, best)))
-            .filter(|(_, best)| *best > threshold)
-            .collect();
+        self.eliminable.clear();
+        self.eliminable.extend(
+            candidates
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| candidate.samples.summary().count >= min_sample_count)
+                .filter_map(|(slot, candidate)| candidate.live_best().map(|best| (slot, best)))
+                .filter(|(_, best)| *best > threshold),
+        );
+        self.eliminable
+            .sort_by_key(|(_, best)| core::cmp::Reverse(*best));
 
-        eliminable.sort_by_key(|(_, best)| core::cmp::Reverse(*best));
-
-        for (slot, _) in eliminable.into_iter().take(budget) {
+        for (slot, _) in self.eliminable.drain(..).take(budget) {
             candidates[slot].live = false;
         }
     }
+}
 
-    /// Walk the plan batch by batch until one produces a usable measurement.
-    ///
-    /// # Errors
-    ///
-    /// The device fault a sync reports once every candidate has failed: the device is lost.
-    pub fn run_plan<'a, K, F, Out>(
-        &mut self,
-        key: &K,
-        plan: &mut TunePlan,
-        autotunables: &[&TuneFn<F, Out>],
-        inputs: &<F as TuneInputs>::At<'a>,
-        client: &Client,
-        results: &mut [AutotuneResult],
-    ) -> Result<PlanOutcome, ServerError>
-    where
-        K: core::fmt::Debug,
-        F: TuneInputs,
-        Out: AutotuneOutput,
-        <F as TuneInputs>::At<'a>: Clone + Send,
-    {
-        let mut steps = Vec::new();
-        let mut retry = None;
+/// How a later round ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RoundEnd {
+    /// Another round follows.
+    Continue,
+    /// The candidate at the slot was confirmed under the limit.
+    ShortCircuit(usize),
+    /// Every live candidate converged, or none queued a sample.
+    Done,
+}
 
-        loop {
-            let batch = retry.take().unwrap_or_else(|| plan.next());
-
-            if batch.is_empty() {
-                if let Err(err) = cubecl_environment::future::block_on(client.sync())
-                    && err.is_device_poisoned()
-                {
-                    return Err(err);
-                }
-
-                // Every candidate failed. A candidate that *executed* but
-                // could not be *measured* — `Unknown` wraps benchmark-harness
-                // failures like a profiling hiccup (timestamp query sets on a
-                // busy stream), `InvalidSamples` collected timings it cannot
-                // trust — is still a usable kernel: decide the first such,
-                // unmeasured, rather than panicking the device thread. A
-                // dead tune poisons every stream sharing it, and the decided
-                // kernel executes for real right after — if it truly cannot
-                // run, that failure surfaces there, exactly as a measured
-                // winner's would. Only launch failures, manual skips, panics and
-                // rejections — a candidate whose own function returned an
-                // error, so nothing ran — say the kernel itself is unusable:
-                // deciding a rejection or a panic would run it for real and
-                // fail the same way. When nothing else remains, there is
-                // genuinely no kernel to run.
-                if let Some(index) = executed_unmeasured(results) {
-                    log::warn!(
-                        "Autotune measured no candidate for key {key:?}; \
-                         deciding candidate {index} unmeasured.\n - results: {results:?}"
-                    );
-                    return Ok(PlanOutcome {
-                        steps,
-                        short_circuit: None,
-                        decided: Some(index),
-                    });
-                }
-
-                panic!(
-                    "Can't execute the autotune plan for key: {key:?}\n - plan: {plan:?}\n - results: {results:?}"
-                );
-            }
-
-            let outcome = self.run_batch(batch, autotunables, inputs.clone(), client);
-
-            for (index, result) in outcome.results {
-                results[index] = result;
-            }
-            steps.extend(outcome.steps);
-
-            if outcome.any_success {
-                return Ok(PlanOutcome {
-                    steps,
-                    short_circuit: outcome.short_circuit,
-                    decided: outcome.decided,
-                });
-            }
-
-            // Every candidate measured failed, so the ones their groups' patience skipped never
-            // had their chance: measure them before the plan moves on.
-            if !outcome.unmeasured.is_empty() {
-                retry = Some(Batch::unconditional(outcome.unmeasured));
-            }
+impl RoundEnd {
+    /// How a round that eliminated ends: done once every live candidate, and there is one, has
+    /// converged.
+    fn after_elimination(candidates: &[CandidateTracker]) -> Self {
+        let mut live = candidates
+            .iter()
+            .filter(|candidate| candidate.live)
+            .peekable();
+        match live.peek().is_some() && live.all(|candidate| candidate.samples.summary().converged) {
+            true => Self::Done,
+            false => Self::Continue,
         }
     }
 }
 
-/// The first candidate that executed but could not be measured.
-fn executed_unmeasured(results: &[AutotuneResult]) -> Option<usize> {
-    results.iter().position(|result| {
-        matches!(
-            &result.outcome,
-            Err(AutotuneError::Unknown { .. }) | Err(AutotuneError::InvalidSamples { .. })
-        )
-    })
-}
-
-/// What walking the whole [`TunePlan`] produced: everything the tuner has to report or commit.
-#[derive(Debug)]
-pub struct PlanOutcome {
-    pub steps: Vec<(String, Duration)>,
-    pub short_circuit: Option<String>,
-    pub decided: Option<usize>,
+/// How many of `candidates` are still in the round.
+fn live_count(candidates: &[CandidateTracker]) -> usize {
+    candidates.iter().filter(|candidate| candidate.live).count()
 }
 
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
 /// single kernel that was never compared against anything.
-const MIN_SURVIVORS: usize = 2;
+const MIN_SURVIVOR_COUNT: usize = 2;
 
-/// One candidate kernel and the evidence gathered about it so far.
+/// Tracks one candidate kernel and the evidence gathered about it so far.
 #[derive(Debug)]
-struct Candidate {
+struct CandidateTracker {
     index: usize,
     name: String,
-    samples: SampleSet,
+    samples: SampleKeeper,
     method: Option<TimingMethod>,
     error: Option<AutotuneError>,
     elapsed: Duration,
     live: bool,
 }
 
-impl Candidate {
+impl CandidateTracker {
     fn new(index: usize, name: String) -> Self {
         Self {
             index,
             name,
-            samples: SampleSet::default(),
+            samples: SampleKeeper::default(),
             method: None,
             error: None,
             elapsed: Duration::ZERO,
@@ -649,9 +712,49 @@ impl Candidate {
         }
     }
 
+    /// Keep what a resolved sample measured, or disqualify the candidate where it measured no
+    /// time: recorded as a zero, it would be the fastest sample in the round and would short
+    /// circuit on it.
+    fn track_ticks(&mut self, ticks: Option<ProfileTicks>) {
+        match measured(ticks) {
+            Some(duration) => self.samples.keep(duration),
+            None => self.fail(AutotuneError::NotMeasured {
+                name: self.name.clone(),
+            }),
+        }
+    }
+
+    /// `profile`, a sample of the candidate just queued, its timing method kept.
+    fn queued(&mut self, profile: ProfileDuration) -> ProfileDuration {
+        self.method.get_or_insert(profile.timing_method());
+        profile
+    }
+
+    /// Add `spent` to what the candidate cost, when it was timed.
+    fn charge(&mut self, spent: Option<Duration>) {
+        self.elapsed += spent.unwrap_or_default();
+    }
+
     fn fail(&mut self, error: AutotuneError) {
         self.error = Some(error);
         self.live = false;
+    }
+
+    /// [Fail](Self::fail) the candidate, answering that it did not survive.
+    fn disqualify(&mut self, error: AutotuneError) -> bool {
+        self.fail(error);
+        false
+    }
+
+    /// Leave it out of the batch before its first sample. With no samples and no error, it
+    /// comes out as [skipped](AutotuneError::Skip).
+    fn skip(&mut self) {
+        self.live = false;
+    }
+
+    /// Its best time while it is still in the round.
+    fn live_best(&self) -> Option<Duration> {
+        self.samples.summary().best.filter(|_| self.live)
     }
 
     /// Whether it is still in the round with `required` samples under `limit`.
@@ -659,10 +762,9 @@ impl Candidate {
         self.live && self.samples.confirmed_under(limit, required)
     }
 
-    /// Leave it out of the batch before its first sample. With no samples and no error, it
-    /// comes out as [skipped](AutotuneError::Skip).
-    fn skip(&mut self) {
-        self.live = false;
+    /// Whether it was never measured and never failed: skipped, or not reached.
+    fn is_unmeasured(&self) -> bool {
+        self.samples.summary().count == 0 && self.error.is_none()
     }
 
     fn into_result(self) -> AutotuneResult {
@@ -672,7 +774,7 @@ impl Candidate {
             return AutotuneResult::error(error);
         }
 
-        if self.samples.is_empty() {
+        if self.samples.summary().count == 0 {
             return AutotuneResult::error(AutotuneError::Skip { name: self.name });
         }
 
@@ -692,28 +794,29 @@ impl Candidate {
 /// Only this stream discards, so another thread's launches still run. A candidate that rejects
 /// the problem or panics keeps its error, as its warmup would have reported it: it is never a
 /// kernel to fall back on. One whose kernel fails to compile reports it at its warmup.
-fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneOutput>(
-    candidates: impl Iterator<Item = &'c mut Candidate>,
+fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
+    candidates: impl Iterator<Item = &'c mut CandidateTracker>,
     autotunables: &[&TuneFn<F, Out>],
     inputs: &<F as TuneInputs>::At<'a>,
-    client: &Client,
-    access: TuneDeviceAccess,
+    sampler: CandidateSampler<'_>,
 ) where
     <F as TuneInputs>::At<'a>: Clone,
 {
-    let queuing =
-        crate::execution::StreamModeOverride::new(crate::execution::StreamMode::Discard, client);
-    let gathering = super::gathering::CandidateGathering::new();
+    let queuing = crate::execution::StreamModeOverride::new(
+        crate::execution::StreamMode::Discard,
+        sampler.client(),
+    );
+    let gathering = super::gathering::CandidateGatherer::gather();
     for candidate in candidates {
         if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
-            autotunables[candidate.index].race_contained(inputs.clone(), client, access)
+            sampler.contain_race(autotunables[candidate.index], inputs.clone())
         {
             candidate.fail(unusable);
         }
     }
     core::mem::drop(gathering);
     core::mem::drop(queuing);
-    client.compile_queued();
+    sampler.client().compile_queued();
 }
 
 #[cfg(test)]
@@ -721,45 +824,31 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    fn schedule(speed_factor: f64) -> Schedule<'static> {
-        Schedule {
+    fn schedule(speed_factor: f64) -> Scheduler<'static> {
+        Scheduler::new(options(speed_factor), None, None)
+    }
+
+    fn options(speed_factor: f64) -> ScheduleOptions {
+        ScheduleOptions {
             config: BenchConfig {
                 speed_factor,
                 ..Default::default()
             },
-            limit: None,
-            short_circuit: false,
+            short_circuit_limit: None,
             track_steps: false,
             compile_parallelism: 1,
-            evictor: None,
-            stage_enterer: None,
-            access: TuneDeviceAccess::Exclusive,
         }
     }
 
-    fn candidate(slot: usize, samples: impl IntoIterator<Item = u64>) -> Candidate {
-        let mut candidate = Candidate::new(slot, alloc::format!("k{slot}"));
+    fn candidate(slot: usize, samples: impl IntoIterator<Item = u64>) -> CandidateTracker {
+        let mut candidate = CandidateTracker::new(slot, alloc::format!("k{slot}"));
         for micros in samples {
-            candidate.samples.push(Duration::from_micros(micros));
+            candidate.samples.keep(Duration::from_micros(micros));
         }
         candidate
     }
 
-    #[test]
-    fn a_candidate_that_panicked_is_never_decided_unmeasured() {
-        let panicked = AutotuneResult::error(AutotuneError::Panicked {
-            name: "panicked".into(),
-            message: "the block divides the vector".into(),
-        });
-        let unmeasured = AutotuneResult::error(AutotuneError::Unknown {
-            name: "unmeasured".into(),
-            err: "no timestamp query".into(),
-        });
-
-        assert_eq!(executed_unmeasured(&[panicked, unmeasured]), Some(1));
-    }
-
-    fn live(candidates: &[Candidate]) -> Vec<usize> {
+    fn live(candidates: &[CandidateTracker]) -> Vec<usize> {
         candidates
             .iter()
             .filter(|c| c.live)
@@ -769,16 +858,23 @@ mod tests {
 
     #[test]
     fn a_round_that_may_stop_compiles_a_window_and_one_that_cannot_the_whole_batch() {
-        let bounded = Schedule {
-            limit: Some(Duration::from_micros(10)),
-            short_circuit: true,
-            compile_parallelism: 8,
-            ..schedule(1.5)
-        };
-        let patient = Schedule {
-            compile_parallelism: 8,
-            ..schedule(1.5)
-        };
+        let bounded = Scheduler::new(
+            ScheduleOptions {
+                short_circuit_limit: Some(Duration::from_micros(10)),
+                compile_parallelism: 8,
+                ..options(1.5)
+            },
+            None,
+            None,
+        );
+        let patient = Scheduler::new(
+            ScheduleOptions {
+                compile_parallelism: 8,
+                ..options(1.5)
+            },
+            None,
+            None,
+        );
 
         let windows = |first_count, later_count| CompileWindows {
             first_count,
@@ -810,6 +906,30 @@ mod tests {
 
         assert_eq!(outcome.unmeasured, vec![1]);
         assert_eq!(outcome.decided, Some(0));
+    }
+
+    #[test]
+    fn a_tracked_batch_reports_every_candidate_s_cost_in_order() {
+        let tracked = Scheduler::new(
+            ScheduleOptions {
+                track_steps: true,
+                ..options(1.5)
+            },
+            None,
+            None,
+        );
+        let mut first = candidate(0, [10]);
+        first.charge(Some(Duration::from_micros(3)));
+
+        let outcome = tracked.outcome(vec![first, candidate(1, [20])], None);
+
+        assert_eq!(
+            outcome.steps,
+            [
+                ("k0".to_string(), Duration::from_micros(3)),
+                ("k1".to_string(), Duration::ZERO)
+            ]
+        );
     }
 
     #[test]
@@ -864,7 +984,7 @@ mod tests {
 
         schedule(1.5).eliminate(&mut candidates, 3);
 
-        assert_eq!(live(&candidates).len(), MIN_SURVIVORS);
+        assert_eq!(live(&candidates).len(), MIN_SURVIVOR_COUNT);
         assert!(candidates[0].live);
         // The slowest goes first when the floor forces a choice.
         assert!(candidates[1].live);
@@ -886,9 +1006,14 @@ mod tests {
 
     #[test]
     fn short_circuit_requires_the_configured_confirmations() {
-        let mut schedule = schedule(1.5);
-        schedule.limit = Some(Duration::from_micros(200));
-        schedule.short_circuit = true;
+        let schedule = Scheduler::new(
+            ScheduleOptions {
+                short_circuit_limit: Some(Duration::from_micros(200)),
+                ..options(1.5)
+            },
+            None,
+            None,
+        );
 
         let one = vec![candidate(0, [100, 900])];
         assert_eq!(schedule.short_circuit_hit(&one), None);
@@ -912,7 +1037,7 @@ mod tests {
     #[test]
     fn a_candidate_that_failed_late_is_disqualified_despite_good_samples() {
         let mut candidate = candidate(1, [10, 10, 10]);
-        candidate.fail(AutotuneError::InvalidSamples {
+        candidate.fail(AutotuneError::NotMeasured {
             name: "k1".to_string(),
         });
 
@@ -920,7 +1045,20 @@ mod tests {
 
         assert!(matches!(
             result.outcome,
-            Err(AutotuneError::InvalidSamples { .. })
+            Err(AutotuneError::NotMeasured { .. })
+        ));
+    }
+
+    #[test]
+    fn a_sample_that_measured_no_time_disqualifies() {
+        let mut candidate = candidate(1, [10]);
+
+        candidate.track_ticks(None);
+
+        assert!(!candidate.live);
+        assert!(matches!(
+            candidate.into_result().outcome,
+            Err(AutotuneError::NotMeasured { .. })
         ));
     }
 
@@ -961,7 +1099,7 @@ mod tests {
         // Every candidate failed, so there is nothing to declare and the caller falls back to
         // its own comparison rather than being handed an index that measured nothing.
         let mut failed = candidate(0, [10, 10, 10]);
-        failed.fail(AutotuneError::InvalidSamples {
+        failed.fail(AutotuneError::NotMeasured {
             name: "k0".to_string(),
         });
 
@@ -974,8 +1112,46 @@ mod tests {
     #[test]
     fn a_sampled_candidate_reports_its_measurements() {
         let result = candidate(1, [50, 60, 70]).into_result();
-        let outcome = result.outcome.expect("sampled candidate succeeds");
+        let outcome = result.outcome.expect("a sampled candidate should succeed");
         assert_eq!(outcome.index, 1);
         assert_eq!(outcome.computation.min, Duration::from_micros(60));
+    }
+
+    #[test]
+    fn a_round_ends_once_every_live_candidate_converged() {
+        let converged = candidate(0, [20, 20, 20, 20, 20]);
+        let mut out = candidate(1, [10]);
+        out.live = false;
+
+        assert_eq!(
+            RoundEnd::after_elimination(&[converged, out]),
+            RoundEnd::Done
+        );
+        assert_eq!(
+            RoundEnd::after_elimination(&[candidate(0, [20])]),
+            RoundEnd::Continue
+        );
+    }
+
+    #[test]
+    fn a_failed_hold_fails_every_candidate_of_the_batch() {
+        let first = TuneFn::<(), ()>::new("first".to_string(), Box::new(|_| Ok(())));
+        let reason = ServerError::Generic {
+            reason: "the device thread is gone".into(),
+            backtrace: Default::default(),
+        };
+
+        let outcome = BatchOutcome::hold_failed(&[0], &[&first], &reason);
+
+        assert!(!outcome.any_success);
+        assert!(matches!(
+            outcome.results[..],
+            [(
+                0,
+                AutotuneResult {
+                    outcome: Err(AutotuneError::HoldFailed { .. })
+                }
+            )]
+        ));
     }
 }

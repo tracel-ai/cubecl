@@ -1,95 +1,69 @@
 use alloc::vec::Vec;
 use core::time::Duration;
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
-use cubecl_common::profile::{ProfileTicks, TimingMethod};
+use cubecl_common::profile::TimingMethod;
 
-/// The timings collected for one candidate, plus the small amount of state needed to decide
-/// whether it is still worth sampling.
+/// Keeps the timings of one candidate, and the little state needed to decide whether it is still
+/// worth sampling.
 ///
 /// `BenchmarkComputations::score` is not usable while tuning is in flight: at a single sample the
 /// variance is zero and reads as perfect stability. This tracks the sample count explicitly so
 /// elimination can require evidence instead of inferring it from a degenerate variance.
 #[derive(Debug, Default)]
-pub struct SampleSet {
+pub struct SampleKeeper {
+    /// Every sample, in the order it was taken (Arrival Usage), read from the second on once
+    /// enough were taken (Position Usage).
     durations: Vec<Duration>,
-    stalled: u8,
+    /// Samples in a row that did not improve on the best.
+    stalled_count: u8,
+    summary: SampleSummary,
 }
 
-/// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
-/// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
-/// launched, and recorded it would be the fastest sample in the round and end it on the spot.
-pub fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
-    ticks
-        .map(|ticks| ticks.duration())
-        .filter(|duration| !duration.is_zero())
+/// What a [`SampleKeeper`] knows of its candidate so far.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SampleSummary {
+    pub count: usize,
+    /// The fastest reliable sample: the first one is left out once enough remain without it.
+    pub best: Option<Duration>,
+    /// Whether the candidate stopped improving.
+    pub converged: bool,
 }
 
-impl SampleSet {
-    pub fn push(&mut self, duration: Duration) {
-        let before = self.best();
+impl SampleKeeper {
+    /// Keep `duration` as the candidate's latest sample.
+    pub fn keep(&mut self, duration: Duration) {
+        let before = self.summary.best;
         self.durations.push(duration);
-
-        // This push ages the biased first sample out, so the two bests are taken over different
-        // samples and their difference says nothing about progress.
-        if self.durations.len() == DISCARD_THRESHOLD {
-            self.stalled = 0;
-            return;
-        }
-
-        let improved = match (before, self.best()) {
-            (Some(before), Some(after)) => TimeChange::of(after, before) == TimeChange::Improvement,
-            _ => true,
-        };
-
-        self.stalled = if improved {
-            0
-        } else {
-            self.stalled.saturating_add(1)
+        let best = self.reliable().iter().min().copied();
+        self.stalled_count = self.stalled_after(before, best);
+        self.summary = SampleSummary {
+            count: self.durations.len(),
+            best,
+            converged: self.stalled_count >= CONVERGENCE_ROUND_COUNT,
         };
     }
 
-    pub fn len(&self) -> usize {
-        self.durations.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.durations.is_empty()
-    }
-
-    /// The first sample follows a single warmup, so it still carries allocation and clock ramp
-    /// costs. It is dropped once enough samples remain without it.
-    fn reliable(&self) -> &[Duration] {
-        if self.durations.len() >= DISCARD_THRESHOLD {
-            &self.durations[1..]
-        } else {
-            &self.durations
-        }
-    }
-
-    pub fn best(&self) -> Option<Duration> {
-        self.reliable().iter().min().copied()
-    }
-
-    pub fn converged(&self) -> bool {
-        self.stalled >= CONVERGENCE_ROUNDS
+    pub fn summary(&self) -> SampleSummary {
+        self.summary
     }
 
     /// Whether enough samples independently landed under `limit` to trust a short circuit.
     ///
-    /// Unlike [`Self::best`] this counts the warmup-biased first sample, deliberately: the bias
-    /// is toward being slower, so clearing the limit despite it is the conservative direction.
-    /// Excluding it would also make a short circuit impossible during the first pass, where it
-    /// is the only sample there is.
+    /// Unlike [`SampleSummary::best`] this counts the warmup-biased first sample, deliberately:
+    /// the bias is toward being slower, so clearing the limit despite it is the conservative
+    /// direction. Excluding it would also make a short circuit impossible during the first pass,
+    /// where it is the only sample there is.
     pub fn confirmed_under(&self, limit: Duration, required: usize) -> bool {
         self.durations.iter().filter(|d| **d <= limit).count() >= required
     }
 
-    /// Whether any sample at all landed under `limit` — the cheap gate before a candidate is
-    /// worth spending confirmation samples on.
+    /// Whether any sample at all landed under `limit` — the cheap gate before a candidate is worth
+    /// spending confirmation samples on.
     pub fn any_under(&self, limit: Duration) -> bool {
         self.durations.iter().any(|d| *d <= limit)
     }
 
+    /// What the reliable samples measure, timed by `method`.
     pub fn computation(&self, method: TimingMethod) -> BenchmarkComputations {
         BenchmarkComputations::new(&BenchmarkDurations::from_durations(
             method,
@@ -98,10 +72,40 @@ impl SampleSet {
     }
 }
 
+impl SampleKeeper {
+    /// The first sample follows a single warmup, so it still carries allocation and clock ramp
+    /// costs. It is dropped once enough samples remain without it.
+    fn reliable(&self) -> &[Duration] {
+        if self.durations.len() >= DISCARD_AFTER_SAMPLE_COUNT {
+            &self.durations[1..]
+        } else {
+            &self.durations
+        }
+    }
+
+    /// The stalled count once the best moved from `before` to `after`.
+    ///
+    /// The sample that ages the biased first one out resets it: the two bests are then taken over
+    /// different samples, and their difference says nothing about progress.
+    fn stalled_after(&self, before: Option<Duration>, after: Option<Duration>) -> u8 {
+        if self.durations.len() == DISCARD_AFTER_SAMPLE_COUNT {
+            return 0;
+        }
+        match (before, after) {
+            (Some(before), Some(after))
+                if TimeChange::of(after, before) != TimeChange::Improvement =>
+            {
+                self.stalled_count.saturating_add(1)
+            }
+            _ => 0,
+        }
+    }
+}
+
 /// How a time compares to a baseline, once noise is set aside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeChange {
-    /// Faster than the baseline by more than the [`IMPROVEMENT_THRESHOLD`].
+    /// Faster than the baseline by more than the [`IMPROVEMENT_THRESHOLD_FRACTION`].
     Improvement,
     /// Within the threshold of the baseline either way: indistinguishable from noise.
     Neutral,
@@ -112,53 +116,40 @@ pub enum TimeChange {
 impl TimeChange {
     /// How `time` compares to `baseline`.
     pub fn of(time: Duration, baseline: Duration) -> Self {
-        if time < baseline.mul_f64(1.0 - IMPROVEMENT_THRESHOLD) {
-            Self::Improvement
-        } else if time > baseline.mul_f64(1.0 + IMPROVEMENT_THRESHOLD) {
-            Self::Regression
-        } else {
-            Self::Neutral
+        let faster = time < baseline.mul_f64(1.0 - IMPROVEMENT_THRESHOLD_FRACTION);
+        let slower = time > baseline.mul_f64(1.0 + IMPROVEMENT_THRESHOLD_FRACTION);
+        match (faster, slower) {
+            (true, _) => Self::Improvement,
+            (_, true) => Self::Regression,
+            _ => Self::Neutral,
         }
     }
 }
 
-/// Total samples required before the warmup-biased first sample is discarded.
-const DISCARD_THRESHOLD: usize = 3;
+/// Samples required before the warmup-biased first sample is discarded.
+const DISCARD_AFTER_SAMPLE_COUNT: usize = 3;
 /// Relative change a time must exceed to count as an improvement or a regression rather than
 /// noise.
-const IMPROVEMENT_THRESHOLD: f64 = 0.02;
+const IMPROVEMENT_THRESHOLD_FRACTION: f64 = 0.02;
 /// Consecutive non-improving samples before a candidate is considered converged.
-const CONVERGENCE_ROUNDS: u8 = 2;
+const CONVERGENCE_ROUND_COUNT: u8 = 2;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_common::profile::Instant;
 
-    #[test]
-    fn a_zero_sample_is_no_time() {
-        let now = Instant::now();
-        assert_eq!(measured(Some(ProfileTicks::from_start_end(now, now))), None);
-        assert_eq!(measured(None), None);
-        let later = now + Duration::from_micros(3);
-        assert_eq!(
-            measured(Some(ProfileTicks::from_start_end(now, later))),
-            Some(Duration::from_micros(3))
-        );
-    }
-
-    fn set(durations: impl IntoIterator<Item = u64>) -> SampleSet {
-        let mut set = SampleSet::default();
+    fn keeper(durations: impl IntoIterator<Item = u64>) -> SampleKeeper {
+        let mut keeper = SampleKeeper::default();
         for millis in durations {
-            set.push(Duration::from_millis(millis));
+            keeper.keep(Duration::from_millis(millis));
         }
-        set
+        keeper
     }
 
     #[test]
-    fn keeps_every_sample_below_the_discard_threshold() {
+    fn keeps_every_sample_below_the_discard_count() {
         assert_eq!(
-            set([10, 20]).reliable(),
+            keeper([10, 20]).reliable(),
             &[Duration::from_millis(10), Duration::from_millis(20)]
         );
     }
@@ -167,41 +158,41 @@ mod tests {
     fn drops_the_warmup_biased_first_sample_once_enough_remain() {
         // The first sample is the fastest here, so dropping it has to move `best` upward:
         // that is the bias being removed, not data being lost.
-        let set = set([5, 20, 21]);
-        assert_eq!(set.reliable().len(), 2);
-        assert_eq!(set.best(), Some(Duration::from_millis(20)));
+        let keeper = keeper([5, 20, 21]);
+        assert_eq!(keeper.reliable().len(), 2);
+        assert_eq!(keeper.summary().best, Some(Duration::from_millis(20)));
     }
 
     #[test]
     fn converges_after_consecutive_non_improving_samples() {
-        // Gains under the 2% epsilon do not count as progress. The third push only shifts the
+        // Gains under the 2% epsilon do not count as progress. The third sample only shifts the
         // window, so two further flat samples are what trips convergence.
-        let mut set = set([100, 20, 20]);
-        assert!(!set.converged());
-        set.push(Duration::from_millis(20));
-        assert!(!set.converged());
-        set.push(Duration::from_millis(20));
-        assert!(set.converged());
+        let mut keeper = keeper([100, 20, 20]);
+        assert!(!keeper.summary().converged);
+        keeper.keep(Duration::from_millis(20));
+        assert!(!keeper.summary().converged);
+        keeper.keep(Duration::from_millis(20));
+        assert!(keeper.summary().converged);
     }
 
     #[test]
     fn aging_out_the_biased_sample_does_not_count_as_a_stall() {
         // The first sample is the fastest, so dropping it raises `best`. That is the window
         // moving, not the candidate failing to improve, and must not count toward convergence.
-        let mut set = set([5, 20, 21]);
-        assert!(!set.converged());
-        set.push(Duration::from_millis(20));
-        assert!(!set.converged());
-        set.push(Duration::from_millis(20));
-        assert!(set.converged());
+        let mut keeper = keeper([5, 20, 21]);
+        assert!(!keeper.summary().converged);
+        keeper.keep(Duration::from_millis(20));
+        assert!(!keeper.summary().converged);
+        keeper.keep(Duration::from_millis(20));
+        assert!(keeper.summary().converged);
     }
 
     #[test]
     fn a_real_improvement_resets_convergence() {
-        let mut set = set([20, 20, 20, 20, 20]);
-        assert!(set.converged());
-        set.push(Duration::from_millis(5));
-        assert!(!set.converged());
+        let mut keeper = keeper([20, 20, 20, 20, 20]);
+        assert!(keeper.summary().converged);
+        keeper.keep(Duration::from_millis(5));
+        assert!(!keeper.summary().converged);
     }
 
     #[test]
@@ -209,23 +200,43 @@ mod tests {
         let limit = Duration::from_millis(10);
         // One fast sample among slow ones is exactly the lucky measurement that must not
         // commit a decision to the persistent cache on its own.
-        assert!(!set([5, 50]).confirmed_under(limit, 2));
-        assert!(set([5, 50, 6]).confirmed_under(limit, 2));
+        assert!(!keeper([5, 50]).confirmed_under(limit, 2));
+        assert!(keeper([5, 50, 6]).confirmed_under(limit, 2));
+    }
+
+    #[test]
+    fn any_sample_under_the_limit_is_worth_confirming() {
+        let limit = Duration::from_millis(10);
+        assert!(keeper([50, 5]).any_under(limit));
+        assert!(!keeper([50, 60]).any_under(limit));
     }
 
     #[test]
     fn computation_is_built_from_the_reliable_samples_only() {
-        let set = set([1, 20, 30]);
-        let computation = set.computation(TimingMethod::System);
+        let computation = keeper([1, 20, 30]).computation(TimingMethod::System);
         assert_eq!(computation.min, Duration::from_millis(20));
         assert_eq!(computation.max, Duration::from_millis(30));
     }
 
     #[test]
-    fn empty_set_has_no_best() {
-        let set = SampleSet::default();
-        assert!(set.is_empty());
-        assert_eq!(set.best(), None);
-        assert_eq!(set.len(), 0);
+    fn an_empty_keeper_has_no_best() {
+        assert_eq!(SampleKeeper::default().summary(), SampleSummary::default());
+    }
+
+    #[test]
+    fn a_time_within_the_threshold_is_neutral() {
+        let baseline = Duration::from_micros(100);
+        assert_eq!(
+            TimeChange::of(Duration::from_micros(99), baseline),
+            TimeChange::Neutral
+        );
+        assert_eq!(
+            TimeChange::of(Duration::from_micros(90), baseline),
+            TimeChange::Improvement
+        );
+        assert_eq!(
+            TimeChange::of(Duration::from_micros(110), baseline),
+            TimeChange::Regression
+        );
     }
 }

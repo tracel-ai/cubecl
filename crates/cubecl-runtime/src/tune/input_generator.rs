@@ -5,30 +5,27 @@ use super::TuneInputs;
 /// A tuner runs each candidate on the value `generate` returns, not on the real call
 /// inputs directly, so callers can synthesize test inputs (for example, allocate fresh
 /// output buffers) without mutating the real ones. The common case is just cloning the
-/// reference inputs; use [`CloneInputGenerator`] for that.
+/// reference inputs, which [`TunableSet::new_cloning_inputs`](super::TunableSet::new_cloning_inputs)
+/// does.
 ///
 /// There's no `Fn`-based blanket impl for arbitrary [`TuneInputs`] families because
 /// `for<'a> Fn(&K, &I::At<'a>) -> I::At<'a>` runs into E0582 (`Fn`'s `Output` cannot
 /// depend on the higher-ranked lifetime). For the owned-input case the HRTB collapses
 /// and the `Fn` blanket below works; borrowed-input families implement this trait
 /// directly.
+///
+/// # Assumptions
+///
+/// - The generated inputs pose the problem the reference inputs pose: the tune measures the one
+///   and keeps its answer for the other.
+/// - Every candidate may write the generated inputs without touching the reference ones.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid input generator",
     label = "invalid input generator"
 )]
 pub trait InputGenerator<K, I: TuneInputs>: Send + Sync + 'static {
-    /// Generate a set of inputs for a given key and reference inputs.
+    /// Every implementation answers inputs posing the problem of `key` and `inputs`.
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> I::At<'a>;
-}
-
-/// [`InputGenerator`] that clones the reference inputs verbatim.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct CloneInputGenerator;
-
-impl<K, I: TuneInputs> InputGenerator<K, I> for CloneInputGenerator {
-    fn generate<'a>(&self, _key: &K, inputs: &I::At<'a>) -> I::At<'a> {
-        inputs.clone()
-    }
 }
 
 /// `Fn(&K, &A) -> A` acts as an [`InputGenerator`] when `A` is an owned type. For

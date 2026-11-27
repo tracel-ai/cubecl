@@ -120,14 +120,11 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
         AutotuneError::Unknown { name, err } => (Some(name), failed(err)),
         AutotuneError::Rejected { name, reason } => (Some(name), failed(reason)),
         AutotuneError::Panicked { name, message } => (Some(name), failed(message)),
-        AutotuneError::InvalidSamples { name } => {
-            (Some(name), failed("all samples are invalid".to_string()))
-        }
         AutotuneError::NotMeasured { name } => (
             Some(name),
             failed("a profiled sample carried no measurement".to_string()),
         ),
-        AutotuneError::NoValidKernelFound { context } => (None, failed(context)),
+        AutotuneError::HoldFailed { name, reason } => (Some(name), failed(reason)),
         AutotuneError::Launch(error) => (None, failed(error.to_string())),
     }
 }

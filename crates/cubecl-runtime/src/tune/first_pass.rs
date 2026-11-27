@@ -2,14 +2,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use crate::tune::base::Batch;
-use crate::tune::patience::PatienceTable;
+use crate::tune::patience::PatienceTracker;
+use crate::tune::plan::Batch;
 
 /// The next candidate a batch's first pass measures, and the candidates to compile before it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FirstPassStep {
     pub slot: usize,
-    /// Ascending, and empty when `slot` was compiled with an earlier window.
+    /// The slots to compile first, ascending for a binary search (Membership Usage), and empty
+    /// when `slot` was compiled with an earlier window.
     pub compile: Vec<usize>,
 }
 
@@ -29,13 +30,13 @@ pub struct CompileWindows {
 /// that stops compiles at most one window it never measures.
 #[derive(Debug)]
 pub struct FirstPassPlanner {
-    patience: PatienceTable,
+    patience: PatienceTracker,
     /// Whether each slot's kernels were compiled, by slot (Position Usage).
     compiled: Vec<bool>,
     /// The first slot not planned yet.
     next: usize,
-    measured: usize,
-    min_measured: usize,
+    measured_count: usize,
+    min_measured_count: usize,
     /// The size of the next window to compile, `later_window` once one was.
     window: usize,
     later_window: usize,
@@ -44,13 +45,13 @@ pub struct FirstPassPlanner {
 impl FirstPassPlanner {
     /// A planner that compiles `windows` candidates together, at least one a window.
     pub fn new(batch: &Batch, windows: CompileWindows) -> Self {
-        let patience = PatienceTable::new(batch);
+        let patience = PatienceTracker::new(batch);
         Self {
-            min_measured: patience.min_measured(),
+            min_measured_count: patience.min_measured_count(),
             compiled: vec![false; batch.entries.len()],
             patience,
             next: 0,
-            measured: 0,
+            measured_count: 0,
             window: windows.first_count.max(1),
             later_window: windows.later_count.max(1),
         }
@@ -61,33 +62,34 @@ impl FirstPassPlanner {
     /// holds. `None` once
     /// every remaining slot is skipped.
     pub fn plan_next(&mut self) -> Option<FirstPassStep> {
-        let slot = (self.next..self.compiled.len()).find(|slot| !self.patience.skips(*slot))?;
+        let slot =
+            (self.next..self.compiled.len()).find(|slot| !self.patience.skips_slot(*slot))?;
         self.next = slot + 1;
         let compile = if self.compiled[slot] {
             Vec::new()
         } else {
-            self.claim_window(slot)
+            self.claim_window_from_slot(slot)
         };
         Some(FirstPassStep { slot, compile })
     }
 
     /// Count the candidate at `slot` as measured, by its best first-pass time.
     pub fn record(&mut self, slot: usize, time: Duration) {
-        self.measured += 1;
-        self.patience.record(slot, time);
+        self.measured_count += 1;
+        self.patience.track(slot, time);
     }
 
     /// Whether the batch measured enough candidates for the bounds' time limit to end it.
     pub fn may_short_circuit(&self) -> bool {
-        self.measured >= self.min_measured
+        self.measured_count >= self.min_measured_count
     }
 }
 
 impl FirstPassPlanner {
     /// Mark the window starting at `slot` compiled, and return it.
-    fn claim_window(&mut self, slot: usize) -> Vec<usize> {
+    fn claim_window_from_slot(&mut self, slot: usize) -> Vec<usize> {
         let window: Vec<usize> = (slot..self.compiled.len())
-            .filter(|slot| !self.compiled[*slot] && !self.patience.skips(*slot))
+            .filter(|slot| !self.compiled[*slot] && !self.patience.skips_slot(*slot))
             .take(self.window)
             .collect();
         for slot in &window {
@@ -102,11 +104,12 @@ impl FirstPassPlanner {
 mod tests {
     use super::*;
     use crate::tune::Patience;
-    use crate::tune::base::{BatchEntry, GroupId};
+    use crate::tune::group::GroupId;
+    use crate::tune::plan::BatchEntry;
 
     /// A batch of `len` candidates of one ordered group with `patience`.
     fn batch(len: usize, patience: Option<Patience>) -> Batch {
-        let group = GroupId::new(0);
+        let group = GroupId(0);
         Batch {
             entries: (0..len)
                 .map(|index| BatchEntry {
@@ -122,10 +125,10 @@ mod tests {
         }
     }
 
-    fn patience(min_measured: usize, max_misses: usize) -> Patience {
+    fn patience(min_measured_count: usize, max_miss_count: usize) -> Patience {
         Patience {
-            min_measured,
-            max_misses,
+            min_measured_count,
+            max_miss_count,
         }
     }
 
@@ -225,7 +228,7 @@ mod tests {
 
         let step = planner
             .plan_next()
-            .expect("a batch without patience measures everything");
+            .expect("a batch without patience should measure everything");
         planner.record(step.slot, Duration::from_micros(1));
 
         assert!(planner.may_short_circuit());
