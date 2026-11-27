@@ -54,16 +54,18 @@ impl<K: AutotuneKeyable> Tuner<K> {
         }
     }
 
-    /// Drop the answers of an environment the process switched away from, so the next
-    /// [`decided`](Self::decided) answers the current one's.
-    pub fn reset_if_environment_switched(&self) {
+    /// Drop the answers of an environment the process switched away from, then answer what memory
+    /// holds for `key`, both under one lock of the tracker: the probe of a call's fast path.
+    pub fn reset_and_answer(&self, key: &K) -> TuneAnswer {
+        #[cfg_attr(not(persistence), allow(unused_mut))]
+        let mut tracker = self.tracker.lock();
         #[cfg(persistence)]
-        self.tracker.lock().reset_if_environment_switched();
+        tracker.reset_if_environment_switched();
+        tracker.decided(key)
     }
 
-    /// What memory holds for `key`: a fast-path probe that never reads the persistent cache, so
-    /// a miss here falls through to [`tune`](Self::tune), which reads the store and resolves the
-    /// real state.
+    /// What memory holds for `key`, reading only: it never reads the persistent cache and never
+    /// drops an earlier environment's answers, which it reports as a miss.
     pub fn decided(&self, key: &K) -> TuneAnswer {
         self.tracker.lock().decided(key)
     }

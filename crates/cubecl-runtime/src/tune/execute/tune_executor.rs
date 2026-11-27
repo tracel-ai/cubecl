@@ -94,8 +94,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
 
         // Fast path: a cached hit skips straight to the decided candidate. A miss falls through to
         // `tune`, which reads the store.
-        tuner.reset_if_environment_switched();
-        if let TuneAnswer::Hit { decided_index } = tuner.decided(&key) {
+        if let TuneAnswer::Hit { decided_index } = tuner.reset_and_answer(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
             check_candidates(&operations, &inputs, client, false);
