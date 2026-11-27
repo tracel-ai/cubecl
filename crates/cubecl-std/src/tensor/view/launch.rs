@@ -427,8 +427,8 @@ mod dynamic {
     pub struct ScaleBindings<C: Coordinates> {
         pub(crate) inner: Box<ViewArg<C>>,
         pub(crate) global_scale: Option<BufferArg>,
-        /// A lookup scheme's `2^bits`-entry table, present exactly under
-        /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode). Not a scale level —
+        /// An index format's `2^bits`-entry table, present exactly when the scheme's value is
+        /// one. Not a scale level —
         /// [`len`](Self::len) never counts it — but it rides here because it is the same kind of
         /// thing: a side binding the dequantizing read folds in.
         pub(crate) table: Option<BufferArg>,
@@ -454,9 +454,8 @@ mod dynamic {
             }
         }
 
-        /// The bindings of a one-level lookup scheme
-        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode)): the scales and the
-        /// table each stored field indexes, so a read reconstructs `table[field] * scale`.
+        /// The bindings of a one-level scheme of an index format: the scales and the table each
+        /// stored field indexes, so a read reconstructs `table[field] * scale`.
         ///
         /// `table` must hold `2^bits` f32 entries — registration checks its length against the
         /// scheme, and the unpack's mask bounds every index to that range.

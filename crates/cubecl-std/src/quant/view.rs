@@ -72,8 +72,7 @@ pub struct QuantizedView<
     values: View<'a, Vector<Q, NQ>, C>,
     scales: View<'a, S, C>,
     known_scale: KnownScale,
-    /// A lookup scheme's `2^bits`-entry table, present exactly under
-    /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode).
+    /// An index format's `2^bits`-entry table, present exactly when the scheme's value is one.
     table: ComptimeOption<Box<[f32]>>,
     #[cube(comptime)]
     scheme: QuantScheme,
@@ -514,6 +513,9 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
             | QuantValue::Q2S
             | QuantValue::E2M1 => {
                 panic!("Sub-byte quantization can't be native")
+            }
+            QuantValue::Index8 | QuantValue::Index4 | QuantValue::Index2 => {
+                panic!("an index format decodes only from packed u32 words")
             }
         },
         QuantStore::PackedU32(_) => run_with_q::<F, u32>,

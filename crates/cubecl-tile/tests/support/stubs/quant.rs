@@ -1,4 +1,3 @@
-use cubecl::quant::scheme::QuantMode;
 use cubecl_common::{
     e2m1, e4m3, e5m2,
     quant::scheme::{QuantScheme, QuantStore, QuantValue},
@@ -47,28 +46,28 @@ fn quantized_values(
     scales_shape: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<f32> {
+    // An index is a table entry, not a rounded value; these stubs carry no table, so a lookup
+    // test states its indices exactly ([`pack_q_values`]) and multiplies the table into its own
+    // host reference.
+    assert!(
+        !scheme.value.is_index(),
+        "quantize stub: lookup takes exact indices via pack_q_values"
+    );
     let (range_min, range_max) = scheme.value.range();
-
-    match scheme.mode {
-        QuantMode::Symmetric => values
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| {
-                let scale = scales[scale_index(i, shape, block_axes, scales_shape)];
-                let scaled = v / scale;
-                let snapped = if rounds_to_integers(scheme.value) {
-                    scaled.round()
-                } else {
-                    scaled
-                };
-                snapped.clamp(range_min, range_max)
-            })
-            .collect(),
-        // A lookup field is a table index, not a rounded value; these stubs carry no table, so a
-        // lookup test states its indices exactly ([`pack_q_values`]) and multiplies the table into
-        // its own host reference.
-        QuantMode::Lookup => panic!("quantize stub: lookup takes exact indices via pack_q_values"),
-    }
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let scale = scales[scale_index(i, shape, block_axes, scales_shape)];
+            let scaled = v / scale;
+            let snapped = if rounds_to_integers(scheme.value) {
+                scaled.round()
+            } else {
+                scaled
+            };
+            snapped.clamp(range_min, range_max)
+        })
+        .collect()
 }
 
 /// Whether the format's representable values are the integers in its range, which is what makes
@@ -85,7 +84,10 @@ fn rounds_to_integers(quant: QuantValue) -> bool {
         | QuantValue::Q4F
         | QuantValue::Q4S
         | QuantValue::Q2F
-        | QuantValue::Q2S => true,
+        | QuantValue::Q2S
+        | QuantValue::Index8
+        | QuantValue::Index4
+        | QuantValue::Index2 => true,
         QuantValue::E5M2
         | QuantValue::E4M3
         | QuantValue::E2M1
@@ -103,17 +105,16 @@ fn dequantized_values(
     scales_shape: &[usize],
     scheme: &QuantScheme,
 ) -> Vec<f32> {
-    match scheme.mode {
-        QuantMode::Symmetric => quantized
-            .iter()
-            .enumerate()
-            .map(|(i, &q)| q * scales[scale_index(i, shape, block_axes, scales_shape)])
-            .collect(),
-        QuantMode::Lookup => panic!(
-            "dequantize stub: lookup carries no table here; fold table[index] * scale into the \
-             test's own host reference"
-        ),
-    }
+    assert!(
+        !scheme.value.is_index(),
+        "dequantize stub: lookup carries no table here; fold table[index] * scale into the \
+         test's own host reference"
+    );
+    quantized
+        .iter()
+        .enumerate()
+        .map(|(i, &q)| q * scales[scale_index(i, shape, block_axes, scales_shape)])
+        .collect()
 }
 
 /// 1:1 native storage: `i8` for `Q8*`, fp8 bits for `E4M3`/`E5M2`.
@@ -204,6 +205,7 @@ fn field_code(q: f32, value: QuantValue) -> u32 {
         | QuantValue::Q4S
         | QuantValue::Q2F
         | QuantValue::Q2S => q as i32 as u32,
+        QuantValue::Index8 | QuantValue::Index4 | QuantValue::Index2 => q as u32,
     }
 }
 
@@ -234,6 +236,7 @@ fn code_value(raw: u32, size_quant: usize, value: QuantValue) -> f32 {
         QuantValue::F32 => f32::from_bits(raw),
         QuantValue::F16 => half::f16::from_bits(raw as u16).to_f32(),
         QuantValue::BF16 => half::bf16::from_bits(raw as u16).to_f32(),
+        QuantValue::Index8 | QuantValue::Index4 | QuantValue::Index2 => raw as f32,
         QuantValue::Q8F
         | QuantValue::Q8S
         | QuantValue::Q4F
@@ -327,13 +330,10 @@ fn scale_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_common::quant::scheme::{QuantMode, QuantStore, QuantValue, ScaleDtype};
+    use cubecl_common::quant::scheme::{QuantStore, QuantValue, ScaleDtype};
 
     fn scheme(value: QuantValue, store: QuantStore) -> QuantScheme {
-        QuantScheme::default()
-            .with_mode(QuantMode::Symmetric)
-            .with_value(value)
-            .with_store(store)
+        QuantScheme::default().with_value(value).with_store(store)
     }
 
     /// Quantize then dequantize and assert the round-trip stays within one

@@ -58,8 +58,6 @@ pub struct QuantScheme {
     pub value: QuantValue,
     /// Data type used for storing quantized values.
     pub store: QuantStore,
-    /// Quantization mode (e.g., symmetric).
-    pub mode: QuantMode,
     /// The level whose scales lie beside the values, one per block of its size.
     pub finest: BlockScale,
     /// A level over the finest one, where the scheme has one: each of its blocks covers whole
@@ -77,7 +75,6 @@ impl Default for QuantScheme {
         Self {
             value: QuantValue::Q8F,
             store: QuantStore::PackedU32(0),
-            mode: QuantMode::Symmetric,
             finest: BlockScale {
                 size: BlockSize::TENSOR,
                 dtype: ScaleDtype::F32,
@@ -88,12 +85,6 @@ impl Default for QuantScheme {
 }
 
 impl QuantScheme {
-    /// Set the quantization mode.
-    pub fn with_mode(mut self, mode: QuantMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
     /// Set the data type used for quantized values.
     pub fn with_value(mut self, value: QuantValue) -> Self {
         self.value = value;
@@ -430,7 +421,8 @@ impl F32Grid {
     }
 }
 
-/// Data type used to represent quantized values.
+/// The format of each stored value: a number (an integer or a float) the scales multiply, or an
+/// index into a lookup table (`table[field] * scale`).
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantValue {
     /// 8-bit quantization with full range.
@@ -457,15 +449,27 @@ pub enum QuantValue {
     F16,
     /// A bfloat16, one a stored element: a float operand's format.
     BF16,
+    /// An 8-bit index into a lookup table of `2^8` floats, not a number: a read reconstructs
+    /// `table[field] * scale`. (Known as a codebook: NF4, K-quants and vector quantizers decode
+    /// this way.) The table travels as its own binding beside the values and scales.
+    Index8,
+    /// A 4-bit index into a lookup table of `2^4` floats, read as [`Index8`](Self::Index8) is.
+    Index4,
+    /// A 2-bit index into a lookup table of `2^2` floats, read as [`Index8`](Self::Index8) is.
+    Index2,
 }
 
 impl QuantValue {
     /// Returns the size of the quantization input type in bits.
     pub fn size_bits(&self) -> usize {
         match self {
-            QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2 => 8,
-            QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 => 4,
-            QuantValue::Q2F | QuantValue::Q2S => 2,
+            QuantValue::Q8F
+            | QuantValue::Q8S
+            | QuantValue::E4M3
+            | QuantValue::E5M2
+            | QuantValue::Index8 => 8,
+            QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 | QuantValue::Index4 => 4,
+            QuantValue::Q2F | QuantValue::Q2S | QuantValue::Index2 => 2,
             QuantValue::F32 => 32,
             QuantValue::F16 | QuantValue::BF16 => 16,
         }
@@ -495,6 +499,9 @@ impl QuantValue {
             QuantValue::F32 => (f32::MIN, f32::MAX),
             QuantValue::F16 => (half::f16::MIN.to_f32(), half::f16::MAX.to_f32()),
             QuantValue::BF16 => (half::bf16::MIN.to_f32(), half::bf16::MAX.to_f32()),
+            QuantValue::Index8 => (0.0, 255.0),
+            QuantValue::Index4 => (0.0, 15.0),
+            QuantValue::Index2 => (0.0, 3.0),
         }
     }
 
@@ -503,8 +510,21 @@ impl QuantValue {
     pub fn is_float(&self) -> bool {
         match self {
             Self::E4M3 | Self::E5M2 | Self::E2M1 | Self::F32 | Self::F16 | Self::BF16 => true,
-            Self::Q8F | Self::Q8S | Self::Q4F | Self::Q4S | Self::Q2F | Self::Q2S => false,
+            Self::Q8F
+            | Self::Q8S
+            | Self::Q4F
+            | Self::Q4S
+            | Self::Q2F
+            | Self::Q2S
+            | Self::Index8
+            | Self::Index4
+            | Self::Index2 => false,
         }
+    }
+
+    /// If each value is an index into a lookup table rather than a number.
+    pub fn is_index(&self) -> bool {
+        matches!(self, Self::Index8 | Self::Index4 | Self::Index2)
     }
 
     /// If the values are integers whose range leaves out the most negative value their bits hold.
@@ -518,7 +538,10 @@ impl QuantValue {
             | Self::E2M1
             | Self::F32
             | Self::F16
-            | Self::BF16 => false,
+            | Self::BF16
+            | Self::Index8
+            | Self::Index4
+            | Self::Index2 => false,
             Self::Q8S | Self::Q4S | Self::Q2S => true,
         }
     }
@@ -557,19 +580,6 @@ pub enum QuantStore {
     PackedU32(usize),
     // /// Store packed quantized values in a 8-bit unsigned integer.
     // U8,
-}
-
-/// Strategy used to quantize values.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum QuantMode {
-    /// Symmetric or scale quantization.
-    Symmetric,
-    /// The stored field is an index into a lookup table of `2^bits` floats, not a number: a read
-    /// reconstructs `table[field] * scale`. (Known as a codebook in the quantization literature —
-    /// NF4, K-quants, and vector quantizers all decode this way.) The table travels as its own
-    /// binding beside the values and scales; only the field's bit width is read from
-    /// [`QuantScheme::value`], since an index has no sign or float semantics of its own.
-    Lookup,
 }
 
 /// The data type a scale level stores its scales in.
@@ -621,11 +631,9 @@ codes!(QuantValue {
     F32 => 9,
     F16 => 10,
     BF16 => 11,
-});
-
-codes!(QuantMode {
-    Symmetric => 0,
-    Lookup => 1,
+    Index8 => 12,
+    Index4 => 13,
+    Index2 => 14,
 });
 
 // `0` is no code: a level's bits read `0` when the scheme has no such level.
@@ -640,8 +648,8 @@ codes!(ScaleDtype {
 /// A [`QuantScheme`] packed into one `u64`, for an IR that carries a scheme as a scalar: a remote
 /// backend's custom operation crosses the wire as tensors and scalars only.
 ///
-/// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), the
-/// mode (2), then each level the scheme states, the finest first: its dtype (3, `0` where there is
+/// The layout, from the low bits: the value (4), the store's kind (2) and packing axis (6), then
+/// each level the scheme states, the finest first: its dtype (3, `0` where there is
 /// no such level), whether the rest of the axes are whole (1), how many of the last axes it lists
 /// (3) and the extent along each of them, the last one first (8 each, `0` for the whole axis).
 impl QuantScheme {
@@ -658,8 +666,7 @@ impl QuantScheme {
         let mut fields = PackedFields::default()
             .with(self.value.to_code(), 4)?
             .with(store, 2)?
-            .with(axis as u64, 6)?
-            .with(self.mode.to_code(), 2)?;
+            .with(axis as u64, 6)?;
         fields = self.finest.pack(fields)?;
         if let Some(coarser) = self.coarser {
             fields = coarser.pack(fields)?;
@@ -677,7 +684,6 @@ impl QuantScheme {
         let (value, fields) = fields.split_bits(4)?;
         let (store, fields) = fields.split_bits(2)?;
         let (axis, fields) = fields.split_bits(6)?;
-        let (mode, fields) = fields.split_bits(2)?;
         let store = match store {
             0 => QuantStore::Native,
             1 => QuantStore::PackedNative(axis as usize),
@@ -692,7 +698,6 @@ impl QuantScheme {
         Some(Self {
             value: QuantValue::from_code(value)?,
             store,
-            mode: QuantMode::from_code(mode)?,
             finest: finest?,
             coarser,
         })
@@ -1139,13 +1144,12 @@ mod tests {
     }
 
     /// Every scheme a code holds packs into one that reads back as itself: every value, store (at
-    /// both ends of the axis), mode and dtype, and levels of every extent and rest, alone and
+    /// both ends of the axis) and dtype, and levels of every extent and rest, alone and
     /// together. The variants come from the code tables, which the build holds to every variant.
     #[test]
     #[cfg_attr(miri, ignore = "safe code only, and too slow under miri")]
     fn every_scheme_round_trips_through_its_code() {
         let values: Vec<_> = (0..1 << 4).filter_map(QuantValue::from_code).collect();
-        let modes: Vec<_> = (0..1 << 2).filter_map(QuantMode::from_code).collect();
         let dtypes: Vec<_> = (0..1 << 3).filter_map(ScaleDtype::from_code).collect();
         let stores = [
             QuantStore::Native,
@@ -1180,20 +1184,17 @@ mod tests {
         let mut count = 0;
         for value in values.iter().copied() {
             for store in stores {
-                for mode in modes.iter().copied() {
-                    for (finest, coarser) in pairs.iter().copied() {
-                        let scheme = QuantScheme {
-                            value,
-                            store,
-                            mode,
-                            finest,
-                            coarser,
-                        };
-                        let code = scheme.to_code().unwrap();
-                        assert_eq!(QuantScheme::from_code(code), Some(scheme), "{scheme:?}");
-                        codes.insert(code);
-                        count += 1;
-                    }
+                for (finest, coarser) in pairs.iter().copied() {
+                    let scheme = QuantScheme {
+                        value,
+                        store,
+                        finest,
+                        coarser,
+                    };
+                    let code = scheme.to_code().unwrap();
+                    assert_eq!(QuantScheme::from_code(code), Some(scheme), "{scheme:?}");
+                    codes.insert(code);
+                    count += 1;
                 }
             }
         }
@@ -1216,15 +1217,14 @@ mod tests {
         let refused = [
             ("value 15", (canonical & !0xF) | 15),
             ("store 3", canonical | (3 << 4)),
-            ("mode 2", canonical | (2 << 12)),
-            ("a dtype of 7", canonical | (7 << 14)),
-            ("six listed extents", (canonical & !(7 << 18)) | (6 << 18)),
+            ("a dtype of 7", canonical | (7 << 12)),
+            ("six listed extents", (canonical & !(7 << 16)) | (6 << 16)),
             ("an axis on a native store", native | (5 << 6)),
-            ("no finest level", canonical & !(7 << 14)),
-            ("an extent past the listed ones", canonical | (8 << 32)),
+            ("no finest level", canonical & !(7 << 12)),
+            ("an extent past the listed ones", canonical | (8 << 30)),
             (
                 "a listed extent that is the rest",
-                (canonical & !(0xFF << 21)) | (1 << 21),
+                (canonical & !(0xFF << 19)) | (1 << 19),
             ),
             ("bit 63", canonical | (1 << 63)),
         ];

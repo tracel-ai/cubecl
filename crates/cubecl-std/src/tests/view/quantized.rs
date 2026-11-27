@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1, e2m1x2, e4m3,
-    quant::scheme::{QuantMode, QuantScheme, QuantValue, ScaleDtype},
+    quant::scheme::{QuantScheme, QuantValue, ScaleDtype},
 };
 use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
 use cubecl_core::{self as cubecl};
@@ -494,9 +494,7 @@ pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: Client) {
 pub fn test_quantized_lookup<R: Runtime, F: Float + CubeElement>(client: Client) {
     let vector_size_float = 8;
 
-    let scheme = QuantScheme::default()
-        .with_value(QuantValue::Q4F)
-        .with_mode(QuantMode::Lookup);
+    let scheme = QuantScheme::default().with_value(QuantValue::Index4);
 
     // Ascending and centroid-like, every entry exact in f16 so the expectation is bit-equal
     // whatever `F` the runtime instantiates.

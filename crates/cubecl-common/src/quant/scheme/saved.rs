@@ -3,7 +3,7 @@ use core::num::NonZeroU8;
 use serde::Deserialize;
 
 use super::{
-    BlockExtent, BlockScale, BlockSize, QuantMode, QuantScheme, QuantStore, QuantValue, ScaleDtype,
+    BlockExtent, BlockScale, BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype,
 };
 
 /// A scheme as it may be read back: written with its finest and coarser levels, with the list of
@@ -13,7 +13,8 @@ use super::{
 pub(super) struct SavedScheme {
     pub value: QuantValue,
     pub store: QuantStore,
-    pub mode: QuantMode,
+    #[serde(default)]
+    pub mode: Option<SavedMode>,
     #[serde(default)]
     pub finest: Option<BlockScale>,
     #[serde(default)]
@@ -26,6 +27,14 @@ pub(super) struct SavedScheme {
     pub row: Option<ScaleDtype>,
     #[serde(default)]
     pub block: Option<SavedBlockScale>,
+}
+
+/// How a scheme written before its value said so read its stored fields: as numbers, or as indices
+/// into a lookup table.
+#[derive(Deserialize)]
+pub(super) enum SavedMode {
+    Symmetric,
+    Lookup,
 }
 
 /// A per-block level.
@@ -59,10 +68,13 @@ impl TryFrom<SavedScheme> for QuantScheme {
             .into_iter()
             .chain(saved.blocks)
             .flatten();
+        let value = match saved.mode {
+            Some(SavedMode::Lookup) => index_of_width(saved.value)?,
+            Some(SavedMode::Symmetric) | None => saved.value,
+        };
         let scheme = Self {
-            value: saved.value,
+            value,
             store: saved.store,
-            mode: saved.mode,
             ..Self::default()
         };
         let scheme = match levels.next() {
@@ -77,6 +89,17 @@ impl TryFrom<SavedScheme> for QuantScheme {
             Some(_) => Err("a scheme holds at most two scale levels"),
             None => Ok(scheme),
         }
+    }
+}
+
+/// The index format as wide as `value`, which a scheme written with a lookup mode stored its
+/// indices in.
+fn index_of_width(value: QuantValue) -> Result<QuantValue, &'static str> {
+    match value {
+        QuantValue::Q8F | QuantValue::Q8S => Ok(QuantValue::Index8),
+        QuantValue::Q4F | QuantValue::Q4S => Ok(QuantValue::Index4),
+        QuantValue::Q2F | QuantValue::Q2S => Ok(QuantValue::Index2),
+        _ => Err("a lookup scheme stores its indices in an integer value"),
     }
 }
 
@@ -135,6 +158,23 @@ mod tests {
             let json = serde_json::to_value(scheme).unwrap();
             assert_eq!(serde_json::from_value::<QuantScheme>(json).unwrap(), scheme);
         }
+    }
+
+    /// A scheme written with a lookup mode stored indices in an integer value as wide.
+    #[test]
+    fn a_lookup_mode_reads_back_as_the_index_of_its_width() {
+        let lookup = |value: &str| {
+            json!({ "value": value, "store": { "PackedU32": 0 }, "mode": "Lookup" })
+        };
+        for (value, index) in [
+            ("Q8S", QuantValue::Index8),
+            ("Q4F", QuantValue::Index4),
+            ("Q2F", QuantValue::Index2),
+        ] {
+            let scheme = serde_json::from_value::<QuantScheme>(lookup(value)).unwrap();
+            assert_eq!(scheme.value, index, "{value}");
+        }
+        assert!(serde_json::from_value::<QuantScheme>(lookup("E4M3")).is_err());
     }
 
     /// The form published models hold, with and without the per-row level it had last.
