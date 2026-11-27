@@ -212,12 +212,21 @@ impl StagesExpand<OperandPair> {
         self.prefetching_laps(scope, walk, total, compute);
     }
 
-    /// Fill and publish the first region before any contraction.
+    /// Fill and publish the first region before any contraction, through the registers the laps
+    /// fetch into, so its loads issue together as theirs do.
     fn prime(&mut self, scope: &Scope, walk: &WalkExpand, total: &NativeExpand<usize>) {
+        define_scalar!(Lhs);
+        define_scalar!(Rhs);
+        let (lhs_element, rhs_element) = self.__expand_fetched_elements_method(scope);
+        let _lhs = scope.define_type::<Lhs>(lhs_element);
+        let _rhs = scope.define_type::<Rhs>(rhs_element);
         let any = 0usize.into_expand(scope).__expand_lt_method(scope, total);
         if_expand(scope, any, |scope| {
             let first = walk.__expand_region_method(scope, FIRST_SLOT.into_expand(scope));
-            self.fill_streamed(scope, FIRST_SLOT, &first);
+            let sources = self.sources.clone();
+            self.__expand_fill_through_registers_method::<Lhs, Rhs>(
+                scope, FIRST_SLOT, &sources, &first,
+            );
             self.publish(scope, FIRST_SLOT);
         });
     }
