@@ -110,10 +110,11 @@ impl TuneLogger {
 }
 
 /// The measurement of the candidate at `index` among `results`, if it has one.
-fn measured_at(results: &[AutotuneResult], _index: usize) -> Option<&AutotuneOutcome> {
+fn measured_at(results: &[AutotuneResult], index: usize) -> Option<&AutotuneOutcome> {
     results
-        .first()
-        .and_then(|result| result.outcome.as_ref().ok())
+        .iter()
+        .filter_map(|result| result.outcome.as_ref().ok())
+        .find(|outcome| outcome.index == index)
 }
 
 /// Reports a tune's result: its key, every result, the context, and the decided candidate's
@@ -286,6 +287,17 @@ mod tests {
             .expect("a read logger should keep its context");
         assert_eq!(context.limit, Some(Duration::from_micros(5)));
         assert_eq!(context.events.len(), 1);
+    }
+
+    #[test]
+    fn the_report_names_the_decided_candidate_not_the_best_scored() {
+        // Sorted by score, candidate 0 leads, but the scheduler decided candidate 1.
+        let results = [measured(0, 40), measured(1, 50)];
+
+        assert_eq!(
+            measured_at(&results, 1).map(|outcome| outcome.index),
+            Some(1)
+        );
     }
 
     #[test]
