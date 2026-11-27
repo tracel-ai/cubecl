@@ -720,6 +720,114 @@ fn tile_product<A: Scalar, B: Scalar, CD: Numeric>(
     cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
+/// Values of `k` between one column of the `B` stage of [`transposed_stage_product`] and the
+/// next: sixteen of `k` and one 16-byte chunk of padding, so each column starts on its own chunk.
+#[cfg(feature = "amdgpu")]
+const TRANSPOSED_STAGE_PITCH: usize = 24;
+
+/// One `16 × 16 × 16` `f16` product summed in `f32`, its `B` stored row-major `[k, n]` in 8-wide
+/// lines and staged with each column's `k` contiguous: each of the first eight units reads a block
+/// of four rows of one line, transposes it in registers and stores each of its eight columns as
+/// one 8-byte line of `k`, then the plane loads `B` column-major from the stage. The fill a stage
+/// laid along its run takes in cubecl-tile.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn transposed_stage_product(
+    lhs: &[half::f16],
+    rhs: &[Vector<half::f16, Const<8>>],
+    out: &mut [f32],
+) {
+    let mut stage = Shared::<[half::f16]>::new_aligned_slice(16 * TRANSPOSED_STAGE_PITCH, 16usize);
+    let unit = UNIT_POS as usize;
+    if unit < 8 {
+        let k0 = (unit % 4) * 4;
+        let chunk = unit / 4;
+        let mut rows = Array::<Vector<half::f16, Const<8>>>::new(4usize);
+        #[unroll]
+        for r in 0..4usize {
+            rows[r] = rhs[(k0 + r) * 2 + chunk];
+        }
+        let lines = stage.as_vectorized_mut().with_vector_size_mut::<Const<4>>();
+        #[unroll]
+        for v in 0..8usize {
+            let mut column = Vector::<half::f16, Const<4>>::empty();
+            #[unroll]
+            for r in 0..4usize {
+                column.insert(r, rows[r].extract(v));
+            }
+            lines[((chunk * 8 + v) * TRANSPOSED_STAGE_PITCH + k0) / 4] = column;
+        }
+    }
+    sync_cube();
+    let a = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16u32,
+    );
+    let b = cmma::Matrix::<half::f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        &stage,
+        TRANSPOSED_STAGE_PITCH as u32,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    cmma::execute(&a, &b, &c, &c);
+    cmma::store(out, &c, 16u32, cmma::MatrixLayout::RowMajor);
+}
+
+/// [`transposed_stage_product`] for one plane of `arch`.
+#[cfg(feature = "amdgpu")]
+pub(crate) fn transposed_stage_product_kernel(
+    arch: &cubecl_core::ir::amd::GfxArch,
+) -> impl CubeKernel {
+    let plane_dim = arch
+        .plane_dim()
+        .expect("the architecture has a known plane width");
+    let core = arch
+        .matrix_core()
+        .expect("the architecture has matrix instructions");
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(plane_dim),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    let mut props = (*device_properties(plane_dim)).clone();
+    let half = half::f16::cube_type();
+    props.features.matmul.cmma.insert(MmaConfig {
+        a_type: half,
+        b_type: half,
+        cd_type: f32::cube_type(),
+        m: 16,
+        n: 16,
+        k: 16,
+    });
+    let target = TargetProperties {
+        mma: core.mma_properties(),
+    };
+    transposed_stage_product::TransposedStageProduct::new(
+        settings,
+        Arc::new(props),
+        Arc::new(target),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
 /// Each lane of the plane loads the elements of role `ident` it holds of `def`'s tile into
 /// `registers`, from `source`, where a row is `row_stride` elements after the one before it and
 /// a column `col_stride`.
