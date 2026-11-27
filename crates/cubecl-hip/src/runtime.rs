@@ -201,6 +201,7 @@ impl DeviceService for HipServer {
             .features
             .plane
             .insert(Plane::NonUniformControlFlow);
+        device_props.features.host_memory_import = probe.host_memory_import;
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
         register_mma_features(supported_mma_combinations, &mut device_props);
@@ -446,28 +447,30 @@ struct DeviceProbe {
     /// for it as its `--offload-arch`, so the code object it emits carries this
     /// exact string and a loader rejects it on a device that differs by so much
     /// as `xnack`.
-    arch_name: String,
+    pub arch_name: String,
     /// The marketing name, lossily decoded: a driver returning something that
     /// is not UTF-8 must not take the runtime down over a display string.
-    name: String,
+    pub name: String,
     /// The wavefront width, which the architecture table has to agree with.
-    warp_size: u32,
+    pub warp_size: u32,
     /// What the driver counts as a multiprocessor. On RDNA that is the work
     /// group processor rather than the compute unit -- gfx1151 reports 20 for
     /// its 40 CUs -- which is the right figure either way, since the WGP is
     /// what a cube is scheduled onto. `None` when the driver reports zero,
     /// which is a driver that does not know rather than a device with none.
-    num_sms: Option<u32>,
-    max_shared_memory: usize,
-    max_cube_count: (u32, u32, u32),
-    max_units_per_cube: u32,
-    max_cube_dim: (u32, u32, u32),
+    pub num_sms: Option<u32>,
+    pub max_shared_memory: usize,
+    pub max_cube_count: (u32, u32, u32),
+    pub max_units_per_cube: u32,
+    pub max_cube_dim: (u32, u32, u32),
     /// The strictest alignment the device asks for, never below 32.
-    alignment: usize,
+    pub alignment: usize,
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
-    integrated: bool,
-    physical: PhysicalDevice,
+    pub integrated: bool,
+    /// The device maps host memory and registers it, which an import takes.
+    pub host_memory_import: bool,
+    pub physical: PhysicalDevice,
 }
 
 impl DeviceProbe {
@@ -507,6 +510,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            host_memory_import: props.canMapHostMemory != 0 && props.hostRegisterSupported != 0,
             physical,
         }
     }

@@ -1,5 +1,7 @@
-use super::{StorageHandle, StorageId};
+use super::{HostRange, StorageHandle, StorageId};
 use crate::server::IoError;
+use alloc::format;
+use cubecl_environment::backtrace::BackTrace;
 
 /// What a runtime allocates device memory with: the pools carve their pages
 /// from it and hand its allocations back to it.
@@ -30,6 +32,25 @@ pub trait StorageAllocator: Send {
     /// Every implementation returns an error when the device cannot hold
     /// `size` more bytes, and may return one for a size it does not accept.
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError>;
+
+    /// Make `host` readable by this device's kernels in place, and a handle to it.
+    ///
+    /// # Guarantees
+    ///
+    /// Every implementation keeps `host`'s memory pinned until the device's last work on the
+    /// handle completes, which can be after its id is [deallocated](Self::deallocate), and pins
+    /// it once per runtime per memory, counting each import of it by any device of the runtime.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when this storage imports no host memory, which is the
+    /// default, or the driver refuses to pin it.
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
+        Err(IoError::HostMemoryRefused {
+            reason: format!("this storage imports no host memory ({host:?})").into(),
+            backtrace: BackTrace::capture(),
+        })
+    }
 
     /// Gives the allocation `id` back. An implementation may defer the
     /// release to the next [`flush`](Self::flush), but never reuses `id`.

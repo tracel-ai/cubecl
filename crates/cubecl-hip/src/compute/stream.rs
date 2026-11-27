@@ -92,7 +92,8 @@ impl EventStreamBackend for HipStreamBackend {
             checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
-        let storage = GpuStorage::new();
+        // SAFETY: the backend never destroys a stream it created, so `stream` outlives the storage.
+        let storage = unsafe { GpuStorage::on_stream(stream) };
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
