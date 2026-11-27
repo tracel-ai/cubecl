@@ -203,27 +203,34 @@ pub fn store_cells<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric
             cells[i * run + e] = fragment[i].extract(e);
         }
     }
-    regroup_cells::<T>(&mut cells, elems, lines.holders);
     let holders = comptime!(lines.holders as u32);
     let first_holder = UNIT_POS_PLANE / holders * holders;
     let place = UNIT_POS_PLANE % holders;
     let size!(W) = width;
     let mut sink = cell_sink::<Out, W>(mem, space);
-    #[unroll]
-    for line in 0..comptime!(elems / width) {
-        // The line starts where the group's first unit holds the block's cell this unit took.
-        let (row, col) = def.position_of_nth(
-            first_holder,
-            (line * width) as u32 + place,
-            MatrixIdent::Accumulator,
-        );
-        let (row, col) = laid_out(row, col, layout);
-        let mut value = Vector::<Out, W>::empty();
+    // A window whose first cell lies past the problem's edge has no cell inside it, as an edge
+    // bounds every cell after it: the plane skips it whole, together, since the window is the
+    // plane's own.
+    let first = (0u32.runtime(), 0u32.runtime());
+    let one = (1u32.runtime(), 1u32.runtime());
+    if sink.block_in_bounds(first, one) {
+        regroup_cells::<T>(&mut cells, elems, lines.holders);
         #[unroll]
-        for e in 0..width {
-            value.insert(e, Out::cast_from(cells[line * width + e]));
+        for line in 0..comptime!(elems / width) {
+            // The line starts where the group's first unit holds the block's cell this unit took.
+            let (row, col) = def.position_of_nth(
+                first_holder,
+                (line * width) as u32 + place,
+                MatrixIdent::Accumulator,
+            );
+            let (row, col) = laid_out(row, col, layout);
+            let mut value = Vector::<Out, W>::empty();
+            #[unroll]
+            for e in 0..width {
+                value.insert(e, Out::cast_from(cells[line * width + e]));
+            }
+            sink.write((row, col / comptime!(width as u32)), value);
         }
-        sink.write((row, col / comptime!(width as u32)), value);
     }
 }
 
