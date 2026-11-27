@@ -5,7 +5,6 @@ use super::*;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
-#[cfg(not(target_family = "wasm"))]
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_environment::persistence::{MemoryStorage, Namespace};
