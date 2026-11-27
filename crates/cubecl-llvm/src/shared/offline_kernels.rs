@@ -809,6 +809,10 @@ pub fn fragment_registers_kernel<CD: Numeric + cubecl_core::CubeElement>(
 /// lanes each hold a column, each group of four lanes first transposes its blocks of four cells
 /// by a butterfly of plane shuffles; where it is 1, as on RDNA4, a lane holds its lines as they
 /// lie.
+///
+/// - `lhs`: the `A` tile, row-major, `FRAGMENT_TILE` values a row.
+/// - `rhs`: the `B` tile, column-major, `FRAGMENT_TILE` values a column.
+/// - `out`: the sum, row-major, four values a line.
 #[cfg(feature = "amdgpu")]
 #[cube(launch)]
 fn register_lines(
@@ -819,32 +823,33 @@ fn register_lines(
 ) {
     let a = cmma::Matrix::<half::f16>::from_slice(
         cmma::MatrixIdent::A,
-        16usize,
-        16usize,
-        16usize,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
         cmma::MatrixLayout::RowMajor,
         lhs,
-        16u32,
+        FRAGMENT_TILE as u32,
     );
     let b = cmma::Matrix::<half::f16>::from_slice(
         cmma::MatrixIdent::B,
-        16usize,
-        16usize,
-        16usize,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
         cmma::MatrixLayout::ColMajor,
         rhs,
-        16u32,
+        FRAGMENT_TILE as u32,
     );
     let c = cmma::Matrix::<f32>::from_value(
         cmma::MatrixIdent::Accumulator,
-        16usize,
-        16usize,
-        16usize,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
         cmma::MatrixLayout::Undefined,
         0.0,
     );
     cmma::execute(&a, &b, &c, &c);
-    let def = cmma::MmaDefinition::<f32, f32, f32>::new(16usize, 16usize, 16usize);
+    let def =
+        cmma::MmaDefinition::<f32, f32, f32>::new(FRAGMENT_TILE, FRAGMENT_TILE, FRAGMENT_TILE);
     let size!(NC) = def.vector_size(cmma::MatrixIdent::Accumulator);
     let run = def.vector_size(cmma::MatrixIdent::Accumulator);
     let elems = def.elems_per_lane(cmma::MatrixIdent::Accumulator);
@@ -885,7 +890,7 @@ fn register_lines(
         for e in 0..4usize {
             value.insert(e, cells[line * 4 + e]);
         }
-        out[(row * 4 + col / 4) as usize] = value;
+        out[(row * comptime!((FRAGMENT_TILE / 4) as u32) + col / 4) as usize] = value;
     }
 }
 
@@ -912,9 +917,9 @@ pub(crate) fn register_lines_kernel(
         a_type: half,
         b_type: half,
         cd_type: f32::cube_type(),
-        m: 16,
-        n: 16,
-        k: 16,
+        m: FRAGMENT_TILE as u32,
+        n: FRAGMENT_TILE as u32,
+        k: FRAGMENT_TILE as u32,
     });
     let holders = match core.lane_names_row(cmma::MatrixIdent::Accumulator) {
         true => 1,

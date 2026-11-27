@@ -60,7 +60,7 @@ impl PlaneTile {
     /// destination bound `width` values a line where it would otherwise bounce
     /// ([`CmmaData::cell_lines`]); `None` for the forms that write their own cells whatever the
     /// destination, which never bounce.
-    pub(crate) fn cell_lines<T: Numeric>(
+    pub fn cell_lines<T: Numeric>(
         &self,
         #[comptime] width: usize,
     ) -> comptime_type!(Option<CellLines>) {

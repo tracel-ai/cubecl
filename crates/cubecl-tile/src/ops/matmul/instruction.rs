@@ -106,7 +106,7 @@ impl Instruction {
                 Self::Cmma | Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => None,
             };
         let lanes = target.mma.const_plane_lane_count as usize;
-        let elems = m * n * target.mma.register_copy_count_acc / lanes.max(1);
+        let elems = target.mma.elems_per_lane(MatrixIdent::Accumulator, m * n);
         let widest = |layout| {
             positions.as_ref().map_or(1, |positions| {
                 CellLines::widest(positions, lanes, elems, layout)
