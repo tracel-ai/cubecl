@@ -56,6 +56,20 @@ impl PlaneTile {
         comptime!(instruction.takes_scratch())
     }
 
+    /// How this tile's units write its sum, held at `T`, out of their registers into a
+    /// destination bound `width` values a line where it would otherwise bounce
+    /// ([`CmmaData::cell_lines`]); `None` for the forms that write their own cells whatever the
+    /// destination, which never bounce.
+    pub fn cell_lines<T: Numeric>(
+        &self,
+        #[comptime] width: usize,
+    ) -> comptime_type!(Option<CellLines>) {
+        match self {
+            PlaneTile::Cmma(d) => d.cell_lines::<T>(width),
+            PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => comptime!(None),
+        }
+    }
+
     /// Whether this tile is a manual-mma accumulator, which a contraction may reread as its `A`
     /// ([`accumulators_as_a`]).
     pub(crate) fn is_mma_accumulator(&self) -> comptime_type!(bool) {
@@ -429,11 +443,19 @@ impl PlaneTile {
         let addressed = mem.store.addressed();
         match self {
             PlaneTile::Cmma(d) => {
-                match comptime!(FragmentDrain::of(&mem.access, addressed, true)) {
+                let lines = d.cell_lines::<T>(comptime!(mem.store.vector_size));
+                let from_registers = comptime!(lines.is_some());
+                match comptime!(FragmentDrain::of(
+                    &mem.access,
+                    addressed,
+                    true,
+                    from_registers
+                )) {
                     FragmentDrain::Intrinsic => d.store_window::<T>(
                         mem,
                         comptime!(MatrixDimensions::edges(space).row_split),
                     ),
+                    FragmentDrain::Cells => d.store_cells::<T, T>(mem, space),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, T>(mem, space),
                 }
             }
@@ -455,11 +477,19 @@ impl PlaneTile {
             PlaneTile::Cmma(d) => {
                 let (m, n) = comptime!(d.shape);
                 let in_place = casts_in_place::<T, Out>(m, n);
-                match comptime!(FragmentDrain::of(&mem.access, addressed, in_place)) {
+                let lines = d.cell_lines::<T>(comptime!(mem.store.vector_size));
+                let from_registers = comptime!(lines.is_some());
+                match comptime!(FragmentDrain::of(
+                    &mem.access,
+                    addressed,
+                    in_place,
+                    from_registers
+                )) {
                     FragmentDrain::Intrinsic => d.store_cast_window::<T, Out>(
                         mem,
                         comptime!(MatrixDimensions::edges(space).row_split),
                     ),
+                    FragmentDrain::Cells => d.store_cells::<T, Out>(mem, space),
                     FragmentDrain::Bounce => d.bounce_cast_window::<T, Out>(mem, space),
                 }
             }

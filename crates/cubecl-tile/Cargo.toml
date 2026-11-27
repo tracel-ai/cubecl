@@ -41,5 +41,7 @@ thiserror = { workspace = true, optional = true }
 # crate and is published after it.
 cubecl = { path = "../cubecl", features = ["test-runtime"] }
 cubecl-common = { workspace = true }
+# The AMD matrix cores state their lanes' positions, which the drain tests read.
+cubecl-ir = { workspace = true, features = ["amd"] }
 bytemuck = { workspace = true }
 rand = { workspace = true }
