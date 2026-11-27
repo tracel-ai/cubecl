@@ -6,7 +6,7 @@ use cubecl_ir::{
     dialect::{
         base::OperationPtrExt,
         cmp::IEqualOp,
-        general::{CopyOp, ReinterpretCastOp, SelectOp},
+        general::{CastOp, CopyOp, ReinterpretCastOp, SelectOp},
         math::{IAddOp, IMulOp, UDivOp, URemOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
@@ -482,9 +482,129 @@ impl CustomUnrollOp for ReinterpretCastOp {
     }
 }
 
+/// Casts involving packed types can change the physical lane count while preserving the logical
+/// element count. Split the wider side into matching pieces and regroup converted lanes as needed.
+#[op_interface_impl]
+impl CustomUnrollOp for CastOp {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
+        let input = self.input(ctx);
+        let result = self.get_result(ctx);
+        let max = state.max_vector_size;
+        let (in_vec, out_vec) = (try_get_vec(ctx, input), try_get_vec(ctx, result));
+        if in_vec <= max && out_vec <= max {
+            return;
+        }
+
+        let in_values = in_vec * input.packing_factor(ctx);
+        let out_values = out_vec * result.packing_factor(ctx);
+        let is_broadcast = in_values == 1;
+        assert!(
+            is_broadcast || in_values == out_values,
+            "Cannot unroll a cast between {in_values} input values and {out_values} output values"
+        );
+
+        let wide = in_vec.max(out_vec);
+        let factor = wide / max;
+        state.result.ir_changed |= IRStatus::Changed;
+        let op = self.get_operation();
+
+        // A scalar broadcast is repeated independently for every output piece.
+        if is_broadcast {
+            let piece_ty = unroll_ty(ctx, result, max);
+            let new_results = (0..factor)
+                .map(|_| {
+                    let new_op = CastOp::new(ctx, piece_ty, input);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect();
+            state.mappings.insert(result, new_results);
+            state.to_erase.push(op);
+            return;
+        }
+
+        // Input-wide: its max-width pieces already exist in `mappings`. Cast each piece to the
+        // proportional output width, then either keep those pieces or regroup their lanes.
+        if in_vec > max && in_vec >= out_vec {
+            let per_piece = out_vec / factor;
+            let piece_ty = lanes_type(ctx, result, per_piece);
+            let pieces = state.mappings.get(&input).expect("Should exist").clone();
+            let converted = pieces
+                .into_iter()
+                .map(|piece| {
+                    let new_op = CastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect::<Vec<_>>();
+            if in_vec == out_vec {
+                // Equal widths preserve the existing piece boundaries.
+                state.mappings.insert(result, converted);
+            } else {
+                let lanes = converted
+                    .iter()
+                    .flat_map(|piece| split_lanes(ctx, *piece, op))
+                    .collect::<Vec<_>>();
+                if out_vec <= max {
+                    // The output fits in one value, so replace the original result directly.
+                    let result_ty = result.get_type(ctx);
+                    let joined = CompositeConstructOp::new(ctx, result_ty, lanes);
+                    joined.get_operation().insert_before(ctx, op);
+                    result.replace_all_uses_with(ctx, &joined.get_result(ctx));
+                } else {
+                    // Both sides are wide; regroup converted lanes into max-width output pieces.
+                    let result_ty = unroll_ty(ctx, result, max);
+                    let new_results = lanes
+                        .chunks(max)
+                        .map(|lanes| {
+                            let joined = CompositeConstructOp::new(ctx, result_ty, lanes.to_vec());
+                            joined.get_operation().insert_before(ctx, op);
+                            joined.get_result(ctx)
+                        })
+                        .collect::<Vec<_>>();
+                    state.mappings.insert(result, new_results);
+                }
+            }
+        } else {
+            // Output-wide: flatten the original input or its mappings, then group the input lanes
+            // required for each max-width output cast. The cast results become the output mapping.
+            let per_piece = in_vec / factor;
+            let piece_ty = unroll_ty(ctx, result, max);
+            let lanes = if in_vec <= max {
+                split_lanes(ctx, input, op)
+            } else {
+                let pieces = state.mappings.get(&input).expect("Should exist").clone();
+                pieces
+                    .into_iter()
+                    .flat_map(|piece| split_lanes(ctx, piece, op))
+                    .collect::<Vec<_>>()
+            };
+            let new_results = lanes
+                .chunks(per_piece)
+                .map(|chunk| {
+                    let piece = match chunk {
+                        [lane] => *lane,
+                        lanes => {
+                            let ty = lanes_type(ctx, input, lanes.len());
+                            let joined = CompositeConstructOp::new(ctx, ty, lanes.to_vec());
+                            joined.get_operation().insert_before(ctx, op);
+                            joined.get_result(ctx)
+                        }
+                    };
+                    let new_op = CastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect();
+            state.mappings.insert(result, new_results);
+        }
+        state.to_erase.push(op);
+    }
+}
+
 /// The type of `lanes` lanes of `value`'s element: the bare scalar for one lane.
 fn lanes_type(ctx: &mut Context, value: Value, lanes: usize) -> TypeHandle {
-    assert!(lanes > 0, "Reinterpret pieces must hold at least one lane");
+    assert!(lanes > 0, "Unrolled pieces must hold at least one lane");
     let scalar = value.scalar_ty(ctx);
     match lanes {
         1 => scalar,
