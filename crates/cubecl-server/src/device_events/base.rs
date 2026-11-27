@@ -11,7 +11,7 @@ use crate::driver::DriverError;
 /// spells those calls; everything above them — a fence's lifetime, a profiling
 /// window, the anchor that places one on the host clock — is written once.
 ///
-/// This is deliberately only what those two types need. Memory, launches and
+/// This is deliberately only the device's events and streams. Memory, launches and
 /// module loading have their own seams; widening this trait to cover them would
 /// make it the device API rather than the device's *event* API, and the name
 /// would stop being true.
@@ -61,6 +61,13 @@ pub trait EventApi: Send + Sync + 'static {
     /// [`DriverError`] when the stream will not take the event — a stream
     /// recording a graph is the case callers screen for in advance.
     fn event_record(event: &Self::Event, stream: Self::Stream) -> Result<(), DriverError>;
+
+    /// Whether the device has reached `event`, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`], the fault the query revealed on the stream the event was recorded into.
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError>;
 
     /// Block the calling thread until the device has reached `event`.
     ///

@@ -1,4 +1,4 @@
-use super::host_import::HipPinner;
+use crate::compute::events::Hip;
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_server::storage::{
@@ -18,7 +18,7 @@ pub struct GpuStorage {
     allocated: u64,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
-    host_imports: HostImporter<HipPinner>,
+    host_imports: HostImporter<Hip>,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -63,7 +63,7 @@ impl GpuStorage {
             allocated: 0,
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
-            host_imports: HostImporter::new(HipPinner::new(stream)),
+            host_imports: HostImporter::new(stream),
         }
     }
 }

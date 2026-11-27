@@ -1,4 +1,5 @@
 use super::{HostRange, StorageId};
+use crate::device_events::{Event, EventApi};
 use crate::driver::DriverError;
 use crate::server::IoError;
 use alloc::collections::VecDeque;
@@ -10,33 +11,32 @@ use cubecl_environment::bytes::Bytes;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 
-/// The driver calls a runtime pins host memory for its devices with, and orders an import's
-/// release behind its stream's work with.
-pub trait HostPinner {
-    /// Marks the work queued on the stream up to where it was recorded. Dropping it releases it.
-    type Event;
-
+/// The driver calls a runtime pins host memory for its devices with. A release is ordered behind
+/// its stream's work by the runtime's [`EventApi`].
+pub trait HostMemoryApi: EventApi {
     /// The memory this runtime pinned, which every device of the runtime shares.
-    fn registry(&self) -> &'static HostRegistry;
+    fn host_registry() -> &'static HostRegistry;
 
     /// Pins `memory` and maps it for every device of the process. Fails for memory already
     /// pinned.
-    fn pin(&self, memory: &Bytes) -> Result<(), DriverError>;
+    ///
+    /// # Safety
+    ///
+    /// `memory` stays allocated and in place until [`host_unregister`](Self::host_unregister).
+    unsafe fn host_register(memory: &Bytes) -> Result<(), DriverError>;
 
-    /// Undoes [`pin`](Self::pin), once no device of the process reads `memory`.
-    fn unpin(&self, memory: &Bytes) -> Result<(), DriverError>;
+    /// Undoes [`host_register`](Self::host_register).
+    ///
+    /// # Safety
+    ///
+    /// `memory` was registered, and no device of the process reads it any more.
+    unsafe fn host_unregister(memory: &Bytes) -> Result<(), DriverError>;
 
-    /// This device's address of `host`, a byte of pinned memory.
-    fn device_ptr(&self, host: *const u8) -> Result<u64, DriverError>;
+    /// The current device's address of `host`, a byte of pinned memory.
+    fn host_device_ptr(host: *const u8) -> Result<u64, DriverError>;
 
-    /// An event that completes once the work queued on the stream so far is done.
-    fn record(&self) -> Result<Self::Event, DriverError>;
-
-    /// Whether `event` completed.
-    fn is_done(&self, event: &Self::Event) -> Result<bool, DriverError>;
-
-    /// Waits for every stream of this device.
-    fn synchronize(&self) -> Result<(), DriverError>;
+    /// Waits for every stream of the current device.
+    fn device_synchronize() -> Result<(), DriverError>;
 }
 
 /// The host memory a runtime pinned, with how many imports of it its devices hold: the first
@@ -56,19 +56,20 @@ impl HostRegistry {
         }
     }
 
-    fn acquire(&self, pinner: &impl HostPinner, memory: &Bytes) -> Result<(), DriverError> {
+    fn acquire<A: HostMemoryApi>(&self, memory: &Bytes) -> Result<(), DriverError> {
         let key = Self::key(memory);
         let mut pins = self.pins.lock();
         if let Some((_, imports)) = pins.iter_mut().find(|(pinned, _)| *pinned == key) {
             *imports += 1;
             return Ok(());
         }
-        pinner.pin(memory)?;
+        // SAFETY: the import holds `memory` until its last release unregisters it.
+        unsafe { A::host_register(memory)? };
         pins.push((key, 1));
         Ok(())
     }
 
-    fn release(&self, pinner: &impl HostPinner, memory: &Bytes) -> Result<(), DriverError> {
+    fn release<A: HostMemoryApi>(&self, memory: &Bytes) -> Result<(), DriverError> {
         let key = Self::key(memory);
         let mut pins = self.pins.lock();
         let at = pins
@@ -80,7 +81,8 @@ impl HostRegistry {
             return Ok(());
         }
         pins.swap_remove(at);
-        pinner.unpin(memory)
+        // SAFETY: it pinned on its first import, and its last release runs once no device reads it.
+        unsafe { A::host_unregister(memory) }
     }
 
     fn key(memory: &Bytes) -> (usize, usize) {
@@ -96,28 +98,28 @@ impl Default for HostRegistry {
 
 /// Host memory a device reads in place, pinned while any device of the runtime imports it and
 /// kept alive until the work queued before its release is done.
-pub struct HostImporter<P: HostPinner> {
-    pinner: P,
+pub struct HostImporter<A: HostMemoryApi> {
+    stream: A::Stream,
     /// Keyed by storage id: the device's address of the import, and the memory it holds.
     imported: HashMap<StorageId, (u64, Arc<Bytes>)>,
     /// Released imports the stream may still read. Arrival: in stream order, so they complete in
     /// order and are let go of from the front.
-    pending: VecDeque<PendingRelease<P::Event>>,
+    pending: VecDeque<PendingRelease<A>>,
 }
 
 /// Imports released on a stream, let go of once the work queued there before is done. Another
 /// stream's reads keep their bindings, so the memory is not released before those complete.
-struct PendingRelease<E> {
-    event: E,
+struct PendingRelease<A: EventApi> {
+    event: Event<A>,
     /// Arrival: let go of together once the event completes.
     released: Vec<Arc<Bytes>>,
 }
 
-impl<P: HostPinner> HostImporter<P> {
-    /// No imports, pinning through `pinner`.
-    pub fn new(pinner: P) -> Self {
+impl<A: HostMemoryApi> HostImporter<A> {
+    /// No imports, released behind the work of `stream`, which outlives the importer.
+    pub fn new(stream: A::Stream) -> Self {
         Self {
-            pinner,
+            stream,
             imported: HashMap::new(),
             pending: VecDeque::new(),
         }
@@ -134,15 +136,12 @@ impl<P: HostPinner> HostImporter<P> {
         self.drop_completed();
         let memory = host.memory();
         let refused = |err: DriverError| refused_unless_poisoned(err, memory.len());
-        self.pinner
-            .registry()
-            .acquire(&self.pinner, memory)
-            .map_err(refused)?;
+        A::host_registry().acquire::<A>(memory).map_err(refused)?;
         let first = memory.as_ptr().wrapping_add(host.offset() as usize);
-        let ptr = match self.pinner.device_ptr(first) {
+        let ptr = match A::host_device_ptr(first) {
             Ok(ptr) => ptr,
             Err(err) => {
-                self.let_go(memory.clone());
+                Self::let_go(memory.clone());
                 return Err(refused(err));
             }
         };
@@ -164,36 +163,44 @@ impl<P: HostPinner> HostImporter<P> {
             .map(|(_, memory)| memory)
             .collect();
         if !released.is_empty() {
-            match self.pinner.record() {
+            match self.record() {
                 Ok(event) => self.pending.push_back(PendingRelease { event, released }),
-                Err(err) => self.let_go_unread(released, &err),
+                Err(err) => Self::let_go_unread(released, &err),
             }
         }
         self.drop_completed();
+    }
+}
+
+impl<A: HostMemoryApi> HostImporter<A> {
+    fn record(&self) -> Result<Event<A>, DriverError> {
+        let event = Event::new()?;
+        event.record(self.stream)?;
+        Ok(event)
     }
 
     /// Lets go of the imports whose release completed. Never while a stream records: the last
     /// release unpins the memory, and HIP fails a recording on the thread that pins or unpins.
     fn drop_completed(&mut self) {
         while let Some(release) = self.pending.front() {
-            let done = self.pinner.is_done(&release.event);
-            if matches!(done, Ok(false)) {
+            let reached = release.event.is_reached();
+            if matches!(reached, Ok(false)) {
                 return;
             }
             let Some(PendingRelease { released, .. }) = self.pending.pop_front() else {
                 return;
             };
-            match done {
-                Ok(_) => released.into_iter().for_each(|memory| self.let_go(memory)),
-                Err(err) => self.let_go_unread(released, &err),
+            match reached {
+                Ok(_) => released.into_iter().for_each(Self::let_go),
+                Err(err) => Self::let_go_unread(released, &err),
             }
         }
     }
 
     /// Drops this import of `memory`, unpinning it when it was the last; leaked when unpinning
     /// fails, since a device may still read it.
-    fn let_go(&self, memory: Arc<Bytes>) {
-        if let Err(err) = self.pinner.registry().release(&self.pinner, &memory) {
+    fn let_go(memory: Arc<Bytes>) {
+        if let Err(err) = A::host_registry().release::<A>(&memory) {
             log::warn!("leaking host memory the driver may still read: {err}");
             core::mem::forget(memory);
         }
@@ -201,9 +208,9 @@ impl<P: HostPinner> HostImporter<P> {
 
     /// `released`, whose reads `failed` left unknown, let go of where the failure poisoned the
     /// device, whose work stopped with it, and leaked pinned otherwise: a kernel may still read it.
-    fn let_go_unread(&self, released: Vec<Arc<Bytes>>, failed: &DriverError) {
+    fn let_go_unread(released: Vec<Arc<Bytes>>, failed: &DriverError) {
         if failed.is_device_poisoned() {
-            released.into_iter().for_each(|memory| self.let_go(memory));
+            released.into_iter().for_each(Self::let_go);
             return;
         }
         log::warn!("leaking imported host memory a kernel may still read: {failed}");
@@ -211,7 +218,7 @@ impl<P: HostPinner> HostImporter<P> {
     }
 }
 
-impl<P: HostPinner> Drop for HostImporter<P> {
+impl<A: HostMemoryApi> Drop for HostImporter<A> {
     fn drop(&mut self) {
         // The whole device, not this stream: another stream that failed to wait on its reads
         // keeps their bindings, and teardown releases the imports regardless.
@@ -224,9 +231,9 @@ impl<P: HostPinner> Drop for HostImporter<P> {
         if released.is_empty() {
             return;
         }
-        match self.pinner.synchronize() {
-            Ok(()) => released.into_iter().for_each(|memory| self.let_go(memory)),
-            Err(err) => self.let_go_unread(released, &err),
+        match A::device_synchronize() {
+            Ok(()) => released.into_iter().for_each(Self::let_go),
+            Err(err) => Self::let_go_unread(released, &err),
         }
     }
 }
@@ -245,10 +252,13 @@ fn refused_unless_poisoned(err: DriverError, size_bytes: usize) -> IoError {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::*;
     use crate::storage::HOST_MEMORY_ALIGNMENT;
     use alloc::boxed::Box;
-    use core::cell::Cell;
+    use cubecl_common::profile::Duration;
+    use std::cell::Cell;
 
     /// Counts the driver calls, and answers as the test sets it.
     #[derive(Default)]
@@ -261,59 +271,104 @@ mod tests {
         done: Cell<Option<Result<bool, DriverError>>>,
     }
 
-    struct Pinner {
-        driver: &'static Driver,
-        registry: &'static HostRegistry,
+    std::thread_local! {
+        /// Replaced by each test's [`devices`], since tests may share a thread.
+        static DRIVER: Cell<&'static Driver> = Cell::new(Box::leak(Box::default()));
+        static REGISTRY: Cell<&'static HostRegistry> =
+            Cell::new(Box::leak(Box::new(HostRegistry::new())));
     }
 
-    impl HostPinner for Pinner {
+    fn driver() -> &'static Driver {
+        DRIVER.with(Cell::get)
+    }
+
+    /// A runtime whose devices are this thread's [`Driver`].
+    struct Fake;
+
+    impl EventApi for Fake {
         type Event = ();
+        type Stream = ();
 
-        fn registry(&self) -> &'static HostRegistry {
-            self.registry
-        }
+        const BACKEND: &'static str = "fake";
 
-        fn pin(&self, _memory: &Bytes) -> Result<(), DriverError> {
-            self.driver.pins.set(self.driver.pins.get() + 1);
+        fn event_create() -> Result<(), DriverError> {
             Ok(())
         }
 
-        fn unpin(&self, _memory: &Bytes) -> Result<(), DriverError> {
-            if self.driver.refuse_unpin.get() {
+        fn event_destroy(_event: &mut ()) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn event_record(_event: &(), _stream: ()) -> Result<(), DriverError> {
+            Ok(())
+        }
+
+        fn event_query(_event: &()) -> Result<bool, DriverError> {
+            let done = driver().done.take().unwrap_or(Ok(true));
+            driver().done.set(Some(done.clone()));
+            done
+        }
+
+        fn event_wait(_event: &()) -> Result<(), DriverError> {
+            unreachable!("the importer should never block on an event")
+        }
+
+        fn event_elapsed(_start: &(), _end: &()) -> Result<Duration, DriverError> {
+            unreachable!("the importer should never time events")
+        }
+
+        fn stream_wait_event(_stream: (), _event: &()) -> Result<(), DriverError> {
+            unreachable!("the importer should never order streams")
+        }
+
+        fn stream_synchronize(_stream: ()) -> Result<(), DriverError> {
+            unreachable!("the importer should synchronize the device")
+        }
+
+        fn stream_create_non_blocking() -> Result<(), DriverError> {
+            unreachable!("the importer should never create a stream")
+        }
+
+        fn stream_destroy(_stream: ()) -> Result<(), DriverError> {
+            unreachable!("the importer should never destroy a stream")
+        }
+    }
+
+    impl HostMemoryApi for Fake {
+        fn host_registry() -> &'static HostRegistry {
+            REGISTRY.with(Cell::get)
+        }
+
+        unsafe fn host_register(_memory: &Bytes) -> Result<(), DriverError> {
+            driver().pins.set(driver().pins.get() + 1);
+            Ok(())
+        }
+
+        unsafe fn host_unregister(_memory: &Bytes) -> Result<(), DriverError> {
+            if driver().refuse_unpin.get() {
                 return Err(DriverError::new("unpin", 1));
             }
-            self.driver.unpins.set(self.driver.unpins.get() + 1);
+            driver().unpins.set(driver().unpins.get() + 1);
             Ok(())
         }
 
-        fn device_ptr(&self, host: *const u8) -> Result<u64, DriverError> {
-            match self.driver.refuse_mapping.get() {
+        fn host_device_ptr(host: *const u8) -> Result<u64, DriverError> {
+            match driver().refuse_mapping.get() {
                 true => Err(DriverError::new("device_ptr", 1)),
                 false => Ok(host as u64),
             }
         }
 
-        fn record(&self) -> Result<(), DriverError> {
-            Ok(())
-        }
-
-        fn is_done(&self, _event: &()) -> Result<bool, DriverError> {
-            let done = self.driver.done.take().unwrap_or(Ok(true));
-            self.driver.done.set(Some(done.clone()));
-            done
-        }
-
-        fn synchronize(&self) -> Result<(), DriverError> {
+        fn device_synchronize() -> Result<(), DriverError> {
             Ok(())
         }
     }
 
     /// Two devices' importers sharing one registry, as a runtime's devices do.
-    fn devices() -> (&'static Driver, HostImporter<Pinner>, HostImporter<Pinner>) {
-        let driver: &'static Driver = Box::leak(Box::default());
-        let registry: &'static HostRegistry = Box::leak(Box::new(HostRegistry::new()));
-        let importer = || HostImporter::new(Pinner { driver, registry });
-        (driver, importer(), importer())
+    fn devices() -> (&'static Driver, HostImporter<Fake>, HostImporter<Fake>) {
+        DRIVER.with(|driver| driver.set(Box::leak(Box::default())));
+        REGISTRY.with(|registry| registry.set(Box::leak(Box::new(HostRegistry::new()))));
+        (driver(), HostImporter::new(()), HostImporter::new(()))
     }
 
     fn host() -> HostRange {

@@ -1,4 +1,4 @@
-use super::host_import::CudaPinner;
+use crate::compute::events::Cuda;
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
@@ -26,7 +26,7 @@ pub struct GpuStorage {
     /// The bytes `memory` holds.
     allocated: u64,
     ptr_bindings: PtrBindings,
-    host_imports: HostImporter<CudaPinner>,
+    host_imports: HostImporter<Cuda>,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -55,7 +55,7 @@ impl GpuStorage {
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
-            host_imports: HostImporter::new(CudaPinner::new(stream)),
+            host_imports: HostImporter::new(stream),
         }
     }
 
