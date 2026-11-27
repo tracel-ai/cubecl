@@ -15,8 +15,33 @@ use cubecl_core::{
 define_scalar!(T);
 define_size!(S);
 
+/// Reductions that are the identity when a plane has a single unit (the CPU target).
+/// On GPU they expand to the usual shuffle-based polyfill.
 macro_rules! lower_reduction {
-    ($ty:ty, $reduce:ident, $op:ty $(, $args:expr)*) => {
+    ($ty:ty, $reduce:ident, $op:ty) => {
+        #[op_interface_impl]
+        impl LowerOp for $ty {
+            fn should_lower(&self, _ctx: &Context) -> bool {
+                true
+            }
+
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                let input = self.input(scope.ctx());
+                scope.register_value_type::<T, S>(input);
+                if !scope.ctx().target().is_gpu() {
+                    // CPU planes have one unit: sum/prod/min/max over one value is that value.
+                    return vec![input];
+                }
+                vec![$reduce::expand::<T, S, $op>(scope, input.into()).read_value(scope)]
+            }
+        }
+    };
+}
+
+/// Exclusive scans are not the identity on a single-unit plane (lane 0 gets the neutral
+/// element), so keep them GPU-only until the CPU backend can emit that constant.
+macro_rules! lower_exclusive_reduction {
+    ($ty:ty, $reduce:ident, $op:ty, $default:expr) => {
         #[op_interface_impl]
         impl LowerOp for $ty {
             fn should_lower(&self, ctx: &Context) -> bool {
@@ -26,10 +51,7 @@ macro_rules! lower_reduction {
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 let input = self.input(scope.ctx());
                 scope.register_value_type::<T, S>(input);
-                vec![
-                    $reduce::expand::<T, S, $op>(scope, input.into() $(, $args)*)
-                        .read_value(scope),
-                ]
+                vec![$reduce::expand::<T, S, $op>(scope, input.into(), $default).read_value(scope)]
             }
         }
     };
@@ -51,7 +73,7 @@ lower_reduction!(plane::InclusiveFSumOp, plane_reduce_inclusive, OpAdd);
 lower_reduction!(plane::InclusiveIProdOp, plane_reduce_inclusive, OpMul);
 lower_reduction!(plane::InclusiveFProdOp, plane_reduce_inclusive, OpMul);
 
-lower_reduction!(plane::ExclusiveISumOp, plane_reduce_exclusive, OpAdd, 0);
-lower_reduction!(plane::ExclusiveFSumOp, plane_reduce_exclusive, OpAdd, 0);
-lower_reduction!(plane::ExclusiveIProdOp, plane_reduce_exclusive, OpMul, 1);
-lower_reduction!(plane::ExclusiveFProdOp, plane_reduce_exclusive, OpMul, 1);
+lower_exclusive_reduction!(plane::ExclusiveISumOp, plane_reduce_exclusive, OpAdd, 0);
+lower_exclusive_reduction!(plane::ExclusiveFSumOp, plane_reduce_exclusive, OpAdd, 0);
+lower_exclusive_reduction!(plane::ExclusiveIProdOp, plane_reduce_exclusive, OpMul, 1);
+lower_exclusive_reduction!(plane::ExclusiveFProdOp, plane_reduce_exclusive, OpMul, 1);
