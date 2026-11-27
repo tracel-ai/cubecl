@@ -31,6 +31,10 @@ impl Bound {
 
     /// This operand as an [`Output::Atomic`]; the buffer must arrive holding zero, since it only
     /// ever adds.
+    ///
+    /// # Panics
+    ///
+    /// For an operand a table places, as [`Bound::tensor`].
     pub fn atomic<E: Numeric>(self) -> OutputArgs<'static, E> {
         let (spec, width) = (self.spec.clone(), self.vector_size);
         OutputArgs::Atomic(AccumulateArgLaunch::new(self.tensor(), width, spec))

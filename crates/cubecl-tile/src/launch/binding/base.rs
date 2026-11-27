@@ -10,8 +10,9 @@ use cubecl::prelude::*;
 use super::{boundaries::Boundaries, derivation::Derivation, labels::Labels};
 use crate::BoundaryPolicy;
 use crate::{
-    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Launcher, LineMisfit, Packing,
-    Projection, Space, Storage, StoragePartitioning, TileSpec, TileTensorLaunch, VectorTile,
+    Boundary, Decline, Delivery, Dimension, Extent, Field, Geometry, Indexing, Launcher,
+    LineMisfit, Packing, Projection, Space, Storage, StoragePartitioning, TileSpec,
+    TileTensorLaunch, VectorTile,
 };
 
 /// Typestate marker: the operand's dimensions are not yet stated.
@@ -202,7 +203,10 @@ impl<'a> Arg<'a, Labelled> {
             (binding.into_tensor_arg(), element)
         });
         let bound = Bound {
-            tensor,
+            values: match tensor {
+                Some((tensor, element)) => BoundValues::Tensor(tensor, element),
+                None => BoundValues::Geometry,
+            },
             vector_size: self.data.width,
             spec: derived.spec,
         };
@@ -375,33 +379,95 @@ pub(crate) struct Derived {
 /// A bound operand: its tensor argument and the element its buffer holds, comptime [`TileSpec`] and
 /// served width.
 pub struct Bound {
-    tensor: Option<(TensorArg, ElemType)>,
+    values: BoundValues,
     /// Served width (values per line); a packed binding is narrower by the packing factor.
     pub vector_size: usize,
     pub spec: TileSpec,
 }
 
+/// What a [`Bound`] operand reads: its tensor and the element its buffer holds, the launch a table
+/// places it through, or nothing for an operand built over geometry alone.
+enum BoundValues {
+    Tensor(TensorArg, ElemType),
+    Indexed(TileTensorLaunch),
+    Geometry,
+}
+
 impl Bound {
     /// The operand as the kernel's [`TileTensor`](crate::TileTensor) launch argument.
+    ///
+    /// # Panics
+    ///
+    /// For an operand built over geometry alone, or one whose [`spec`](Self::spec) changed after a
+    /// table placed it.
     pub fn arg(self) -> TileTensorLaunch {
         let width = self.bound_width();
-        let (tensor, element) = self
-            .tensor
-            .expect("Bound::arg: this operand was built over geometry alone and has no tensor");
-        TileTensorLaunch::new(tensor, element, width, self.spec)
+        match self.values {
+            BoundValues::Tensor(tensor, element) => {
+                TileTensorLaunch::new(tensor, element, width, self.spec)
+            }
+            BoundValues::Indexed(launch) => Self::unchanged(launch, &self.spec),
+            BoundValues::Geometry => {
+                panic!("Bound::arg: the operand should hold a tensor, not geometry alone")
+            }
+        }
     }
 
-    /// The tensor argument itself; panics for an operand built over geometry alone.
+    /// This operand read through `table` under `indexing`, as
+    /// [`TileTensorLaunch::indexed`] states it, so a destination that serves the operand serves
+    /// the indexed one. [`spec`](Self::spec) is then the spec the indexed launch compiles with.
+    ///
+    /// # Errors
+    ///
+    /// As [`TileTensorLaunch::indexed`].
+    ///
+    /// # Panics
+    ///
+    /// For an operand built over geometry alone, or one a table already places.
+    pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
+        let vector_size = self.vector_size;
+        let launch = self.arg().indexed(table, indexing)?;
+        Ok(Bound {
+            spec: launch.spec().clone(),
+            values: BoundValues::Indexed(launch),
+            vector_size,
+        })
+    }
+
+    /// The tensor argument itself.
+    ///
+    /// # Panics
+    ///
+    /// For an operand built over geometry alone, or one a table places, which only a
+    /// [`TileTensor`](crate::TileTensor) reads.
     pub fn tensor(self) -> TensorArg {
-        self.tensor
-            .expect("Bound::tensor: this operand was built over geometry alone and has no tensor")
-            .0
+        match self.values {
+            BoundValues::Tensor(tensor, _) => tensor,
+            BoundValues::Indexed(_) => {
+                panic!("Bound::tensor: a table should not place an operand read as a bare tensor")
+            }
+            BoundValues::Geometry => {
+                panic!("Bound::tensor: the operand should hold a tensor, not geometry alone")
+            }
+        }
     }
 
     /// The width the binding is declared at, narrower than `vector_size` when packed: a packed
     /// binding served fewer values a line than a word holds is still read a whole word at a time.
     pub fn bound_width(&self) -> usize {
         self.spec.packing.physical(self.vector_size).max(1)
+    }
+}
+
+impl Bound {
+    /// `launch`, the operand a table places, checked to compile with `spec`: a spec set after the
+    /// table placed it would never reach the kernel.
+    fn unchanged(launch: TileTensorLaunch, spec: &TileSpec) -> TileTensorLaunch {
+        assert!(
+            launch.spec() == spec,
+            "Bound::arg: the spec should not change once a table places the operand"
+        );
+        launch
     }
 }
 
