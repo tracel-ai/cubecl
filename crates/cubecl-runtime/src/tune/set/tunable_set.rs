@@ -88,8 +88,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self
     }
 
-    /// The set with `evictor` running before every measured sample, so the candidates are timed
-    /// reading memory rather than the cache the previous sample left warm.
+    /// The set with `evictor` running before every measured sample.
     ///
     /// # Guarantees
     ///
@@ -102,8 +101,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self
     }
 
-    /// The set with `enterer` entering every stage of its tunes, so candidates that launch where
-    /// the tuner does not see are kept in step with it.
+    /// The set with `enterer` entering every stage of its tunes.
     pub fn with_stage_enterer(
         mut self,
         enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
