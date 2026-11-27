@@ -591,6 +591,19 @@ pub fn strip_ref(ty: Type) -> Type {
     }
 }
 
+/// Replaces a tuple type behind any references, pointers, groups or parentheses with the
+/// binding `name`, so the argument built from the type passes the tuple as a whole.
+pub fn tuple_to_binding(ty: &mut Type, name: &Ident) {
+    match ty {
+        Type::Group(type_group) => tuple_to_binding(&mut type_group.elem, name),
+        Type::Paren(type_paren) => tuple_to_binding(&mut type_paren.elem, name),
+        Type::Ptr(type_ptr) => tuple_to_binding(&mut type_ptr.elem, name),
+        Type::Reference(type_reference) => tuple_to_binding(&mut type_reference.elem, name),
+        Type::Tuple(_) => *ty = parse_quote![#name],
+        _ => {}
+    }
+}
+
 pub fn anon_lifetime_to_static(mut ty: Type) -> Type {
     fn map_ty(ty: &mut Type) {
         match ty {

@@ -14,7 +14,7 @@ use crate::{
     parse::{
         kernel::{
             DefinedGeneric, ExecutionMode, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
-            map_type_normalized, strip_ref,
+            map_type_normalized, strip_ref, tuple_to_binding,
         },
         signature::KernelReturns,
     },
@@ -314,6 +314,11 @@ impl Launch {
                 true => quote![self.#name.clone()],
                 false => {
                     let mut mapped = it.ty.clone();
+                    // A tuple is a single launch argument, expanded as a whole by
+                    // `<(T0, ..) as LaunchArg>::expand`, so it must be passed as the
+                    // binding itself rather than mapped element by element, which
+                    // would turn `u: (F, F)` into `(u, u)`.
+                    tuple_to_binding(&mut mapped, name);
                     match map_type_normalized(&mut mapped, &|_| parse_quote![#name]) {
                         Ok(()) => quote![#mapped],
                         Err(err) => err.into_compile_error(),
