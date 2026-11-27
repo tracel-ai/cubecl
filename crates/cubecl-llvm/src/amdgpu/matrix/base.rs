@@ -37,15 +37,6 @@ pub struct MatrixRelayoutUnsupported {
 
 #[derive(Debug, Error)]
 #[error(
-    "a fragment's lane holds {held} cells, but the registers it is copied into hold {registers}"
-)]
-pub struct RegisterCountMismatch {
-    pub held: usize,
-    pub registers: usize,
-}
-
-#[derive(Debug, Error)]
-#[error(
     "no matrix lowering for a {}x{}x{} tile: one is {INSTRUCTION_M}x{INSTRUCTION_N} and a \
      multiple of {instruction_k} deep",
     shape.m, shape.n, shape.k
@@ -886,7 +877,7 @@ pub(crate) fn cast(
 /// The cells a lane holds of a fragment copied into its registers, element `i` of the lane's
 /// [`element_positions`](AmdMatrixCore::element_positions) at register cell `i`: the fragment's
 /// slot `i * step`, past a padded accumulator's unused halves.
-pub(crate) fn registers(
+pub fn registers(
     op: &RegistersOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -903,13 +894,11 @@ pub(crate) fn registers(
         .deref(ctx)
         .downcast_ref::<LlvmVectorType>()
         .map(|vector| vector.num_elements() as usize);
-    if held != Some(elems) {
-        let mismatch = RegisterCountMismatch {
-            held: elems,
-            registers: held.unwrap_or(0),
-        };
-        return input_err!(op.loc(ctx), mismatch);
-    }
+    assert_eq!(
+        held,
+        Some(elems),
+        "the registers a fragment is copied into should hold the {elems} cells its lane holds"
+    );
 
     let frag_ty = fragment_ty(ctx, &ty);
     let value = load_fragment(ctx, rw, matrix, frag_ty);
