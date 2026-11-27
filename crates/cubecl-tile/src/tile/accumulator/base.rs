@@ -1186,7 +1186,7 @@ fn fragment_place(
     #[comptime] chunks: usize,
 ) -> usize {
     let mut here = place;
-    if comptime!(chunks > 1) {
+    if chunks > 1 {
         #[unroll]
         for a in 0..dimensions.len() {
             here += region.coord(comptime!(dimensions[a]));
