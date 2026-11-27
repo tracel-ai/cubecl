@@ -87,7 +87,7 @@ fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
 
 fn answer(fastest_index: usize) -> PersistentCacheValue {
     PersistentCacheValue {
-        fastest_index,
+        decided_index: fastest_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

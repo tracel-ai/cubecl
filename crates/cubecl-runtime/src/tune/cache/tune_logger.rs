@@ -135,8 +135,8 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
 
             let decision = crate::tune::AutotuneDecision {
                 key: Cow::Borrowed(self.key),
-                fastest_index: self.fastest.index,
-                fastest_time: self.fastest.computation.median,
+                decided_index: self.fastest.index,
+                decided_time: self.fastest.computation.median,
                 results: Cow::Borrowed(self.results),
                 log_context: self.log_context.map(Cow::Borrowed),
                 checks: self

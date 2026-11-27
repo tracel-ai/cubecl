@@ -85,7 +85,7 @@ impl CandidateTracker {
     /// circuit on it.
     pub fn track_ticks(&mut self, ticks: Option<ProfileTicks>) {
         match measured(ticks) {
-            Some(duration) => self.samples.keep(duration),
+            Some(duration) => self.track_duration(duration),
             None => self.fail(AutotuneError::NotMeasured {
                 name: self.name.clone(),
             }),

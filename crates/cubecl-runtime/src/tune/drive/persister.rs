@@ -51,7 +51,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         log_context: Option<&AutotuneLogContext>,
     ) -> bool {
         let value = PersistentCacheValue {
-            fastest_index,
+            decided_index: fastest_index,
             results,
             bounds: self.bounds,
             limit: self.limit,

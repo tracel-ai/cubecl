@@ -20,10 +20,13 @@ use crate::tune::{AutotuneError, AutotuneKeyable, AutotuneOutcome};
 #[cfg(persistence)]
 use alloc::string::String;
 
-/// The version of how tables are named, bumped when tables are named another way.
+/// The version of how tables are named and what their rows hold, bumped when either changes.
+///
+/// Version 2 stores `decided_index` and `threshold_fraction` where version 1 stored
+/// `fastest_index` and `threshold`: a table of version 1 is dropped rather than misread.
 #[cfg(persistence)]
 static TABLE_NAMING_VERSION: NamespaceVersion =
-    NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 1);
+    NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 2);
 
 /// What a [`TuneTracker`] knows of one key.
 #[derive(Debug)]
@@ -59,7 +62,7 @@ pub struct PersistentCacheKey<K> {
 
 /// The answer a table stores for one entry.
 ///
-/// Only [`fastest_index`](Self::fastest_index) is read back: a look-up seeds the in-memory cache
+/// Only [`decided_index`](Self::decided_index) is read back: a look-up seeds the in-memory cache
 /// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
 /// the fact — why a kernel won, against which measurements, and under which bounds — which is the
 /// question that cannot be answered from a live process once tuning is over. That is also why the
@@ -67,8 +70,9 @@ pub struct PersistentCacheKey<K> {
 #[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct PersistentCacheValue {
-    /// Index of the fastest candidate operation.
-    pub fastest_index: usize,
+    /// The index of the candidate the key runs: the one the tune decided, which a round robin or
+    /// a short circuit may pick over the best-scored one.
+    pub decided_index: usize,
     /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
     pub results: Vec<AutotuneResult>,
     /// Optional input size bounds for which the autotune result applies.
@@ -414,9 +418,9 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
-        self.track_answer(key.clone(), value.fastest_index);
+        self.track_answer(key.clone(), value.decided_index);
         TuneCacheResult::Hit {
-            fastest_index: value.fastest_index,
+            fastest_index: value.decided_index,
         }
     }
 
@@ -625,7 +629,7 @@ mod small_tests {
     fn a_tracker_without_a_store_looks_nothing_up_and_stores_nothing() {
         let mut tracker = tracker();
         let value = PersistentCacheValue {
-            fastest_index: 0,
+            decided_index: 0,
             results: Vec::new(),
             bounds: None,
             limit: None,
