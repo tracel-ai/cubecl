@@ -24,15 +24,13 @@ impl ResourceBound {
     /// for anything else the kernel does concurrently.
     ///
     /// `None` for a `peak_per_s` that is zero, negative, `NaN`, or infinite:
-    /// none of those describe a real ceiling to divide by.
+    /// none of those describe a real ceiling to divide by. `None` too for a
+    /// time no [`Duration`] holds.
     pub fn time_at_peak(&self) -> Option<Duration> {
-        if self.peak_per_s.is_normal() {
-            Some(Duration::from_secs_f64(
-                self.amount as f64 / self.peak_per_s,
-            ))
-        } else {
-            None
+        if !self.peak_per_s.is_normal() || self.peak_per_s < 0.0 {
+            return None;
         }
+        Duration::try_from_secs_f64(self.amount as f64 / self.peak_per_s).ok()
     }
 
     /// The roofline convention this module uses throughout: a run cannot finish
@@ -133,6 +131,16 @@ mod tests {
         for peak in [0.0, f64::NAN, f64::INFINITY] {
             assert_eq!(bound(8, peak).time_at_peak(), None, "at {peak}");
         }
+    }
+
+    #[test]
+    fn time_at_peak_is_none_for_a_negative_peak() {
+        assert_eq!(bound(8, -4.0).time_at_peak(), None);
+    }
+
+    #[test]
+    fn time_at_peak_is_none_for_a_time_no_duration_holds() {
+        assert_eq!(bound(usize::MAX, f64::MIN_POSITIVE).time_at_peak(), None);
     }
 
     /// 8 ops at 4 ops/s takes 2s at peak; 8 ops at 8 ops/s takes 1s: the first resource is the

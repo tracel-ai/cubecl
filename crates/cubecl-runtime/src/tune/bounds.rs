@@ -161,6 +161,7 @@ mod tests {
         assert_eq!(bound(8, 0.0, 0.5).time_limit(), None);
         assert_eq!(bound(8, f64::NAN, 0.5).time_limit(), None);
         assert_eq!(bound(8, f64::INFINITY, 0.5).time_limit(), None);
+        assert_eq!(bound(8, -4.0, 0.5).time_limit(), None);
         assert_eq!(bound(8, 4.0, 0.0).time_limit(), None);
     }
 
