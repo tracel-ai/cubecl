@@ -46,6 +46,7 @@ pub struct ExtendedFeatures<'a> {
 
     // Properties
     pub long_vector_properties: Option<PhysicalDeviceShaderLongVectorPropertiesEXT<'a>>,
+    pub float_controls_properties: Option<PhysicalDeviceFloatControlsProperties<'a>>,
 
     pub max_spirv_version: (u8, u8),
 
@@ -112,6 +113,11 @@ impl<'a> ExtendedFeatures<'a> {
         } else {
             self.extensions.push(KHR_STORAGE_BUFFER_STORAGE_CLASS_NAME);
             self.max_spirv_version = (1, 0);
+        }
+
+        // SPIR-V 1.4 comes with float controls: core from Vulkan 1.2, else enabled above.
+        if self.max_spirv_version >= (1, 4) {
+            self.float_controls_properties = Some(PhysicalDeviceFloatControlsProperties::default());
         }
 
         fill_core!(
@@ -275,6 +281,7 @@ impl<'a> ExtendedFeatures<'a> {
         }
 
         properties = push_opt(properties, &mut self.long_vector_properties);
+        properties = push_opt(properties, &mut self.float_controls_properties);
 
         unsafe {
             // convert to ash version, they represent the same type so this is safe
@@ -319,6 +326,7 @@ impl<'a> ExtendedFeatures<'a> {
             nv_cooperative_matrix2,
             // Properties
             long_vector_properties,
+            float_controls_properties,
         );
     }
 
