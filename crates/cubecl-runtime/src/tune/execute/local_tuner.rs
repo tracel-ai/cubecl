@@ -127,8 +127,10 @@ where
     ///   on the hardware of the first client it is called with.
     /// - `operations` holds a candidate, and some candidate serves `inputs`.
     /// - Some candidate the plan schedules for the key, at a non-negative priority, ends measured,
-    ///   with only its profile failed ([`Unknown`](crate::tune::AutotuneError::Unknown)), or with
-    ///   the device unheld for it ([`HoldFailed`](crate::tune::AutotuneError::HoldFailed)). On
+    ///   with only its profile failed ([`Unknown`](crate::tune::AutotuneError::Unknown)), or kept
+    ///   from running by the harness: the device unheld for it
+    ///   ([`HoldFailed`](crate::tune::AutotuneError::HoldFailed)), or its profile unopened
+    ///   ([`Unopened`](crate::tune::AutotuneError::Unopened)). On
     ///   wasm, that candidate is in the first batch of the plan that queues a sample: the
     ///   fixed-count pass there resolves its samples on the browser event loop, and commits that
     ///   batch without reaching a later one.
@@ -138,13 +140,13 @@ where
     /// # Guarantees
     ///
     /// - A call the decided candidate rejects runs the next one that serves it.
-    /// - A tune where no scheduled candidate executed and the device was unheld for one, or that
-    ///   stopped on a lost card, decides nothing: the call runs the candidates in plan order.
+    /// - A tune where no scheduled candidate executed and the harness kept one from running, or
+    ///   that stopped on a lost card, decides nothing: the call runs the candidates in plan order.
     ///
     /// # Panics
     ///
     /// When no candidate serves `inputs`; when a tune measured none, none it scheduled executed,
-    /// and the device was held for every one; when the decided candidate rejects `inputs` and
+    /// and the harness kept none from running; when the decided candidate rejects `inputs` and
     /// they have no spare; and under `autotune-checks`, when a candidate's output does not match
     /// and nothing reports it: the assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(

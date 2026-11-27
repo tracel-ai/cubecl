@@ -3987,10 +3987,10 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     );
 }
 
-/// A round that measures nothing falls back on a candidate that ran, never on one that rejected
-/// the problem: the first candidate's function rejects it, then profiles stop, so the correct
-/// `add` runs but is not timed. Deciding the rejection would run it for real and fail the same
-/// way, which the tuner reports as a panic on the device thread.
+/// A round that measures nothing never falls back on a candidate that rejected the problem: the
+/// first candidate's function rejects it, then profiles stop opening, so the correct `add` is
+/// kept from running. The tune decides nothing, and the call runs the candidates in plan order,
+/// where `add` serves it. Deciding the rejection would run it for real and fail the same way.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]

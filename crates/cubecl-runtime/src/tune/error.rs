@@ -115,6 +115,12 @@ impl AutotuneError {
         }
     }
 
+    /// Whether the harness kept the candidate from running, through no fault of its own: the
+    /// device could not be held, or the profile could not be opened.
+    pub(crate) fn kept_from_running(&self) -> bool {
+        matches!(self, Self::HoldFailed { .. } | Self::Unopened { .. })
+    }
+
     /// Whether a tune that measured nothing may decide the candidate.
     pub(crate) fn executed_unmeasured(&self) -> bool {
         matches!(self, Self::Unknown { .. })
@@ -156,6 +162,25 @@ mod tests {
         };
 
         assert!(!AutotuneError::hold_failed("candidate", &error).executed_unmeasured());
+    }
+
+    #[test]
+    fn an_unopened_profile_kept_its_candidate_from_running() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        assert!(AutotuneError::unopened("candidate", &error).kept_from_running());
+    }
+
+    #[test]
+    fn a_rejection_did_not_keep_its_candidate_from_running() {
+        let rejected = AutotuneError::Rejected {
+            name: "candidate".into(),
+            reason: "not this shape".into(),
+        };
+
+        assert!(!rejected.kept_from_running());
     }
 
     #[test]

@@ -141,7 +141,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
     /// loop on wasm, where it answers [`Pending`](TuneAnswer::Pending) until then.
     ///
     /// A tune that measured nothing decides a candidate that executed unmeasured, or, where none
-    /// did and the device could not be held for some, [stops undecided](TuneSettler::stop_undecided).
+    /// did and the harness kept some from running, [stops undecided](TuneSettler::stop_undecided).
     pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneAnswer {
         #[cfg(target_family = "wasm")]
         {
@@ -171,7 +171,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
             .or_else(|| unmeasured_pick(&self.key, &self.results))
         else {
             log::warn!(
-                "Autotune of {} stopped: the device could not be held for any candidate, so a later call tunes the key again",
+                "Autotune of {} stopped: no candidate executed, and the harness kept some from running, so a later call tunes the key again",
                 self.key
             );
             return self.settler.stop_undecided(&self.key, &self.logger);
@@ -226,27 +226,29 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 }
 
 /// The candidate a tune that measured nothing decides: the first one that executed but could not
-/// be measured, or none where none did and the device could not be held for some.
+/// be measured, or none where none did and the harness [kept some from
+/// running](AutotuneError::kept_from_running).
 ///
 /// A timing failure — a profiling hiccup, timestamp query sets on a busy stream — leaves a usable
 /// kernel: deciding it unmeasured beats panicking the device thread, since a dead tune poisons
 /// every stream sharing it, and the decided kernel executes for real right after, where it fails
 /// exactly as a measured one would if it truly cannot run. A rejection, a panic, a launch
-/// failure, a skip or an unheld device says the kernel did not run or runs wrong: deciding it
-/// would fail the same way.
+/// failure, a skip, an unheld device or an unopened profile says the kernel did not run or runs
+/// wrong: deciding it would fail the same way.
 ///
 /// # Panics
 ///
-/// When no candidate of `results` executed and the device was held for every one: some
-/// candidate the plan schedules executes on the device, or could not be held, and only its
-/// timing fails, or one measures.
+/// When no candidate of `results` executed and the harness kept none from running: the plan's
+/// candidates end as [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s third
+/// Assumption says.
 pub fn unmeasured_pick<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> Option<usize> {
     let Some(index) = results.iter().position(AutotuneResult::executed_unmeasured) else {
         assert!(
-            results
-                .iter()
-                .any(|result| matches!(result.outcome, Err(AutotuneError::HoldFailed { .. }))),
-            "Can't execute the autotune plan for key: {key:?}: some candidate the plan schedules should execute on the device, or fail to be held\n - results: {results:?}"
+            results.iter().any(|result| result
+                .outcome
+                .as_ref()
+                .is_err_and(AutotuneError::kept_from_running)),
+            "Can't execute the autotune plan for key: {key:?}: some candidate the plan schedules should execute on the device, or be kept from running by the harness\n - results: {results:?}"
         );
         return None;
     };
