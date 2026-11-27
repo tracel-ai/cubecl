@@ -2,9 +2,7 @@ use core::num::NonZeroU8;
 
 use serde::Deserialize;
 
-use super::{
-    BlockExtent, BlockScale, BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype,
-};
+use super::{BlockExtent, BlockScale, BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype};
 
 /// A scheme as it may be read back: written with its finest and coarser levels, with the list of
 /// blocks it held before them, or with the per-tensor, per-row and per-block levels it held before
@@ -57,7 +55,7 @@ impl TryFrom<SavedScheme> for QuantScheme {
     fn try_from(saved: SavedScheme) -> Result<Self, Self::Error> {
         let block = saved.block.map(BlockScale::try_from).transpose()?;
         let row = saved.row.map(|dtype| BlockScale {
-            size: BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE),
+            size: BlockSize::ROW,
             dtype,
         });
         let tensor = saved.tensor.map(|dtype| BlockScale {
@@ -163,9 +161,8 @@ mod tests {
     /// A scheme written with a lookup mode stored indices in an integer value as wide.
     #[test]
     fn a_lookup_mode_reads_back_as_the_index_of_its_width() {
-        let lookup = |value: &str| {
-            json!({ "value": value, "store": { "PackedU32": 0 }, "mode": "Lookup" })
-        };
+        let lookup =
+            |value: &str| json!({ "value": value, "store": { "PackedU32": 0 }, "mode": "Lookup" });
         for (value, index) in [
             ("Q8S", QuantValue::Index8),
             ("Q4F", QuantValue::Index4),
@@ -180,7 +177,7 @@ mod tests {
     /// The form published models hold, with and without the per-row level it had last.
     #[test]
     fn a_scheme_written_in_levels_reads_back_as_its_blocks() {
-        let row = BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE);
+        let row = BlockSize::ROW;
         let cases = [
             (json!({}), base()),
             (

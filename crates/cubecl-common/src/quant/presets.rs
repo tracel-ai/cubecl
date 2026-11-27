@@ -1,6 +1,4 @@
-use crate::quant::scheme::{
-    BlockExtent, BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype,
-};
+use crate::quant::scheme::{BlockSize, QuantScheme, QuantStore, QuantValue, ScaleDtype};
 
 impl QuantScheme {
     /// The NVFP4 format: fp4 (e2m1) values in blocks of 16, with ue4m3 block scales
@@ -19,10 +17,7 @@ impl QuantScheme {
         QuantScheme::default()
             .with_value(QuantValue::E4M3)
             .with_store(QuantStore::PackedU32(0))
-            .per_block(
-                BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE),
-                ScaleDtype::F32,
-            )
+            .per_block(BlockSize::ROW, ScaleDtype::F32)
     }
 
     /// MXFP4, row-factored scales: fp4 (`e2m1`) values, eight to a word along the last axis, in
@@ -36,9 +31,6 @@ impl QuantScheme {
             .with_value(QuantValue::E2M1)
             .with_store(QuantStore::PackedU32(0))
             .per_block([32], ScaleDtype::UE8M0)
-            .coarser_per_block(
-                BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE),
-                ScaleDtype::F32,
-            )
+            .coarser_per_block(BlockSize::ROW, ScaleDtype::F32)
     }
 }

@@ -29,7 +29,7 @@ use crate::{e2m1, ue8m0};
 ///     .per_tensor(ScaleDtype::F32);
 ///
 /// // One scale per row, over the whole last axis, however long it is.
-/// let row = BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE);
+/// let row = BlockSize::ROW;
 /// QuantScheme::default().per_block(row, ScaleDtype::F32);
 ///
 /// // Two levels: ue8m0 block scales under one f32 scale per row.
@@ -742,7 +742,7 @@ mod tests {
     use alloc::vec;
 
     fn row() -> BlockSize {
-        BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE)
+        BlockSize::ROW
     }
 
     fn level(size: impl Into<BlockSize>, dtype: ScaleDtype) -> BlockScale {

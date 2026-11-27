@@ -16,6 +16,28 @@ pub struct BlockScale {
 }
 
 impl BlockScale {
+    /// One scale per block of `size`, stored as `dtype`.
+    ///
+    /// # Panics
+    ///
+    /// As [`BlockSize::new`], for a block given as its values.
+    pub fn per_block(size: impl Into<BlockSize>, dtype: ScaleDtype) -> Self {
+        Self {
+            size: size.into(),
+            dtype,
+        }
+    }
+
+    /// One scale for the whole tensor, stored as `dtype`.
+    pub fn per_tensor(dtype: ScaleDtype) -> Self {
+        Self {
+            size: BlockSize::TENSOR,
+            dtype,
+        }
+    }
+}
+
+impl BlockScale {
     /// This level after `fields`; `None` where the code does not hold it.
     pub(super) fn pack(&self, fields: PackedFields) -> Option<PackedFields> {
         let listed = self.size.listed();
@@ -132,6 +154,18 @@ impl BlockSize {
         rest: BlockExtent::WholeAxis,
     };
 
+    /// One row: the whole last axis, and one value along every other.
+    pub const ROW: Self = Self {
+        extents: [
+            BlockExtent::WholeAxis,
+            BlockExtent::VALUE,
+            BlockExtent::VALUE,
+            BlockExtent::VALUE,
+            BlockExtent::VALUE,
+        ],
+        rest: BlockExtent::VALUE,
+    };
+
     /// A block of this many values along each of the last axes, and of one along the others.
     ///
     /// # Panics
@@ -246,6 +280,14 @@ mod tests {
     use alloc::vec;
 
     #[test]
+    fn a_row_is_the_whole_last_axis() {
+        assert_eq!(
+            BlockSize::ROW,
+            BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE)
+        );
+    }
+
+    #[test]
     fn blocks_are_counted_from_the_last_axis() {
         assert_eq!(
             BlockSize::new([32]).extents_in(),
@@ -275,7 +317,7 @@ mod tests {
 
     #[test]
     fn a_whole_axis_takes_one_scale_whatever_its_length() {
-        let row = BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE);
+        let row = BlockSize::ROW;
         assert_eq!(row.num_blocks(&[3, 5120]), vec![3, 1]);
     }
 
@@ -309,7 +351,7 @@ mod tests {
 
     #[test]
     fn a_whole_axis_moves_like_any_other() {
-        let row = BlockSize::with_rest(&[BlockExtent::WholeAxis], BlockExtent::VALUE);
+        let row = BlockSize::ROW;
         assert_eq!(
             row.permuted(&[1, 0]),
             BlockSize::with_rest(
