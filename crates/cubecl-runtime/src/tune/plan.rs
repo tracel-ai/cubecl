@@ -54,7 +54,11 @@ impl Batch {
             }
         }
         entries.extend(ungrouped.into_iter().map(BatchEntry::ungrouped));
-        let patience = patience.clone();
+        let patience = patience
+            .iter()
+            .filter(|(group, _)| entries.iter().any(|entry| entry.groups.contains(group)))
+            .map(|(group, patience)| (*group, *patience))
+            .collect();
         Self { entries, patience }
     }
 
@@ -1071,6 +1075,30 @@ mod tests {
 
     fn fake_kernel(_: ()) -> Result<(), String> {
         Ok(())
+    }
+
+    #[test_log::test]
+    fn test_plan_batch_carries_only_the_patience_of_its_groups() {
+        // Every member of the patient group rejects, so the plan falls back to the cutoff group:
+        // that batch is measured with no group's patience, not with the ordered group's.
+        let patience = Patience {
+            min_measured_count: 10,
+            max_miss_count: 5,
+        };
+        let ordered = TuneGroup::<FakeAutotuneKey>::ordered(
+            "ordered",
+            |_| 2,
+            OrderedSettings::default().with_patience(patience),
+        );
+        let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
+        let tunables = [
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&ordered, |_| 1),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&cutoff, |_| 1),
+        ];
+        let mut plan = TunePlanner::new(&FakeAutotuneKey, &tunables);
+
+        assert_eq!(plan.plan_next().patience.len(), 1);
+        assert!(plan.plan_next().patience.is_empty());
     }
 
     #[test_log::test]
