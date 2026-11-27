@@ -54,6 +54,9 @@ pub mod device;
 #[cfg(persistence)]
 mod namespace_version;
 
+#[cfg(feature = "std")]
+mod panic_message;
+
 pub mod tune;
 
 /// Memory management value types: reports, configuration and the managed

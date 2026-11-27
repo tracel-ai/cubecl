@@ -16,24 +16,23 @@ use crate::tune::drive::committer::TuneCommitter;
 use crate::tune::drive::driver::{DriveOptions, TuneDriver};
 use crate::tune::drive::settler::TuneSettler;
 use crate::tune::execute::pending_unmarker::PendingUnmarker;
+use crate::tune::hook::binding::enter_stage;
 use crate::tune::log::tune_logger::TuneLogger;
-use crate::tune::measure::candidate_gathering::CandidateGatherer;
+use crate::tune::measure::candidate_gathering::CandidateGathering;
 use crate::tune::measure::candidate_sampler::CandidateSampler;
-use crate::tune::{AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs};
+use crate::tune::{
+    AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs, TuneStage,
+};
+use cubecl_environment::sync::{AtomicBool, Ordering};
 
 /// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.
-///
-/// On wasm, [`tune`](Self::tune) spawns its work on the browser event loop; elsewhere it blocks
-/// inline. Either way the benchmarking itself is synchronous; only the per-sample profile
-/// resolution is awaited.
 ///
 /// # Assumptions
 ///
 /// - Every tune of one tuner runs the same candidate list: the answers are keyed by the key alone.
-/// - `name` holds no `/`: the table is named `hardware/name`.
 #[derive(Debug)]
 pub struct Tuner<K: AutotuneKeyable> {
-    cache: Arc<Mutex<TuneTracker<K>>>,
+    tracker: Arc<Mutex<TuneTracker<K>>>,
     logger: Arc<Mutex<Logger>>,
 }
 
@@ -45,25 +44,29 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// A tuner whose unsettled keys are read from the persistent cache when persistence is
     /// available (feature `persistence`: a file natively, OPFS in the browser), in the table every
     /// device of `hardware` shares.
+    ///
+    /// # Assumptions
+    ///
+    /// - `name` holds no `/`: the table is named `hardware/name`.
     pub fn new(name: &str, hardware: &HardwareIdentity) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneTracker::new(name, hardware))),
+            tracker: Arc::new(Mutex::new(TuneTracker::new(name, hardware))),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
 
     /// Drop the answers of an environment the process switched away from, so the next
-    /// [`fastest`](Self::fastest) answers the current one's.
+    /// [`decided`](Self::decided) answers the current one's.
     pub fn reset_if_environment_switched(&self) {
         #[cfg(persistence)]
-        self.cache.lock().reset_if_environment_switched();
+        self.tracker.lock().reset_if_environment_switched();
     }
 
     /// What memory holds for `key`: a fast-path probe that never reads the persistent cache, so
     /// a miss here falls through to [`tune`](Self::tune), which reads the store and resolves the
     /// real state.
-    pub fn fastest(&self, key: &K) -> TuneAnswer {
-        self.cache.lock().fastest(key)
+    pub fn decided(&self, key: &K) -> TuneAnswer {
+        self.tracker.lock().decided(key)
     }
 
     /// Answer `key` on `client`'s device: from memory, from the store when memory holds no
@@ -75,6 +78,9 @@ impl<K: AutotuneKeyable> Tuner<K> {
     ///
     /// - `key` is the key `tunables` generates for `inputs`.
     /// - `tunables` holds a candidate, and some candidate serves `inputs`.
+    /// - Some candidate the plan schedules for the key, at a non-negative priority, executes on
+    ///   the device, or the device could not be held for it: it measures, or only its timing
+    ///   fails.
     ///
     /// # Guarantees
     ///
@@ -82,7 +88,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// - One tune of a key runs at a time within an environment: a concurrent call answers
     ///   [`Pending`](TuneAnswer::Pending). A switch drops the mark, so a tune may run once
     ///   more for the new environment while the old one's finishes.
-    /// - A tune that unwinds, or stops on a lost card, leaves the key to the next call.
+    /// - A tune that unwinds, or that could hold the device for no candidate it scheduled, leaves
+    ///   the key to the next call; one that stops on a lost card leaves it to another card.
     /// - An answer picked with nothing measured is kept in memory, never in the store.
     pub fn tune<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
         &self,
@@ -98,7 +105,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         // A key reached by candidates that only gather kernels would measure on the outputs of
         // discarded launches.
         let compiling =
-            ProcessMode::current() == ProcessMode::CompileOnly || CandidateGatherer::is_gathering();
+            ProcessMode::current() == ProcessMode::CompileOnly || CandidateGathering::is_open();
         let opened = match self.open(key, tunables, client, compiling) {
             Ok(opened) => opened,
             Err(answer) => return answered(answer, checks),
@@ -132,46 +139,43 @@ impl<K: AutotuneKeyable> Tuner<K> {
         client: &Client,
         compiling: bool,
     ) -> Result<Opened<K>, TuneAnswer> {
-        // Scoped: the rest of the tune re-locks `self.cache`, and the mutex is non-reentrant.
-        let mut cache = self.cache.lock();
+        // Scoped: the rest of the tune re-locks `self.tracker`, and the mutex is non-reentrant.
+        let mut tracker = self.tracker.lock();
         #[cfg(persistence)]
-        cache.reset_if_environment_switched();
-        if let Some(answer) = cache.answer(key, client.service_id(), compiling) {
+        tracker.reset_if_environment_switched();
+        if let Some(answer) = tracker.answer(key, client.service_id(), compiling) {
             return Err(answer);
         }
         // A key with one candidate is answered, not tuned: nothing to read or to store.
         if tunables.len() <= 1 {
-            return Err(cache.track_answer(key.clone(), 0));
+            return Err(tracker.track_answer(key.clone(), 0));
         }
         #[cfg(persistence)]
-        if let hit @ TuneAnswer::Hit { .. } = self.track_stored(&mut cache, key, tunables) {
+        if let hit @ TuneAnswer::Hit { .. } = self.track_stored(&mut tracker, key, tunables) {
             return Err(hit);
         }
-        // Its tune is registered with the open override only when no other key's candidates
-        // reached it: the pass that profiles stops a plan at its first close-enough candidate, and
-        // may never run the one that reaches a key gathered inside it. Such a key is registered if
-        // it is ever measured, as an ungathered one is.
+        // Tracked compiled once its candidates queued, by the compile pass.
         if compiling {
-            return Ok(track_compiled(&mut cache, key, client));
+            return Ok(None);
         }
-        let gathered = cache.track_pending(key.clone());
+        let gathered = tracker.track_pending(key.clone());
         // Made last under the lock: no gap follows the mark, and the unmarker, whose drop takes
         // this lock, can never drop while it is held.
-        let unmarker = PendingUnmarker::new(self.cache.clone(), &cache, key.clone());
+        let unmarker = PendingUnmarker::new(self.tracker.clone(), &tracker, key.clone());
         Ok(Some((unmarker, gathered)))
     }
 
-    /// Track the store's answer for `key`, read under the lock `cache` holds and logged at the
-    /// full level, and answer it.
+    /// Track the store's answer for `key`, read under the lock `tracker` is guarded by and logged
+    /// at the full level, and answer it.
     #[cfg(persistence)]
     fn track_stored<F: TuneInputs, Out: 'static, Id>(
         &self,
-        cache: &mut TuneTracker<K>,
+        tracker: &mut TuneTracker<K>,
         key: &K,
         tunables: &TunableSet<K, F, Out, Id>,
     ) -> TuneAnswer {
         let checksum = tunables.compute_checksum();
-        let stored = cache.track_stored(key, &checksum, tunables.len());
+        let stored = tracker.track_stored(key, &checksum, tunables.len());
         let mut log = self.logger.lock();
         if let AutotuneLogLevel::Full = log.config().autotune.logger.level {
             log.log_autotune(&format!(
@@ -200,7 +204,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         let checksum: String = tunables.compute_checksum();
         #[cfg(persistence)]
         let mut recorder = crate::tune::cache::record::TuneRecorder::new(
-            self.cache.lock().table(),
+            self.tracker.lock().table(),
             key,
             &checksum,
         );
@@ -222,9 +226,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
         // warmup, and its measurement would carry every candidate's compilation.
         client.compile_queued();
         let plan = tunables.plan(key);
-        let autotunables: Vec<_> = tunables.autotunables().collect();
         #[cfg(persistence)]
-        recorder.record_plan(&plan, &autotunables);
+        recorder.record_plan(|| plan.account(|index| tunables.function_at(index).name()));
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
         logger.log_bounds(bounds.clone(), limit);
@@ -235,24 +238,16 @@ impl<K: AutotuneKeyable> Tuner<K> {
 
         let (unmarker, registration) = settling;
         let settler = TuneSettler::new(
-            self.cache.clone(),
+            self.tracker.clone(),
             self.logger.clone(),
             registration,
             unmarker,
             #[cfg(persistence)]
             crate::tune::drive::persister::TunePersister::new(checksum, limit, bounds, recorder),
         );
-        let names = autotunables.iter().map(|tune| tune.name());
+        let names = tunables.autotunables().map(|tune| tune.name());
         let committer = TuneCommitter::new(key.clone(), names, logger, settler);
-        TuneDriver::new(
-            committer,
-            key.clone(),
-            tunables,
-            inputs,
-            test_inputs,
-            plan,
-            options,
-        )
+        TuneDriver::new(committer, key, tunables, inputs, test_inputs, plan, options)
     }
 
     /// Runs the top of the plan once each, on the inputs a tune generates, so their launches
@@ -261,8 +256,10 @@ impl<K: AutotuneKeyable> Tuner<K> {
     ///
     /// Runs [`TunePlanner::plan_top`](crate::tune::plan::planner::TunePlanner::plan_top) with the
     /// configured compilation parallelism; the tune compiles the rest at their turn. The pass
-    /// holds the device as the set's access does, and contains a candidate that panics as the
-    /// measuring pass does: it serves nothing. A device that cannot be held queues nothing.
+    /// holds the device as the set's access does, enters the gathering stage inside the hold, and
+    /// contains a candidate that panics as the measuring pass does: it serves nothing. The key is
+    /// tracked compiled on the card once the pass ran; a device that cannot be held queues
+    /// nothing, and leaves the key to the next call.
     fn compile_plan<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
         &self,
         key: &K,
@@ -275,26 +272,38 @@ impl<K: AutotuneKeyable> Tuner<K> {
     {
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
-        let gathering = tunables
-            .bound_stage_enterer(key, inputs)
-            .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
+        let mut enterer = tunables.bound_stage_enterer(key, inputs);
         let parallelism = CubeClRuntimeConfig::get().compilation.parallelism();
         let sampler = CandidateSampler::new(client, tunables.device_access());
+        // Set once the held task runs: a hold that fails after it is the task's own panic.
+        let started = AtomicBool::new(false);
+        let running = &started;
+        let enterer = enterer.as_deref_mut();
         let held = sampler.hold(move || {
-            let gatherer = CandidateGatherer::gather();
+            running.store(true, Ordering::Relaxed);
+            let stage = enter_stage(enterer, TuneStage::Gathering);
+            let gathering = CandidateGathering::open();
             plan.plan_top(parallelism, |index| {
                 sampler
                     .contain_race(tunables.function_at(index), test_inputs.clone())
                     .is_ok()
             });
-            core::mem::drop(gatherer);
+            core::mem::drop(gathering);
+            core::mem::drop(stage);
         });
-        if let Err(err) = held {
-            log::warn!(
+        match held {
+            Ok(()) => self.tracker.lock().track_compiled(
+                key.clone(),
+                client.service_id(),
+                register_ungathered,
+            ),
+            Err(err) if started.load(Ordering::Relaxed) => {
+                panic!("The compile pass of {key} should not panic outside a candidate. {err}")
+            }
+            Err(err) => log::warn!(
                 "The candidates of {key} queued nothing: the device could not be held. {err}"
-            );
+            ),
         }
-        core::mem::drop(gathering);
         TuneAnswer::Compiled
     }
 }
@@ -309,20 +318,12 @@ fn answered(
     answer
 }
 
-/// Track `key` as one whose candidates' kernels `client`'s card queues, in place of a tune, and
-/// open nothing to settle.
-fn track_compiled<K: AutotuneKeyable>(
-    cache: &mut TuneTracker<K>,
-    key: &K,
-    client: &Client,
-) -> Opened<K> {
-    cache.track_compiled(key.clone(), client.service_id(), register_ungathered);
-    None
-}
-
-/// The registration of a key's tune, unless another key's candidates reached it.
+/// The registration of a key's tune, unless another key's candidates reached it: the pass that
+/// profiles stops a plan at its first close-enough candidate, and may never run the one that
+/// reaches a key gathered inside it. Such a key is registered if it is ever measured, as an
+/// ungathered one is.
 fn register_ungathered() -> Option<TuneRegistration> {
-    (!CandidateGatherer::is_gathering())
+    (!CandidateGathering::is_open())
         .then(TuneRegistration::register)
         .flatten()
 }

@@ -6,9 +6,7 @@ use cubecl_environment::sync::Mutex;
 
 use crate::config::Logger;
 use crate::execution::{TuneOutcome, TuneRegistration};
-#[cfg(not(target_family = "wasm"))]
-use crate::tune::cache::tracker::TuneAnswer;
-use crate::tune::cache::tracker::TuneTracker;
+use crate::tune::cache::tracker::{TuneAnswer, TuneTracker};
 use crate::tune::execute::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::{AutotuneKeyable, AutotuneResult};
@@ -16,8 +14,8 @@ use crate::tune::{AutotuneKeyable, AutotuneResult};
 /// Settles the key one tune answered: reports the answer, keeps it in memory, settles the tune's
 /// registration, and, where tunes persist, stores and records it.
 pub struct TuneSettler<K: AutotuneKeyable> {
-    cache: Arc<Mutex<TuneTracker<K>>>,
-    log_sink: Arc<Mutex<Logger>>,
+    tracker: Arc<Mutex<TuneTracker<K>>>,
+    logger: Arc<Mutex<Logger>>,
     /// Where the tune settles once its pick is committed.
     registration: Option<TuneRegistration>,
     unmarker: PendingUnmarker<K>,
@@ -27,15 +25,15 @@ pub struct TuneSettler<K: AutotuneKeyable> {
 
 impl<K: AutotuneKeyable> TuneSettler<K> {
     pub fn new(
-        cache: Arc<Mutex<TuneTracker<K>>>,
-        log_sink: Arc<Mutex<Logger>>,
+        tracker: Arc<Mutex<TuneTracker<K>>>,
+        logger: Arc<Mutex<Logger>>,
         registration: Option<TuneRegistration>,
         unmarker: PendingUnmarker<K>,
         #[cfg(persistence)] persister: crate::tune::drive::persister::TunePersister<K>,
     ) -> Self {
         Self {
-            cache,
-            log_sink,
+            tracker,
+            logger,
             registration,
             unmarker,
             #[cfg(persistence)]
@@ -43,23 +41,23 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         }
     }
 
-    /// Settle `key` on `fastest_index`, which is `unmeasured` where it was picked with nothing
+    /// Settle `key` on `decided_index`, which is `unmeasured` where it was picked with nothing
     /// measured, `results` holding every candidate's result by tunable index.
     pub fn settle(
         self,
         key: K,
         results: Vec<AutotuneResult>,
-        fastest_index: usize,
+        decided_index: usize,
         unmeasured: bool,
-        logger: &TuneLogger,
+        tune_logger: &TuneLogger,
     ) {
         // Ranked for the report and the table: measured ones first, fastest first.
         let mut results = results;
         results.sort_by_key(AutotuneResult::score);
-        logger.log_result(&mut self.log_sink.lock(), &key, &results, fastest_index);
+        tune_logger.log_result(&mut self.logger.lock(), &key, &results, decided_index);
         // In-memory regardless: without it this key re-tunes on every call, and a tune that
         // measured nothing would keep failing the same way.
-        self.cache.lock().track_answer(key.clone(), fastest_index);
+        self.tracker.lock().track_answer(key.clone(), decided_index);
         // Where the tune was registered, whether or not that override is still open.
         let outcome = match unmeasured {
             true => TuneOutcome::Failed,
@@ -73,12 +71,12 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         #[cfg(persistence)]
         {
             let stored = self.persister.persist(
-                &self.cache,
+                &self.tracker,
                 key,
                 results,
-                fastest_index,
+                decided_index,
                 unmeasured,
-                logger.as_context(),
+                tune_logger.as_context(),
             );
             if stored && let Some(settled) = settled.as_ref() {
                 settled.record(crate::execution::TunePick::Persisted);
@@ -89,13 +87,25 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         self.unmarker.unmark();
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    /// Stop the tune on a card found lost: answered pending, so the caller runs the first
-    /// candidate that serves the problem and meets the loss in its own reads. The card is answered
-    /// so for every key of this candidate list from now on, and the key is left to another card
-    /// of the same hardware, which may be healthy.
-    pub fn stop_on_lost_card(self, service: ServiceId) -> TuneAnswer {
-        self.cache.lock().track_lost(service);
+    /// Stop the tune of `key` with nothing decided, `tune_logger` reporting the cross-checks it
+    /// collected: answered pending, so the caller runs the candidates in plan order. The key's
+    /// mark drops, so the next call tunes it, and its registration settles abandoned.
+    pub fn stop_undecided(self, key: &K, tune_logger: &TuneLogger) -> TuneAnswer {
+        tune_logger.report_undecided(key);
         TuneAnswer::Pending
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    /// [Stop the tune undecided](Self::stop_undecided) on the lost card `service`, which answers
+    /// pending for every key of this candidate list from now on: the key is left to another card
+    /// of the same hardware, which may be healthy.
+    pub fn stop_on_lost_card(
+        self,
+        service: ServiceId,
+        key: &K,
+        tune_logger: &TuneLogger,
+    ) -> TuneAnswer {
+        self.tracker.lock().track_lost(service);
+        self.stop_undecided(key, tune_logger)
     }
 }

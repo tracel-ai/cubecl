@@ -11,8 +11,7 @@ use crate::tune::{
     AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
 };
 
-/// Logs what one tune did into its [`AutotuneLogContext`], kept only while something reads it:
-/// the human log, the decisions' sink, or the record of the tune.
+/// Logs what one tune did into its [`AutotuneLogContext`], kept only while something reads it.
 #[derive(Debug)]
 pub struct TuneLogger {
     context: Option<AutotuneLogContext>,
@@ -20,7 +19,7 @@ pub struct TuneLogger {
 
 impl TuneLogger {
     /// A logger of one tune, keeping its context when `logger` logs or writes decisions, or when
-    /// the tune is `recorded`: the record's trials are the steps the context collects.
+    /// the tune is `recorded`.
     pub fn new(logger: &Logger, recorded: bool) -> Self {
         let autotune = &logger.config().autotune;
         let logging = !matches!(autotune.logger.level, AutotuneLogLevel::Disabled);
@@ -90,6 +89,25 @@ impl TuneLogger {
         if let Some(decided) = measured_at(results, decided_index) {
             reporter.report_log(logger, decided);
         }
+    }
+}
+
+impl TuneLogger {
+    /// Report the cross-checks of a tune that stopped with nothing decided, which no decision
+    /// carries: written to the log, as a warning.
+    pub fn report_undecided<K: AutotuneKeyable>(&self, key: &K) {
+        #[cfg(feature = "autotune-checks")]
+        if let Some(checks) = self
+            .context
+            .as_ref()
+            .and_then(|context| context.checks.as_ref())
+        {
+            log::warn!(
+                "Autotune of {key} stopped with nothing decided, so no decision reports its cross-checks: {checks:?}"
+            );
+        }
+        #[cfg(not(feature = "autotune-checks"))]
+        let _ = key;
     }
 }
 
@@ -255,6 +273,7 @@ mod tests {
         assert!(logger.as_context().is_none());
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn steps_and_short_circuits_are_logged_in_order() {
         let mut logger = logging();

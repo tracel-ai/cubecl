@@ -1,32 +1,28 @@
-//! Whether this thread runs a key's candidates to gather their kernels: a key
-//! reached there is gathered by another key's candidates.
-
-/// Held while a key's candidates run with their launches discarded, under a
-/// `CompileOnly` override or to compile a batch together, so a key their
-/// launches reach knows it was reached inside them.
+/// One key's candidates running on this thread with their launches discarded, under a
+/// `CompileOnly` override or to compile a batch together, so a key their launches reach knows it
+/// was reached inside them.
 ///
 /// # Assumptions
 ///
-/// - Gatherers drop in the order opposite to the one they were opened in, on the thread that
-///   opened them.
-pub struct CandidateGatherer {
+/// - A gathering drops on the thread that opened it.
+pub struct CandidateGathering {
     _private: (),
 }
 
-impl CandidateGatherer {
-    /// Gather a key's candidates on this thread until the gatherer drops.
-    pub fn gather() -> Self {
+impl CandidateGathering {
+    /// A gathering open on this thread until it drops.
+    pub fn open() -> Self {
         depth::enter();
         Self { _private: () }
     }
 
     /// Whether another key's candidates are running on this thread.
-    pub fn is_gathering() -> bool {
+    pub fn is_open() -> bool {
         depth::get() > 0
     }
 }
 
-impl Drop for CandidateGatherer {
+impl Drop for CandidateGathering {
     fn drop(&mut self) {
         depth::leave();
     }
@@ -78,14 +74,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_thread_gathers_until_its_last_gatherer_drops() {
-        let outer = CandidateGatherer::gather();
-        let inner = CandidateGatherer::gather();
-        drop(inner);
-        let still = CandidateGatherer::is_gathering();
+    fn a_nested_gathering_leaves_the_outer_one_open() {
+        let outer = CandidateGathering::open();
+        drop(CandidateGathering::open());
+        let still = CandidateGathering::is_open();
         drop(outer);
 
         assert!(still);
-        assert!(!CandidateGatherer::is_gathering());
+    }
+
+    #[test]
+    fn a_thread_gathers_until_its_last_gathering_drops() {
+        drop(CandidateGathering::open());
+
+        assert!(!CandidateGathering::is_open());
     }
 }

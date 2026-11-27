@@ -3,7 +3,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::config::RuntimeConfig;
 
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
-use crate::tune::measure::candidate_sampler::{CandidateSampler, hold_failed};
+use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs, TuneStage};
 
@@ -27,7 +27,7 @@ pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneCheckable>(
     // non-`'static` closures.
     sampler
         .hold(move || profile_held(operation, inputs, sampler, evictor, stage))
-        .map_err(|err| hold_failed(operation.name(), &err))?
+        .map_err(|err| AutotuneError::hold_failed(operation.name(), &err))?
 }
 
 fn profile_held<'a, F: TuneInputs, Out: AutotuneCheckable>(

@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-/// Events that occurred during autotuning, useful for observability and logging.
+/// Events that occurred during autotuning.
 #[derive(Debug, Clone)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
@@ -57,17 +57,15 @@ impl core::fmt::Display for AutotuneLogContext {
 pub struct AutotuneDecision<'a, K: Clone> {
     /// The key for the autotuning job.
     pub key: Cow<'a, K>,
-    /// The index of the candidate the key runs.
+    /// The candidate the tune decided, as the table stores it.
     pub decided_index: usize,
-    /// The median time of the candidate the key runs, `None` where it was decided with nothing
-    /// measured.
+    /// Its median time, `None` where it was decided with nothing measured.
     pub decided_time: Option<Duration>,
-    /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
+    /// Every candidate's result, ranked as the table stores them.
     pub results: Cow<'a, [AutotuneResult]>,
     /// What the tune logged, when something read it.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
-    /// Check results if autotune-checks is enabled else None, the reference candidate last
-    /// (Arrival Usage).
+    /// The context's [checks](AutotuneLogContext::checks), written beside it.
     pub checks: Option<Cow<'a, [CheckResult]>>,
 }
 

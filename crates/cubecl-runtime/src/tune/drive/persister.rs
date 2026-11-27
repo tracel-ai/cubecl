@@ -9,7 +9,8 @@ use crate::tune::{
     AutotuneKeyable, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue,
 };
 
-/// Persists what one tune answered: its winner in the table, and the record of how it went.
+/// Persists what one tune answered: its decided candidate in the table, and the record of how it
+/// went.
 pub struct TunePersister<K: AutotuneKeyable> {
     checksum: String,
     limit: Option<Duration>,
@@ -34,34 +35,32 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         }
     }
 
-    /// Persist `fastest_index` as the answer to `key`, with every candidate's `results`: in the
-    /// table of the tracker `cache` holds unless it is `unmeasured`, locking it only for that
-    /// insert, and in the tune's record either way, with no lock held. Answers whether the table
-    /// took it.
+    /// Persist `decided_index` as the answer to `key`, with every candidate's `results`: in the
+    /// table of `tracker` unless it is `unmeasured`, locking it only for that insert, and in the
+    /// tune's record either way, with no lock held. Answers whether the table took it.
     ///
-    /// An unmeasured decision is a guess made to keep the device thread alive, and the failures
-    /// that produce one — a profiling hiccup, timestamp query sets on a busy stream — are
-    /// transient. Persisting it would freeze the guess into every later process and never measure
-    /// the key again; letting it expire with this one costs a re-tune and buys a real measurement.
+    /// An unmeasured decision is a guess, and the failures that produce one are transient.
+    /// Persisting it would freeze the guess into every later process and never measure the key
+    /// again; letting it expire with this one costs a re-tune and buys a real measurement.
     pub fn persist(
         self,
-        cache: &Mutex<TuneTracker<K>>,
+        tracker: &Mutex<TuneTracker<K>>,
         key: K,
         results: Vec<AutotuneResult>,
-        fastest_index: usize,
+        decided_index: usize,
         unmeasured: bool,
         log_context: Option<&AutotuneLogContext>,
     ) -> bool {
         let value = PersistentCacheValue {
-            decided_index: fastest_index,
+            decided_index,
             results,
             bounds: self.bounds,
             limit: self.limit,
         };
-        let stored = !unmeasured && cache.lock().store_answer(key, self.checksum, value);
+        let stored = !unmeasured && tracker.lock().store_answer(key, self.checksum, value);
         self.recorder.record_answer(
             Answer {
-                winner: fastest_index,
+                decided_index,
                 stored,
             },
             log_context,

@@ -12,7 +12,7 @@ use crate::server::ServerError;
 use crate::tune::adaptive::candidate_tracker::CandidateTracker;
 use crate::tune::adaptive::first_pass_planner::{CompileWindows, FirstPassPlanner};
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer, enter_stage};
-use crate::tune::measure::candidate_sampler::{CandidateSampler, hold_failed};
+use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::measure::outcome::best_scored;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
@@ -48,7 +48,7 @@ impl BatchOutcome {
             results: indices
                 .iter()
                 .map(|&index| {
-                    let error = hold_failed(autotunables[index].name(), reason);
+                    let error = AutotuneError::hold_failed(autotunables[index].name(), reason);
                     (index, AutotuneResult::from_error(error))
                 })
                 .collect(),
@@ -738,7 +738,7 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
         crate::execution::StreamMode::Discard,
         sampler.client(),
     );
-    let gathering = crate::tune::measure::candidate_gathering::CandidateGatherer::gather();
+    let gathering = crate::tune::measure::candidate_gathering::CandidateGathering::open();
     for candidate in candidates {
         if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
             sampler.contain_race(autotunables[candidate.state().index], inputs.clone())

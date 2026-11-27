@@ -1,18 +1,18 @@
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use derive_more::Display;
 
-use crate::server::LaunchError;
+use crate::server::{LaunchError, ProfileError, ServerError};
 
 /// Why a candidate has no measurement.
 ///
 /// [`Unknown`](Self::Unknown) is the only kind a tune that measured nothing falls back on: the
-/// candidate executed and only its timing failed. Every other kind says the candidate did not run,
-/// or runs wrong, so deciding it would fail the call it is decided for.
+/// candidate queued its work and only the harness around it failed. Every other kind says the
+/// candidate did not run, or runs wrong, so deciding it would fail the call it is decided for.
 #[derive(Clone, Display)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// The harness failed around work the candidate queued: a profile it could not take or
-    /// resolve, an execution that failed, memory that ran out while it ran.
+    /// resolve.
     #[display("{name}: An unknown error happened.\n{err}")]
     Unknown {
         /// The candidate's name.
@@ -75,6 +75,31 @@ pub enum AutotuneError {
 }
 
 impl AutotuneError {
+    /// The error of the candidate `name`, which the tune could not hold the device for: `reason`
+    /// says why.
+    pub(crate) fn hold_failed(name: &str, reason: &ServerError) -> Self {
+        Self::HoldFailed {
+            name: name.into(),
+            reason: reason.to_string(),
+        }
+    }
+
+    /// What a failed profile of the candidate `name` says of it: a panic while its kernels
+    /// expanded, a launch that failed, or a failure of the harness around work it queued.
+    pub(crate) fn unprofiled(name: &str, error: ProfileError) -> Self {
+        match error {
+            error if error.is_expansion_panic() => Self::Panicked {
+                name: name.into(),
+                message: error.to_string(),
+            },
+            ProfileError::Launch(launch) => Self::Launch(launch),
+            error => Self::Unknown {
+                name: name.into(),
+                err: error.to_string(),
+            },
+        }
+    }
+
     /// Whether the candidate executed and only its timing failed, so a tune that measured nothing
     /// may decide it.
     pub(crate) fn executed_unmeasured(&self) -> bool {
@@ -97,23 +122,75 @@ impl From<LaunchError> for AutotuneError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::ToString;
+    use crate::compiler::CompilationError;
 
     #[test]
-    fn only_a_timing_failure_is_executed_unmeasured() {
-        let name = || "candidate".to_string();
+    fn a_harness_failure_is_executed_unmeasured() {
         let unknown = AutotuneError::Unknown {
-            name: name(),
+            name: "candidate".into(),
             err: "no timestamp query".into(),
         };
-        let held = AutotuneError::HoldFailed {
-            name: name(),
-            reason: "the device thread is gone".into(),
-        };
-        let unmeasured = AutotuneError::NotMeasured { name: name() };
 
         assert!(unknown.executed_unmeasured());
-        assert!(!held.executed_unmeasured());
+    }
+
+    #[test]
+    fn a_failed_hold_is_not_executed_unmeasured() {
+        let error = ServerError::Generic {
+            reason: "the device thread is gone".into(),
+            backtrace: Default::default(),
+        };
+
+        assert!(!AutotuneError::hold_failed("candidate", &error).executed_unmeasured());
+    }
+
+    #[test]
+    fn a_sample_with_no_measurement_is_not_executed_unmeasured() {
+        let unmeasured = AutotuneError::NotMeasured {
+            name: "candidate".into(),
+        };
+
         assert!(!unmeasured.executed_unmeasured());
+    }
+
+    #[test]
+    fn a_profile_stopped_by_an_expansion_panic_is_panicked() {
+        let error = ProfileError::Launch(LaunchError::CompilationError(
+            CompilationError::ExpansionPanicked {
+                kernel: "kernel".into(),
+                message: "an assertion failed".into(),
+                backtrace: Default::default(),
+            },
+        ));
+
+        assert!(matches!(
+            AutotuneError::unprofiled("candidate", error),
+            AutotuneError::Panicked { .. }
+        ));
+    }
+
+    #[test]
+    fn a_profile_whose_launch_failed_is_a_launch_failure() {
+        let error = ProfileError::Launch(LaunchError::OutOfMemory {
+            reason: "the pool is full".into(),
+            backtrace: Default::default(),
+        });
+
+        assert!(matches!(
+            AutotuneError::unprofiled("candidate", error),
+            AutotuneError::Launch(_)
+        ));
+    }
+
+    #[test]
+    fn a_profile_that_failed_otherwise_is_unknown() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        assert!(matches!(
+            AutotuneError::unprofiled("candidate", error),
+            AutotuneError::Unknown { .. }
+        ));
     }
 }

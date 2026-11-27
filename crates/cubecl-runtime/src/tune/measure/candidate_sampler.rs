@@ -1,5 +1,3 @@
-#[cfg(feature = "std")]
-use alloc::string::String;
 use alloc::string::ToString;
 use cubecl_common::profile::ProfileDuration;
 #[cfg(feature = "std")]
@@ -13,6 +11,12 @@ use crate::tune::{AutotuneError, TuneDeviceAccess, TuneInputs};
 
 /// Runs a tune's candidates on one device, the way its [`TuneDeviceAccess`] holds the device:
 /// warms them up, takes their samples, and contains their panics.
+///
+/// # Assumptions
+///
+/// - Every function but [`hold`](Self::hold) and [`client`](Self::client) runs inside a
+///   [`hold`](Self::hold), so that only a panic stops a race: the adaptive driver takes it once
+///   for the whole round robin rather than once per candidate.
 #[derive(Clone, Copy)]
 pub struct CandidateSampler<'c> {
     client: &'c Client,
@@ -50,8 +54,6 @@ impl<'c> CandidateSampler<'c> {
     /// Race `operation` on `inputs` ([`TuneFn::race`]), its panic contained so it costs no other
     /// candidate its measurement: in a device call of its own where the device is held, on the
     /// calling thread where it never is.
-    ///
-    /// Expects to already hold the device as the access does, so that only a panic stops the race.
     pub fn contain_race<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,
@@ -62,9 +64,6 @@ impl<'c> CandidateSampler<'c> {
 
     #[cfg(not(target_family = "wasm"))]
     /// Run `operation` once without measuring it, to trigger compilation.
-    ///
-    /// Expects to already hold the device as the access does: the adaptive driver takes it once
-    /// for the whole round robin rather than once per candidate.
     pub fn warmup_once<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,
@@ -81,8 +80,6 @@ impl<'c> CandidateSampler<'c> {
 
     /// Run `operation` `round_count` times, each profiled and none resolved, to trigger
     /// compilation and settle the clocks, as the fixed-count pass warms a candidate up.
-    ///
-    /// Expects to already hold the device as the access does.
     ///
     /// # Errors
     ///
@@ -115,12 +112,12 @@ impl<'c> CandidateSampler<'c> {
         }
 
         match last_failure.filter(|_| !profiled) {
-            Some(err) => Err(unprofiled(operation.name(), err)),
+            Some(err) => Err(logged(AutotuneError::unprofiled(operation.name(), err))),
             None => Ok(()),
         }
     }
 
-    /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
+    /// Queue a single measured execution.
     ///
     /// `evictor` runs first, outside the profiled region, so the sample reads what a real call
     /// reads rather than what the previous launch left in cache ([`Evictor`](crate::tune::Evictor)). An
@@ -156,8 +153,12 @@ impl CandidateSampler<'_> {
         name: &str,
         race: impl FnOnce() -> Result<Out, AutotuneError> + Send,
     ) -> Result<Out, AutotuneError> {
-        self.contained(race)
-            .unwrap_or_else(|panic| Err(panicked(name, panic.to_string())))
+        self.contained(race).unwrap_or_else(|panic| {
+            Err(logged(AutotuneError::Panicked {
+                name: name.into(),
+                message: panic.to_string(),
+            }))
+        })
     }
 
     /// What `task` returns, its panic contained as the access contains it.
@@ -193,39 +194,18 @@ fn sampled<Out>(
     match profiled {
         Ok((Ok(_), duration)) => Ok(duration),
         Ok((Err(err), _)) => Err(err),
-        Err(err) => Err(unprofiled(name, err)),
+        Err(err) => Err(logged(AutotuneError::unprofiled(name, err))),
     }
 }
 
-/// The error of the candidate `name`, which a batch could not measure because the device could not
-/// be held: `reason` says why.
-pub fn hold_failed(name: &str, reason: &ServerError) -> AutotuneError {
-    AutotuneError::HoldFailed {
-        name: name.into(),
-        reason: reason.to_string(),
+/// `error`, logged first where it is a panic: a defect in the candidate.
+fn logged(error: AutotuneError) -> AutotuneError {
+    if let AutotuneError::Panicked { name, message } = &error {
+        log::error!(
+            "The autotune candidate `{name}` panicked and is dropped from its race: {message}"
+        );
     }
-}
-
-/// What a failed profile of the candidate `name` says of it: a panic while its kernels expanded, a
-/// launch that failed, or a failure of the harness around work it queued.
-pub fn unprofiled(name: &str, error: ProfileError) -> AutotuneError {
-    match error {
-        error if error.is_expansion_panic() => panicked(name, error.to_string()),
-        ProfileError::Launch(launch) => AutotuneError::Launch(launch),
-        error => AutotuneError::Unknown {
-            name: name.into(),
-            err: error.to_string(),
-        },
-    }
-}
-
-/// The error of a panic of the candidate `name`, logged as the defect it is.
-fn panicked(name: &str, message: alloc::string::String) -> AutotuneError {
-    log::error!("The autotune candidate `{name}` panicked and is dropped from its race: {message}");
-    AutotuneError::Panicked {
-        name: name.into(),
-        message,
-    }
+    error
 }
 
 /// What `task` returns, or the panic it stopped on. Without `std` a panic is never caught.
@@ -234,11 +214,7 @@ fn caught<R>(task: impl FnOnce() -> R) -> Result<R, ServerError> {
     {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(task)).map_err(|payload| {
             ServerError::Generic {
-                reason: payload
-                    .downcast_ref::<&str>()
-                    .map(|message| String::from(*message))
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| String::from("a panic with no message")),
+                reason: crate::panic_message::panic_message(&*payload),
                 backtrace: BackTrace::capture(),
             }
         })
@@ -290,8 +266,6 @@ impl Drop for OpenWindow<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::CompilationError;
-    use crate::server::LaunchError;
 
     #[cfg(feature = "std")]
     #[test]
@@ -321,56 +295,5 @@ mod tests {
             cubecl_common::profile::Instant::now(),
             cubecl_common::profile::Instant::now(),
         )
-    }
-
-    #[test]
-    fn a_profile_stopped_by_an_expansion_panic_is_panicked() {
-        let error = ProfileError::Launch(LaunchError::CompilationError(
-            CompilationError::ExpansionPanicked {
-                kernel: "kernel".into(),
-                message: "an assertion failed".into(),
-                backtrace: Default::default(),
-            },
-        ));
-
-        assert!(matches!(
-            unprofiled("candidate", error),
-            AutotuneError::Panicked { .. }
-        ));
-    }
-
-    #[test]
-    fn a_profile_whose_launch_failed_is_a_launch_failure() {
-        let error = ProfileError::Launch(LaunchError::OutOfMemory {
-            reason: "the pool is full".into(),
-            backtrace: Default::default(),
-        });
-
-        assert!(matches!(
-            unprofiled("candidate", error),
-            AutotuneError::Launch(_)
-        ));
-    }
-
-    #[test]
-    fn a_profile_that_failed_otherwise_is_unknown() {
-        let error = ProfileError::NotRegistered {
-            backtrace: Default::default(),
-        };
-
-        assert!(matches!(
-            unprofiled("candidate", error),
-            AutotuneError::Unknown { .. }
-        ));
-    }
-
-    #[test]
-    fn a_failed_hold_is_never_a_fallback() {
-        let error = ServerError::Generic {
-            reason: "the device thread is gone".into(),
-            backtrace: Default::default(),
-        };
-
-        assert!(!hold_failed("candidate", &error).executed_unmeasured());
     }
 }

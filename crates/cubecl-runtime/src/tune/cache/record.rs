@@ -1,18 +1,13 @@
 //! What a tune leaves in the environment beside its answer.
 //!
-//! The table stores a key's winner and every candidate's result, ranked. What
+//! The table stores a key's decided candidate and every candidate's result, ranked. What
 //! it cannot say is how the tune went: which candidates ran and in what order,
 //! what each cost to compile and benchmark, whether the tune stopped early,
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
 use crate::tune::cache::table::TuneTable;
-use crate::tune::plan::planner::TunePlanner;
-use crate::tune::set::tune_fn::TuneFn;
-use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, Placement,
-    TuneInputs,
-};
+use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -27,8 +22,9 @@ pub struct TuneRecord<K> {
     /// The table's entry the answer is stored under: the key, and the
     /// checksum of the candidate list it was tuned under.
     pub entry: PersistentCacheKey<K>,
-    /// The index of the candidate the key runs.
-    pub winner: usize,
+    /// Stored under its earlier name, which environments already saved hold.
+    #[serde(rename = "winner")]
+    pub decided_index: usize,
     /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
     /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
     /// skipped or that a short circuit left unreached costs zero.
@@ -59,7 +55,7 @@ pub struct TuneRecord<K> {
 pub struct PlannedCandidate {
     /// The candidate's name.
     pub name: String,
-    /// Its index in the tunable set, the one the table's winner names.
+    /// Its index in the tunable set, as the record's decided index names it.
     pub index: usize,
     /// The batch the plan releases it in, counting from 0. A tune stops
     /// after the first batch with a valid result, so later batches only run
@@ -67,9 +63,23 @@ pub struct PlannedCandidate {
     /// a negative priority for this key.
     pub batch: Option<usize>,
     /// Its place in each group it belongs to, in the order it joined them
-    /// (Arrival Usage); empty for a candidate in no group, which trails every
-    /// batch.
+    /// (Arrival Usage); empty for a candidate in no group, which trails the
+    /// first batch.
     pub groups: Vec<Placement>,
+}
+
+/// A tunable's place in one of its [groups](crate::tune::TuneGroup), as one key priced it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Placement {
+    /// The group's name.
+    pub group: String,
+    /// Whether the group is [ordered](crate::tune::TuneGroup::ordered): its members' priorities order one round
+    /// rather than cutting it into rounds.
+    pub ordered: bool,
+    /// The group's own priority: higher groups run first.
+    pub group_priority: i8,
+    /// The tunable's priority within the group; negative skips it.
+    pub priority: i8,
 }
 
 /// One candidate's run within a tune.
@@ -106,7 +116,7 @@ pub struct OpenRecording<K> {
 
 /// What [`TuneRecorder::record_answer`] needs to know of the answer.
 pub struct Answer {
-    pub winner: usize,
+    pub decided_index: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
 }
@@ -135,16 +145,13 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         self.open.is_some()
     }
 
-    /// Keep the plan the tune runs over `autotunables`.
-    pub fn record_plan<F: TuneInputs, Out: 'static>(
-        &mut self,
-        plan: &TunePlanner,
-        autotunables: &[&TuneFn<F, Out>],
-    ) {
+    /// Keep the plan the tune runs, as `account` lists it: called only when the environment
+    /// records.
+    pub fn record_plan(&mut self, account: impl FnOnce() -> Vec<PlannedCandidate>) {
         let Some(open) = &mut self.open else {
             return;
         };
-        open.plan = plan.account(|index| autotunables[index].name());
+        open.plan = account();
     }
 
     /// Write the record of the tune that just answered.
@@ -160,7 +167,7 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         let record = TuneRecord {
             table: open.table,
             entry: open.entry,
-            winner: answer.winner,
+            decided_index: answer.decided_index,
             trials,
             short_circuit,
             wall,
@@ -206,25 +213,14 @@ fn effect_when_stored(stored: bool) -> RecordEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::boxed::Box;
     use alloc::string::ToString;
     use alloc::vec;
 
     #[test]
-    fn a_closed_recorder_records_nothing() {
+    fn a_closed_recorder_never_lists_the_plan() {
         let mut recorder = TuneRecorder::<String> { open: None };
-        let candidate = TuneFn::<(), ()>::new("candidate".to_string(), Box::new(|_| Ok(())));
-        let plan = TunePlanner::new::<String, (), (), ()>(&String::new(), &[]);
 
-        recorder.record_plan(&plan, &[&candidate]);
-        assert!(!recorder.is_open());
-        recorder.record_answer(
-            Answer {
-                winner: 0,
-                stored: true,
-            },
-            None,
-        );
+        recorder.record_plan(|| panic!("a closed recorder should not list the plan"));
     }
 
     fn short_circuited() -> AutotuneLogContext {

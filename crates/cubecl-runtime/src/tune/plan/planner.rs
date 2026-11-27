@@ -1,10 +1,12 @@
 use alloc::collections::BTreeMap;
 #[cfg(persistence)]
 use alloc::string::ToString;
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use core::cmp::Reverse;
 use cubecl_environment::collections::{HashMap, HashSet};
 
+#[cfg(persistence)]
+use crate::tune::cache::record::{Placement, PlannedCandidate};
 use crate::tune::plan::batch::Batch;
 use crate::tune::set::group::{GroupId, Patience, TuneGroup};
 use crate::tune::{Tunable, TuneInputs};
@@ -28,20 +30,6 @@ pub struct TunePlanner {
     /// (Position Usage).
     #[cfg(persistence)]
     placements: Vec<Vec<Placement>>,
-}
-
-/// A tunable's place in one of its [groups](TuneGroup), as one key priced it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Placement {
-    /// The group's name.
-    pub group: String,
-    /// Whether the group is [ordered](TuneGroup::ordered): its members' priorities order one round
-    /// rather than cutting it into rounds.
-    pub ordered: bool,
-    /// The group's own priority: higher groups run first.
-    pub group_priority: i8,
-    /// The tunable's priority within the group; negative skips it.
-    pub priority: i8,
 }
 
 /// The groups that share one group priority.
@@ -168,20 +156,15 @@ impl TunePlanner {
     /// in the [order](Self::order) the plan releases them, with the batch each comes in and its
     /// place in each of its groups.
     #[cfg(persistence)]
-    pub fn account<'n>(
-        &self,
-        name_of: impl Fn(usize) -> &'n str,
-    ) -> Vec<crate::tune::cache::record::PlannedCandidate> {
+    pub fn account<'n>(&self, name_of: impl Fn(usize) -> &'n str) -> Vec<PlannedCandidate> {
         self.order()
             .into_iter()
-            .map(
-                |(index, batch)| crate::tune::cache::record::PlannedCandidate {
-                    name: name_of(index).to_string(),
-                    index,
-                    batch,
-                    groups: self.placements[index].clone(),
-                },
-            )
+            .map(|(index, batch)| PlannedCandidate {
+                name: name_of(index).to_string(),
+                index,
+                batch,
+                groups: self.placements[index].clone(),
+            })
             .collect()
     }
 

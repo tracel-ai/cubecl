@@ -4,6 +4,7 @@ pub mod binding;
 pub mod bounds_generator;
 pub mod clone_input_generator;
 pub mod evictor;
+pub mod hook_binder;
 pub mod input_generator;
 pub mod key_generator;
 pub mod stage_enterer;

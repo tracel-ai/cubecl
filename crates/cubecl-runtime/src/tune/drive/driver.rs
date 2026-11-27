@@ -8,9 +8,7 @@ use crate::config::RuntimeConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
 use crate::tune::cache::tracker::TuneAnswer;
-use crate::tune::drive::committer::{
-    LaunchedBench, QueuedBench, ResolvedBench, TuneCommitter, unmeasured_pick,
-};
+use crate::tune::drive::committer::{LaunchedBench, QueuedBench, ResolvedBench, TuneCommitter};
 use crate::tune::drive::tune_benchmark::tune_benchmark;
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
@@ -35,7 +33,6 @@ pub struct DriveOptions {
 /// the tunable set, `'i` the benchmark inputs.
 pub struct TuneDriver<'t, 'i, K: AutotuneKeyable, F: TuneInputs, Out> {
     committer: TuneCommitter<K>,
-    key: K,
     /// Every candidate's function, by tunable index (Position Usage).
     autotunables: Vec<&'t TuneFn<F, Out>>,
     test_inputs: <F as TuneInputs>::At<'i>,
@@ -60,7 +57,7 @@ where
     /// to the reference `inputs`, walking `plan` and committing through `committer`.
     pub fn new(
         committer: TuneCommitter<K>,
-        key: K,
+        key: &K,
         tunables: &'t TunableSet<K, F, Out, impl Sized>,
         inputs: &<F as TuneInputs>::At<'i>,
         test_inputs: <F as TuneInputs>::At<'i>,
@@ -72,10 +69,9 @@ where
                 .autotune
                 .disable_short_circuit;
         Self {
-            evictor: tunables.evictor(&key, inputs),
-            stage_enterer: tunables.bound_stage_enterer(&key, inputs),
+            evictor: tunables.bound_evictor(key, inputs),
+            stage_enterer: tunables.bound_stage_enterer(key, inputs),
             committer,
-            key,
             autotunables: tunables.autotunables().collect(),
             test_inputs,
             access: tunables.device_access(),
@@ -194,12 +190,7 @@ where
     #[cfg(not(target_family = "wasm"))]
     fn bench_all(&mut self, batch: &Batch, sampler: CandidateSampler<'_>) -> bool {
         let launched = self.launch_batch(batch, sampler);
-        let resolved = cubecl_environment::future::block_on(
-            crate::tune::drive::committer::resolve_benches(launched),
-        );
-        resolved
-            .into_iter()
-            .for_each(|bench| self.committer.record_bench(bench));
+        cubecl_environment::future::block_on(self.committer.record_launched(launched));
         self.batch_measured(batch)
     }
 
@@ -276,20 +267,15 @@ where
     }
 
     /// End a tune whose every batch ran without a candidate measured: stop it on a lost card, or
-    /// decide a candidate that executed unmeasured.
+    /// commit it with nothing measured.
     fn exhausted(self, client: &Client) -> TuneAnswer {
         #[cfg(not(target_family = "wasm"))]
         if let Some(lost) = lost_device(client) {
-            log::error!(
-                "Autotune of {} stopped, the device is lost: {lost}",
-                self.key
-            );
-            return self.committer.stop_on_lost_card(client.service_id());
+            return self.committer.stop_on_lost_card(client.service_id(), lost);
         }
         #[cfg(target_family = "wasm")]
         let _ = client;
-        let decided = unmeasured_pick(&self.key, self.committer.results());
-        self.committer.commit(Vec::new(), Some(decided))
+        self.committer.commit(Vec::new(), None)
     }
 }
 

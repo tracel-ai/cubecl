@@ -4,10 +4,9 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use cubecl_common::hash::StableHash;
 
-use crate::tune::hook::binding::{
-    BoundEvictor, BoundStageEnterer, bind_evictor, bind_stage_enterer, generate_bounds,
-};
+use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
 use crate::tune::hook::clone_input_generator::CloneInputGenerator;
+use crate::tune::hook::hook_binder::HookBinder;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::candidate_orderer::{CandidatePlanner, names_hash};
 use crate::tune::set::tune_fn::TuneFn;
@@ -35,9 +34,7 @@ pub struct TunableSet<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id = (
     checksum: StableHash,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
-    bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
-    evictor: Option<Arc<dyn Evictor<K, F> + Send + Sync>>,
-    stage_enterer: Option<Arc<dyn StageEnterer<K, F> + Send + Sync>>,
+    hooks: HookBinder<K, F>,
     device_access: TuneDeviceAccess,
     short_circuit: bool,
 }
@@ -51,9 +48,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
             checksum: names_hash::<K, F, Output, Id>(&[]),
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
-            bounds_gen: None,
-            evictor: None,
-            stage_enterer: None,
+            hooks: HookBinder::new(),
             device_access: TuneDeviceAccess::Exclusive,
             short_circuit: true,
         }
@@ -84,12 +79,13 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self
     }
 
-    /// The set with `bounds` setting the time limit a candidate is close enough under.
+    /// The set with the bounds `bounds_generator` generates setting the time limit a candidate is
+    /// close enough under.
     pub fn with_bounds(
         mut self,
         bounds_generator: Arc<dyn BoundsGenerator<K, F> + Send + Sync>,
     ) -> Self {
-        self.bounds_gen = Some(bounds_generator);
+        self.hooks.register_bounds_generator(bounds_generator);
         self
     }
 
@@ -103,7 +99,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     /// - A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
     ///   measurement aid, and losing one is not worth failing the tune for.
     pub fn with_evictor(mut self, evictor: Arc<dyn Evictor<K, F> + Send + Sync>) -> Self {
-        self.evictor = Some(evictor);
+        self.hooks.register_evictor(evictor);
         self
     }
 
@@ -113,7 +109,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         mut self,
         enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
     ) -> Self {
-        self.stage_enterer = Some(enterer);
+        self.hooks.register_stage_enterer(enterer);
         self
     }
 
@@ -148,7 +144,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
 
     /// The bounds the candidates of `key` are measured against, if the set has a bounds generator.
     pub fn bounds(&self, key: &K, inputs: &F::At<'_>) -> Option<Bounds> {
-        generate_bounds(self.bounds_gen.as_ref(), key, inputs)
+        self.hooks.generate_bounds(key, inputs)
     }
 }
 
@@ -191,18 +187,22 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self.checksum as u64
     }
 
-    /// The set's evictor, if any, bound to `key` and the reference `inputs`.
-    pub(crate) fn evictor<'i>(&self, key: &K, inputs: &F::At<'i>) -> Option<Box<BoundEvictor<'i>>> {
-        bind_evictor(self.evictor.as_ref(), key, inputs)
+    /// [`HookBinder::bind_evictor`].
+    pub(crate) fn bound_evictor<'i>(
+        &self,
+        key: &K,
+        inputs: &F::At<'i>,
+    ) -> Option<Box<BoundEvictor<'i>>> {
+        self.hooks.bind_evictor(key, inputs)
     }
 
-    /// The set's stage enterer, if any, bound to `key` and the reference `inputs`.
+    /// [`HookBinder::bind_stage_enterer`].
     pub(crate) fn bound_stage_enterer<'i>(
         &self,
         key: &K,
         inputs: &F::At<'i>,
     ) -> Option<Box<BoundStageEnterer<'i>>> {
-        bind_stage_enterer(self.stage_enterer.as_ref(), key, inputs)
+        self.hooks.bind_stage_enterer(key, inputs)
     }
 }
 
@@ -226,13 +226,6 @@ mod tests {
 
         assert_ne!(empty.compute_checksum(), one.compute_checksum());
         assert_ne!(empty.checksum(), one.checksum());
-    }
-
-    #[test]
-    fn a_set_with_no_bounds_generator_has_no_bounds() {
-        let key = "key".to_string();
-
-        assert!(set().bounds(&key, &key).is_none());
     }
 
     #[test]

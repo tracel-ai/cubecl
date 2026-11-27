@@ -45,16 +45,16 @@ mod set;
 pub use crate::local_tuner;
 pub use crate::throughput::ResourceBound;
 pub use bounds::{AutotuneBound, Bounds, Thresholds};
+#[cfg(persistence)]
+pub use cache::record::{Placement, PlannedCandidate, Trial, TuneRecord};
+pub use cache::table::LAYOUT_PREFIX;
+#[cfg(persistence)]
+pub use cache::table::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
 pub use hook::bounds_generator::BoundsGenerator;
 pub use key::anchor::Anchor;
 pub use set::checkable::AutotuneCheckable;
 // `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
 // autotune bounds and benchmark reporting share one definition.
-#[cfg(persistence)]
-pub use cache::record::{PlannedCandidate, Trial, TuneRecord};
-pub use cache::table::LAYOUT_PREFIX;
-#[cfg(persistence)]
-pub use cache::table::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
 pub use cubecl_common::work::Work;
 pub use device_access::TuneDeviceAccess;
 pub use error::AutotuneError;
@@ -69,7 +69,6 @@ pub use key::keyable::AutotuneKeyable;
 pub use log::context::AutotuneDecision;
 pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
 pub use measure::outcome::{AutotuneOutcome, AutotuneResult};
-pub use plan::planner::Placement;
 pub use set::group::{OrderedSettings, Patience, TuneGroup};
 pub use set::tunable::Tunable;
 pub use set::tunable_set::TunableSet;

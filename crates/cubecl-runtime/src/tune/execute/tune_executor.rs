@@ -29,8 +29,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         }
     }
 
-    /// The set `init_set` builds for `id`, built once per initializer type and id until
-    /// [`clear`](Self::clear).
+    /// [`LocalTuner::init`](crate::tune::LocalTuner::init).
     pub fn init<I, Out, Id, F>(&self, id: &ID, init_set: F) -> Arc<TunableSet<AK, I, Out, Id>>
     where
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
@@ -45,7 +44,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         self.sets.write().initialize(key, init_set)
     }
 
-    /// What the candidate settled for `key` of `operations` on `id` is identified by.
+    /// [`LocalTuner::fastest_identity`](crate::tune::LocalTuner::fastest_identity).
     pub fn fastest_identity<I, Out, Id>(
         &self,
         id: &ID,
@@ -61,13 +60,13 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
             .lock()
             .opened(id, operations.checksum())?
             .clone();
-        let TuneAnswer::Hit { fastest_index } = tuner.fastest(key) else {
+        let TuneAnswer::Hit { decided_index } = tuner.decided(key) else {
             return None;
         };
-        Some(operations.identity_at(fastest_index).clone())
+        Some(operations.identity_at(decided_index).clone())
     }
 
-    /// Forget every set built and every tuner opened.
+    /// [`LocalTuner::clear`](crate::tune::LocalTuner::clear).
     pub fn clear(&self) {
         // Dropped after unlocking: a captured value's drop may call back into this tuner.
         let closed = {
@@ -77,8 +76,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         core::mem::drop(closed);
     }
 
-    /// Run the candidate `operations` elects for the key of `inputs` on `id`, tuning the key on
-    /// its first miss.
+    /// [`LocalTuner::execute`](crate::tune::LocalTuner::execute).
     pub fn execute<'a, I: TuneInputs, Out, Id>(
         &self,
         id: &ID,
@@ -94,21 +92,20 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         let key = operations.generate_key(&inputs);
         let tuner = self.tuners.lock().open(id, self.name, client, &operations);
 
-        // Fast path: a cached hit skips straight to the fastest operation. `fastest` also resets
-        // the tuner cache if the environment switched, so a miss here falls through to `tune`,
-        // which reads the store.
+        // Fast path: a cached hit skips straight to the decided candidate. A miss falls through to
+        // `tune`, which reads the store.
         tuner.reset_if_environment_switched();
-        if let TuneAnswer::Hit { fastest_index } = tuner.fastest(&key) {
+        if let TuneAnswer::Hit { decided_index } = tuner.decided(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
             check_candidates(&operations, &inputs, client, false);
-            return execute_elected(&operations, &key, fastest_index, inputs);
+            return execute_elected(&operations, &key, decided_index, inputs);
         }
 
         let checks = |collect| check_candidates(&operations, &inputs, client, collect);
         match tuner.tune::<I, Out, Id>(&key, &inputs, &operations, client, checks) {
-            TuneAnswer::Hit { fastest_index } => {
-                execute_elected(&operations, &key, fastest_index, inputs)
+            TuneAnswer::Hit { decided_index } => {
+                execute_elected(&operations, &key, decided_index, inputs)
             }
             TuneAnswer::Miss => unreachable!("a tune should never answer a miss"),
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
@@ -123,40 +120,60 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
 }
 
 /// Under the `autotune-checks` feature, the cross-check of every candidate of `operations` on
-/// `inputs`, each raced contained as the tune races it, collected where `collect`. `None` without
-/// the feature, and where the candidates only gather kernels: their launches are discarded, so
-/// their outputs hold nothing to compare.
+/// `inputs`, collected where `collect`: each raced contained, with the device held and its launches
+/// executed, as a measurement races it. `None` without the feature, and where the process discards
+/// launches or the candidates only gather kernels: a check is the call's work, which such a pass
+/// exists to skip.
 #[cfg_attr(
     not(feature = "autotune-checks"),
     allow(unused_variables, clippy::unnecessary_wraps)
 )]
-fn check_candidates<'a, AK: AutotuneKeyable, I: TuneInputs, Out: AutotuneCheckable, Id>(
+fn check_candidates<'a, AK: AutotuneKeyable, I: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
     operations: &TunableSet<AK, I, Out, Id>,
     inputs: &<I as TuneInputs>::At<'a>,
     client: &Client,
     collect: bool,
 ) -> Option<Vec<CheckResult>>
 where
-    <I as TuneInputs>::At<'a>: Clone,
+    <I as TuneInputs>::At<'a>: Clone + Send,
 {
     #[cfg(feature = "autotune-checks")]
     {
-        use crate::execution::ProcessMode;
-        use crate::tune::measure::candidate_gathering::CandidateGatherer;
+        use crate::execution::{ProcessMode, StreamMode, StreamModeOverride};
+        use crate::tune::measure::candidate_gathering::CandidateGathering;
         use crate::tune::measure::candidate_sampler::CandidateSampler;
         use alloc::string::ToString;
 
-        if ProcessMode::current() == ProcessMode::CompileOnly || CandidateGatherer::is_gathering() {
+        if ProcessMode::current().stream_mode() == StreamMode::Discard
+            || CandidateGathering::is_open()
+        {
             return None;
         }
         let sampler = CandidateSampler::new(client, operations.device_access());
-        let outputs = operations
-            .autotunables()
-            .map(|operation| {
-                let output = sampler.contain_race(operation, inputs.clone());
-                (operation.name().to_string(), output)
-            })
-            .collect();
+        let inputs = inputs.clone();
+        let raced = sampler.hold(move || {
+            // Inside the hold, as a measurement's override is: the stream executes only while the
+            // checks hold the device.
+            let executing = StreamModeOverride::new(StreamMode::Execute, sampler.client());
+            let outputs: Vec<_> = operations
+                .autotunables()
+                .map(|operation| {
+                    let output = sampler.contain_race(operation, inputs.clone());
+                    (operation.name().to_string(), output)
+                })
+                .collect();
+            core::mem::drop(executing);
+            outputs
+        });
+        let outputs = raced.unwrap_or_else(|reason| {
+            operations
+                .autotunables()
+                .map(|operation| {
+                    let error = AutotuneError::hold_failed(operation.name(), &reason);
+                    (operation.name().to_string(), Err(error))
+                })
+                .collect()
+        });
         Some(crate::tune::execute::checks::check_outputs(
             outputs, collect,
         ))

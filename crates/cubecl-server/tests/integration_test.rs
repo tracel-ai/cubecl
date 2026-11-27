@@ -1,3 +1,7 @@
+//! Every test or assertion gated on `not(feature = "autotune-checks")` counts candidate calls,
+//! stages or evictions: that feature races every candidate once more on every execute, outside
+//! every stage and without eviction.
+
 mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
@@ -1925,7 +1929,6 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
     );
     TUNER.execute(&id, &client, set.clone(), handles);
     assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
-    // `autotune-checks` runs every tunable on every `execute`, round or not.
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         slow_runs.load(Ordering::Relaxed),
@@ -2107,7 +2110,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     let winner = ProcessTuner::new("recorded")
         .tune(&set, &client, &handles)
         .expect("the tune should answer inline");
-    let fastest_index = match winner {
+    let decided_index = match winner {
         dummy::Addition::Correct => 0,
         dummy::Addition::SlowAndWrong => 1,
     };
@@ -2118,7 +2121,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     let tune = &tunes[0].record;
     assert_eq!(tune.entry.key, key);
     assert_eq!(tune.entry.checksum, set.compute_checksum());
-    assert_eq!(tune.winner, fastest_index);
+    assert_eq!(tune.decided_index, decided_index);
     assert!(
         tune.table.starts_with("autotune/")
             && tune
@@ -2544,9 +2547,14 @@ fn autotune_evicts_before_every_measured_sample() {
     // The winner ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the compile runs and warm-ups, and the winner's
-    // real run.
-    let unmeasured = candidates * warmups + 1;
+    // The launches that were not measured samples: the compile runs and warm-ups, the winner's
+    // real run, and under `autotune-checks` one cross-check of each candidate.
+    let checks = if cfg!(feature = "autotune-checks") {
+        candidates
+    } else {
+        0
+    };
+    let unmeasured = candidates * warmups + 1 + checks;
     let calls = calls.load(Ordering::Relaxed);
     let evictions = evictions.load(Ordering::Relaxed);
     let misdirected = misdirected.load(Ordering::Relaxed);
@@ -2560,8 +2568,6 @@ fn autotune_evicts_before_every_measured_sample() {
         calls > unmeasured,
         "the candidates were launched {calls} times, no more than the {unmeasured} unmeasured ones"
     );
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
-    #[cfg(not(feature = "autotune-checks"))]
     // One eviction per measured sample, and none for anything else.
     assert_eq!(
         evictions,
@@ -2615,7 +2621,6 @@ fn autotune_runs_its_winner_outside_every_stage() {
 }
 
 /// Every run of a tune's candidates is inside a stage its set's enterer entered.
-// `autotune-checks` races every candidate once more on every execute, outside every stage.
 #[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
@@ -2632,7 +2637,6 @@ fn autotune_runs_every_candidate_inside_a_stage() {
 
 /// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
 /// measures it.
-// `autotune-checks` races every candidate once more on every execute, outside every stage.
 #[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
@@ -2888,7 +2892,6 @@ fn autotune_patience_stops_measuring_the_group() {
         vec![(SlowWrong, Ranked), (Add, Ranked)],
     );
     assert_eq!(written, slow);
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(measured(calls[1]), !adaptive());
 
@@ -2934,13 +2937,11 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
     let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
     assert_eq!(written, vec![4, 5, 6]);
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
     #[cfg(not(feature = "autotune-checks"))]
     assert!(
         measured(calls[3]),
         "the second slow member is measured: {calls:?}"
     );
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         measured(calls[4]),
@@ -3009,10 +3010,9 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
     // The rejected candidate is dropped after its first failure, and the surviving `add`
-    // kernel still wins the tuning.
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
-    #[cfg(not(feature = "autotune-checks"))]
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    // kernel still wins the tuning. `autotune-checks` races it once more, to cross-check it.
+    let checks = usize::from(cfg!(feature = "autotune-checks"));
+    assert_eq!(calls.load(Ordering::Relaxed), 1 + checks);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
@@ -3594,7 +3594,6 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
             "the second card ran every candidate, as the first did"
         );
         second();
-        // `autotune-checks` runs every tunable on every `execute`, round or not.
         #[cfg(not(feature = "autotune-checks"))]
         assert_eq!(
             calls.load(Ordering::Relaxed),
@@ -4093,7 +4092,6 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
         .collect();
     assert_eq!(runs.first(), Some(&"outer"));
     // Each inner candidate queues its kernels, then the first serves the call untuned.
-    // `autotune-checks` races every candidate once more on every execute, outside every stage.
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         first_pass,

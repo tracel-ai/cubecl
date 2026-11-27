@@ -4,6 +4,8 @@ use super::*;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
+#[cfg(not(target_family = "wasm"))]
+use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_environment::persistence::{MemoryStorage, Namespace};
 
@@ -14,24 +16,123 @@ const CURRENT: &str = "ffff-current-list";
 
 /// An answer stored under an older candidate list is never served for
 /// the current one, even when it sorts first: the lookup asks for the key
-/// and the list together, and misses until the current list is answered.
+/// and the list together.
 #[test]
 fn an_answer_to_an_older_list_is_never_served() {
     let table = "tune-cache-tests/stale-first";
     plant(table, KEY, STALE, 1);
-    let mut cache = cache_over(table);
 
     assert!(matches!(
-        cache.track_stored(&KEY.to_string(), CURRENT, 3),
+        tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
         TuneAnswer::Miss
     ));
+}
 
+#[test]
+fn an_answer_to_the_current_list_is_served() {
+    let table = "tune-cache-tests/current";
+    plant(table, KEY, STALE, 1);
     plant(table, KEY, CURRENT, 2);
-    let mut cache = cache_over(table);
+
     assert!(matches!(
-        cache.track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneAnswer::Hit { fastest_index: 2 }
+        tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
+        TuneAnswer::Hit { decided_index: 2 }
     ));
+}
+
+#[test]
+fn a_stored_index_past_the_set_is_a_miss() {
+    let table = "tune-cache-tests/past-the-set";
+    plant(table, KEY, CURRENT, 3);
+
+    assert!(matches!(
+        tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
+        TuneAnswer::Miss
+    ));
+}
+
+/// A row past the set is deleted, so the tune that follows can store its answer.
+#[test]
+fn a_stored_index_past_the_set_is_deleted() {
+    let table = "tune-cache-tests/past-the-set-deleted";
+    plant(table, KEY, CURRENT, 3);
+    tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3);
+
+    assert_eq!(stored(table), []);
+}
+
+#[test]
+fn a_second_answer_to_a_stored_key_is_not_stored() {
+    let table = "tune-cache-tests/second-answer";
+    let mut tracker = tracker_over(table);
+    tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(1));
+
+    assert!(!tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(2)));
+}
+
+#[test]
+fn a_switched_environment_misses_every_answer() {
+    let mut tracker = tracker_over("tune-cache-tests/switched");
+    tracker.track_answer(KEY.to_string(), 1);
+    tracker.table.generation = tracker.table.generation.wrapping_add(1);
+
+    assert!(matches!(
+        tracker.decided(&KEY.to_string()),
+        TuneAnswer::Miss
+    ));
+}
+
+#[test]
+fn a_reset_drops_the_answers_of_the_switched_environment() {
+    let mut tracker = tracker_over("tune-cache-tests/reset");
+    tracker.track_answer(KEY.to_string(), 1);
+    tracker.table.generation = tracker.table.generation.wrapping_add(1);
+
+    tracker.reset_if_environment_switched();
+
+    assert!(tracker.answers.is_empty());
+}
+
+/// Opening a table drops the tables an earlier layout wrote, and nothing else. The only test of
+/// this binary that opens a table, since the drop happens once per process.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+#[serial_test::serial]
+fn opening_a_table_drops_the_earlier_layouts_only() {
+    use crate::config::RuntimeConfig;
+    use cubecl_environment::bytes::Bytes;
+    use cubecl_environment::persistence::{self, NamespaceRoot};
+
+    let root = tempfile::tempdir().unwrap();
+    let _ = crate::config::CubeClRuntimeConfig::get();
+    cubecl_environment::environment::set_root(root.path());
+    let scope = Namespace::scoped(NamespaceRoot::AUTOTUNE, "")
+        .as_str()
+        .to_string();
+    let at = |path: &str| alloc::format!("{scope}{path}");
+    let stale = at("layout-v1/cuda_l4/matmul");
+    let mut kept = alloc::vec![
+        at("layout-v2/cuda_l4/conv"),
+        "throughput/0.11.0/probe-v2/cuda_l4".to_string(),
+    ];
+    for namespace in core::iter::once(&stale).chain(&kept) {
+        persistence::open(namespace).insert(
+            b"key",
+            Bytes::from_bytes_vec(alloc::vec![1]),
+            persistence::Origin::Local,
+        );
+    }
+
+    TuneTracker::<String>::open(TuneTableName {
+        hardware: "cuda_l4",
+        tuner: "matmul",
+    });
+
+    let mut left = persistence::namespaces();
+    left.retain(|namespace| *namespace == stale || kept.contains(namespace));
+    left.sort();
+    kept.sort();
+    assert_eq!(left, kept);
 }
 
 /// Storing an answer to the current list leaves the key's answer to an
@@ -42,16 +143,16 @@ fn an_answer_to_an_older_list_is_never_served() {
 fn a_stored_answer_leaves_the_answers_to_older_lists() {
     let table = "tune-cache-tests/kept";
     plant(table, KEY, STALE, 1);
-    let mut cache = cache_over(table);
-    cache.track_stored(&KEY.to_string(), CURRENT, 3);
+    let mut tracker = tracker_over(table);
+    tracker.track_stored(&KEY.to_string(), CURRENT, 3);
 
-    assert!(cache.store_answer(KEY.to_string(), CURRENT.into(), answer(2)));
+    assert!(tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(2)));
 
     assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
 }
 
 /// A tracker over the in-memory table `table`.
-fn cache_over(table: &str) -> TuneTracker<String> {
+fn tracker_over(table: &str) -> TuneTracker<String> {
     TuneTracker::with_store(
         Some(answers(table)),
         TuneTable {
@@ -70,11 +171,11 @@ fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValu
     )
 }
 
-/// Stores in `table`, as a tune of `checksum`'s list would, `fastest_index`
+/// Stores in `table`, as a tune of `checksum`'s list would, `decided_index`
 /// as the answer to `key`.
-fn plant(table: &str, key: &str, checksum: &str, fastest_index: usize) {
+fn plant(table: &str, key: &str, checksum: &str, decided_index: usize) {
     answers(table)
-        .insert(pair(key, checksum), answer(fastest_index))
+        .insert(pair(key, checksum), answer_at(decided_index))
         .unwrap();
 }
 
@@ -85,9 +186,9 @@ fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
     }
 }
 
-fn answer(fastest_index: usize) -> PersistentCacheValue {
+fn answer_at(decided_index: usize) -> PersistentCacheValue {
     PersistentCacheValue {
-        decided_index: fastest_index,
+        decided_index: decided_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

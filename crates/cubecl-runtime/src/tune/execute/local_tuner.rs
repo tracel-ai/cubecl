@@ -7,8 +7,10 @@ use core::hash::Hash;
 /// The autotune of one call site: the [`TunableSet`] each device builds there, and the candidate
 /// a tune of each key elects, run on every call of the key.
 ///
-/// Results are shared by every id of the same [hardware](crate::device::HardwareIdentity)
-/// executing the same candidates, from the first [`execute`](Self::execute) of each.
+/// # Guarantees
+///
+/// - An answer is shared by every id of the same [hardware](crate::device::HardwareIdentity)
+///   executing the same candidates, from the first [`execute`](Self::execute) of each.
 ///
 /// # Assumptions
 ///
@@ -64,13 +66,6 @@ where
 
     /// The [`TunableSet`] `init_set` builds for `id`.
     ///
-    /// The device is part of the key because a set is routinely built from the device it will
-    /// run on: a closure captures that device's [`Client`] to ask what it supports, or reads its
-    /// hardware properties to decide which tunables are worth offering at all. Keyed by the
-    /// initializer alone, whichever device tuned first would answer those questions for every
-    /// device that followed — promoting kernels onto hardware that cannot run them, or
-    /// withholding kernels from hardware that can.
-    ///
     /// # Guarantees
     ///
     /// - `init_set` runs once per initializer type and `id`, until a [`clear`](Self::clear), and
@@ -85,12 +80,13 @@ where
         self.executor.init(id, init_set)
     }
 
-    /// What the fastest tunable in `operations` for `key` on `id` is
-    /// [identified](crate::tune::Tunable::identified) by: `None` until a result for the key is settled,
-    /// tuned by a round in this process or read back from disk by an [`execute`](Self::execute).
+    /// What the candidate decided for `key` of `operations` on `id` is
+    /// [identified](crate::tune::Tunable::identified) by.
     ///
     /// # Guarantees
     ///
+    /// - `None` until the key is settled, tuned in this process or read back from the persistent
+    ///   cache by an [`execute`](Self::execute).
     /// - It never starts a round, never waits for one in flight to measure, never reads the
     ///   persistent cache, and never resets the tuner's cache after an environment switch: it
     ///   answers `None` there until the next `execute`. It may wait for the tuner's lock while a
@@ -109,27 +105,38 @@ where
         self.executor.fastest_identity(id, operations, key)
     }
 
-    /// Forget every tune and every set [`init`](Self::init) built, which keep the run orders they
-    /// planned.
+    /// Forget every tune and every set [`init`](Self::init) built.
+    ///
+    /// # Guarantees
+    ///
+    /// - The next [`init`](Self::init) builds its set again, which plans every key afresh: a set
+    ///   keeps the run orders it planned.
     pub fn clear(&self) {
         self.executor.clear();
     }
 
-    /// Execute the fastest operation in `operations`, tuning the key of `inputs` on the first call
-    /// that misses it. A call the fastest rejects runs the next one that serves it.
+    /// Execute the candidate `operations` decides for the key of `inputs`, tuning the key on the
+    /// first call that misses it.
+    ///
+    /// # Guarantees
+    ///
+    /// - A call the decided candidate rejects runs the next one that serves it.
+    /// - A tune that could hold the device for no candidate it scheduled, or that stopped on a
+    ///   lost card, decides nothing: the call runs the candidates in plan order.
     ///
     /// # Assumptions
     ///
     /// - `operations` holds a candidate, and some candidate serves `inputs`.
     /// - Some candidate the plan schedules for the key, at a non-negative priority, executes on
-    ///   the device: it measures, or only its timing fails.
+    ///   the device, or the device could not be held for it: it measures, or only its timing
+    ///   fails.
     /// - The elected candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
     /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
     ///
     /// # Panics
     ///
     /// When no candidate serves `inputs`; when a tune measured none and none it scheduled
-    /// executed; when the elected one rejects `inputs` and they have no spare; and under
+    /// executed on a device it held; when the elected one rejects `inputs` and they have no spare; and under
     /// `autotune-checks`, when a candidate's output does not match and nothing reports it: the
     /// assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(
