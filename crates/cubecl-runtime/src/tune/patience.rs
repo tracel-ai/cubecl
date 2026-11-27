@@ -41,6 +41,17 @@ impl PatienceTable {
         }
     }
 
+    /// The most members any group's patience measures before it may stop, and at least one: the
+    /// candidates the batch measures before the bounds' time limit may end it.
+    pub(crate) fn min_measured(&self) -> usize {
+        self.trackers
+            .values()
+            .map(|tracker| tracker.patience.min_measured)
+            .max()
+            .unwrap_or(0)
+            .max(1)
+    }
+
     /// Whether the candidate at `slot` is skipped: every group that brought it in ran out of
     /// patience. One that a group without patience brought in, or that no group did, never is.
     pub fn skips(&self, slot: usize) -> bool {
@@ -171,6 +182,19 @@ mod tests {
                 .collect(),
             patience: patience.iter().copied().collect(),
         }
+    }
+
+    #[test]
+    fn the_batch_minimum_is_its_most_patient_group_s() {
+        let table = PatienceTable::new(&batch(
+            &[&[GroupId::new(0)], &[GroupId::new(1)]],
+            &[
+                (GroupId::new(0), patience(2, 1)),
+                (GroupId::new(1), patience(5, 1)),
+            ],
+        ));
+
+        assert_eq!(table.min_measured(), 5);
     }
 
     #[test]

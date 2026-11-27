@@ -2831,6 +2831,14 @@ fn tune_ranked(
     (written, calls)
 }
 
+/// Whether a member whose kernel ran `calls` times was measured: its kernel runs once when its
+/// window of the batch compiles, then again for its warmup and every sample, so a member patience
+/// skipped after compiling it ran once at most.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn measured(calls: usize) -> bool {
+    calls > 1
+}
+
 /// Whether this run tunes with the adaptive scheduler, the only one that applies patience.
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 fn adaptive() -> bool {
@@ -2868,7 +2876,7 @@ fn autotune_patience_stops_measuring_the_group() {
         vec![(SlowWrong, Ranked), (Add, Ranked)],
     );
     assert_eq!(written, slow);
-    assert_eq!(calls[1] == 0, adaptive());
+    assert_eq!(measured(calls[1]), !adaptive());
 
     let (written, _) = tune_ranked(
         &TUNER,
@@ -2913,10 +2921,14 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
 
     assert_eq!(written, vec![4, 5, 6]);
     assert!(
-        calls[3] > 0,
+        measured(calls[3]),
         "the second slow member is measured: {calls:?}"
     );
-    assert_eq!(calls[4] == 0, adaptive(), "the last member: {calls:?}");
+    assert_eq!(
+        measured(calls[4]),
+        !adaptive(),
+        "the last member: {calls:?}"
+    );
 }
 
 /// A member measured in the first pass that fails in a later round is disqualified. When it was
@@ -2941,7 +2953,10 @@ fn autotune_patience_measures_the_skipped_when_the_measured_fail() {
     let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
     assert_eq!(written, vec![4, 5, 6]);
-    assert!(calls[1] > 0, "the skipped member is measured: {calls:?}");
+    assert!(
+        measured(calls[1]),
+        "the skipped member is measured: {calls:?}"
+    );
 }
 
 /// A tunable that rejects its own configuration fails identically on every call, so the

@@ -1,4 +1,5 @@
 use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
+use crate::config::autotune::AutotuneLevel;
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
@@ -159,7 +160,8 @@ impl OrderedSettings {
 /// was faster than it by more than 2%.
 ///
 /// The group is benchmarked best first, so a run of members that cannot beat its leader says
-/// the rest of the order is unlikely to either, and they are never compiled. The members
+/// the rest of the order is unlikely to either, and they are never measured: at most one window
+/// of them, compiled ahead of measuring, is compiled. The members
 /// already measured still compete as usual, the ones skipped are reported as such, and the
 /// rest of the batch is measured as if the group had ended there. A member is skipped only
 /// when every group that brought it into the batch ran out of patience. Should every member
@@ -172,11 +174,34 @@ impl OrderedSettings {
 /// Adaptive scheduler only: the fixed-count pass, the only one on wasm, measures every member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patience {
-    /// Members measured before the group may stop. One member is always measured.
+    /// Members measured before the group may stop. One member is always measured. The batch
+    /// also measures this many candidates before the [bounds](super::Bounds)' time limit may end
+    /// it.
     pub min_measured: usize,
     /// Members in a row that miss before the group stops. Zero stops it at
     /// [`min_measured`](Self::min_measured), whatever they measured.
     pub max_misses: usize,
+}
+
+impl Patience {
+    /// The patience an [`AutotuneLevel`] races an ordered group with: none at
+    /// [`Full`](AutotuneLevel::Full), which measures every member, and twenty misses after ten
+    /// measured members at every other level.
+    ///
+    /// Twenty misses, not fewer, while the estimates that order a group still miss some kernels
+    /// by several times: replayed over matmul and attention races on four devices, it settles on
+    /// the fastest candidate of each, measuring about a third of them.
+    pub const fn for_level(level: &AutotuneLevel) -> Option<Self> {
+        match level {
+            AutotuneLevel::Full => None,
+            AutotuneLevel::Minimal | AutotuneLevel::Balanced | AutotuneLevel::Extensive => {
+                Some(Self {
+                    min_measured: 10,
+                    max_misses: 20,
+                })
+            }
+        }
+    }
 }
 
 impl<K> core::fmt::Debug for TuneGroup<K> {
@@ -212,10 +237,10 @@ impl<K> TuneGroup<K> {
     /// every member with a non-negative priority is in the batch, best first.
     ///
     /// The batch is benchmarked in that order and the short circuit ends it at the first
-    /// candidate under the [bounds](super::Bounds)' time limit, so the priority decides
-    /// how much of the group is compiled rather than which of it can win. The batch costs
-    /// its whole membership without a bounds generator, on wasm, or with the short circuit
-    /// disabled.
+    /// candidate under the [bounds](super::Bounds)' time limit, once the batch measured its
+    /// [`Patience::min_measured`], so the priority decides how much of the group is compiled
+    /// rather than which of it can win. The batch costs its whole membership without a bounds
+    /// generator, on wasm, or with the short circuit disabled.
     ///
     /// The batch sits at the priority of its best member, so a cutoff group at the same
     /// group priority interleaves with it by priority.
@@ -1032,6 +1057,12 @@ mod tests {
 
         assert_eq!(plan.next().indices(), vec![1, 3, 4, 0]);
         assert!(plan.next().is_empty());
+    }
+
+    #[test_log::test]
+    fn full_level_races_every_member() {
+        assert_eq!(Patience::for_level(&AutotuneLevel::Full), None);
+        assert!(Patience::for_level(&AutotuneLevel::Balanced).is_some());
     }
 
     #[test_log::test]

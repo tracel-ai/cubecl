@@ -41,6 +41,8 @@ mod operation;
 mod record;
 // The adaptive strategy, which only the native driver can run.
 #[cfg(not(target_family = "wasm"))]
+mod first_pass;
+#[cfg(not(target_family = "wasm"))]
 mod patience;
 #[cfg(not(target_family = "wasm"))]
 mod sampler;
