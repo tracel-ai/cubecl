@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use alloc::{format, string::String};
 use cubecl_environment::sync::Mutex;
 
+use super::candidate_sampler::CandidateSampler;
 use super::committer::TuneCommitter;
 use super::driver::{DriveOptions, TuneDriver};
 use super::gathering::CandidateGatherer;
@@ -259,7 +260,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// queue their kernels under a `CompileOnly` override. The key is left untuned.
     ///
     /// Runs [`TunePlanner::plan_top`](super::plan::TunePlanner::plan_top) with the configured
-    /// compilation parallelism; the tune compiles the rest at their turn.
+    /// compilation parallelism; the tune compiles the rest at their turn. A candidate that panics
+    /// is contained as the measuring pass contains it, and serves nothing.
     fn compile_plan<'a, F: TuneInputs, Out: AutotuneCheckable, Id>(
         &self,
         key: &K,
@@ -276,10 +278,10 @@ impl<K: AutotuneKeyable> Tuner<K> {
             .bound_stage_enterer(key, inputs)
             .map(|mut enter| enter(crate::tune::TuneStage::Gathering));
         let parallelism = CubeClRuntimeConfig::get().compilation.parallelism();
+        let sampler = CandidateSampler::new(client, tunables.device_access());
         plan.plan_top(parallelism, |index| {
-            tunables
-                .function_at(index)
-                .race(test_inputs.clone())
+            sampler
+                .gather_race(tunables.function_at(index), test_inputs.clone())
                 .is_ok()
         });
         core::mem::drop(gathering);
