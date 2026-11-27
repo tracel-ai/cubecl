@@ -61,7 +61,9 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
             .lock()
             .opened(id, operations.checksum())?
             .clone();
-        let fastest_index = tuner.settled(key)?;
+        let TuneCacheResult::Hit { fastest_index } = tuner.fastest(key) else {
+            return None;
+        };
         Some(operations.identity_at(fastest_index).clone())
     }
 
@@ -95,14 +97,15 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         // Fast path: a cached hit skips straight to the fastest operation. `fastest` also resets
         // the tuner cache if the environment switched, so a miss here falls through to `tune`,
         // which reads the store.
+        tuner.reset_if_environment_switched();
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
-            check_candidates(&operations, &inputs, false);
+            check_candidates(&operations, &inputs, client, false);
             return execute_elected(&operations, &key, fastest_index, inputs);
         }
 
-        let checks = check_candidates(&operations, &inputs, decisions_enabled());
+        let checks = |collect| check_candidates(&operations, &inputs, client, collect);
         match tuner.tune::<I, Out, Id>(&key, &inputs, &operations, client, checks) {
             TuneCacheResult::Hit { fastest_index } => {
                 execute_elected(&operations, &key, fastest_index, inputs)
@@ -119,18 +122,10 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     }
 }
 
-/// Whether the cross-checks of a tune are collected, rather than fatal: they are reported only
-/// where decisions are written somewhere.
-fn decisions_enabled() -> bool {
-    use crate::config::RuntimeConfig;
-
-    crate::config::CubeClRuntimeConfig::get()
-        .autotune
-        .decisions_enabled()
-}
-
 /// Under the `autotune-checks` feature, the cross-check of every candidate of `operations` on
-/// `inputs`, collected where `collect`; `None` without the feature.
+/// `inputs`, each raced contained as the tune races it, collected where `collect`. `None` without
+/// the feature, and where the candidates only gather kernels: their launches are discarded, so
+/// their outputs hold nothing to compare.
 #[cfg_attr(
     not(feature = "autotune-checks"),
     allow(unused_variables, clippy::unnecessary_wraps)
@@ -138,6 +133,7 @@ fn decisions_enabled() -> bool {
 fn check_candidates<'a, AK: AutotuneKeyable, I: TuneInputs, Out: AutotuneCheckable, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     inputs: &<I as TuneInputs>::At<'a>,
+    client: &Client,
     collect: bool,
 ) -> Option<Vec<CheckResult>>
 where
@@ -145,11 +141,21 @@ where
 {
     #[cfg(feature = "autotune-checks")]
     {
+        use crate::execution::ProcessMode;
+        use crate::tune::drive::candidate_sampler::CandidateSampler;
+        use crate::tune::drive::gathering::CandidateGatherer;
         use alloc::string::ToString;
 
+        if ProcessMode::current() == ProcessMode::CompileOnly || CandidateGatherer::is_gathering() {
+            return None;
+        }
+        let sampler = CandidateSampler::new(client, operations.device_access());
         let outputs = operations
             .autotunables()
-            .map(|operation| (operation.name().to_string(), operation.race(inputs.clone())))
+            .map(|operation| {
+                let output = sampler.contain_race(operation, inputs.clone());
+                (operation.name().to_string(), output)
+            })
             .collect();
         Some(crate::tune::execute::checks::check_outputs(
             outputs, collect,

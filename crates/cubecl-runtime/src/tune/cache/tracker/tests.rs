@@ -22,14 +22,14 @@ fn an_answer_to_an_older_list_is_never_served() {
     let mut cache = cache_over(table);
 
     assert!(matches!(
-        cache.look_up(&KEY.to_string(), CURRENT),
+        cache.track_stored(&KEY.to_string(), CURRENT, 3),
         TuneCacheResult::Miss
     ));
 
     plant(table, KEY, CURRENT, 2);
     let mut cache = cache_over(table);
     assert!(matches!(
-        cache.look_up(&KEY.to_string(), CURRENT),
+        cache.track_stored(&KEY.to_string(), CURRENT, 3),
         TuneCacheResult::Hit { fastest_index: 2 }
     ));
 }
@@ -43,7 +43,7 @@ fn a_stored_answer_leaves_the_answers_to_older_lists() {
     let table = "tune-cache-tests/kept";
     plant(table, KEY, STALE, 1);
     let mut cache = cache_over(table);
-    cache.look_up(&KEY.to_string(), CURRENT);
+    cache.track_stored(&KEY.to_string(), CURRENT, 3);
 
     assert!(cache.store_answer(KEY.to_string(), CURRENT.into(), answer(2)));
 

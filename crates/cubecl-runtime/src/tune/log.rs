@@ -59,8 +59,9 @@ pub struct AutotuneDecision<'a, K: Clone> {
     pub key: Cow<'a, K>,
     /// The index of the candidate the key runs.
     pub decided_index: usize,
-    /// The median time of the candidate the key runs.
-    pub decided_time: Duration,
+    /// The median time of the candidate the key runs, `None` where it was decided with nothing
+    /// measured.
+    pub decided_time: Option<Duration>,
     /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
     pub results: Cow<'a, [AutotuneResult]>,
     /// Logging context with bounds, limit, and events.

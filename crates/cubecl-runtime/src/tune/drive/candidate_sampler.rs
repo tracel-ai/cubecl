@@ -60,22 +60,6 @@ impl<'c> CandidateSampler<'c> {
         self.contained_race(operation.name(), || operation.race(inputs))
     }
 
-    /// [`contain_race`](Self::contain_race), gathering `operation`'s kernels where it runs, so a
-    /// key its launches reach knows it was reached inside another key's candidates: on the
-    /// device's thread where the device is held, on the calling thread where it never is.
-    pub fn gather_race<'a, I: TuneInputs, Out: Send + 'static>(
-        &self,
-        operation: &TuneFn<I, Out>,
-        inputs: <I as TuneInputs>::At<'a>,
-    ) -> Result<Out, AutotuneError> {
-        self.contained_race(operation.name(), || {
-            let gatherer = crate::tune::drive::gathering::CandidateGatherer::gather();
-            let raced = operation.race(inputs);
-            core::mem::drop(gatherer);
-            raced
-        })
-    }
-
     #[cfg(not(target_family = "wasm"))]
     /// Run `operation` once without measuring it, to trigger compilation.
     ///

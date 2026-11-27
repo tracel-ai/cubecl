@@ -40,13 +40,23 @@ pub enum CacheEntry {
     /// to the next `CompileOnly` override on one of `services`. Never persisted. `registration` is
     /// the key's tune as the override that gathered it first registered it, settled once its pick
     /// commits; `None` when it registered none. Replacing the entry other than through
-    /// [`TuneTracker::track_pending`] or [`TuneTracker::look_up`] drops the registration, which
+    /// [`TuneTracker::track_pending`] or [`TuneTracker::track_stored`] drops the registration, which
     /// counts it abandoned.
     Compiled {
         registration: Option<TuneRegistration>,
         /// The cards that queued the kernels (Membership Usage).
         services: HashSet<ServiceId>,
     },
+}
+
+impl CacheEntry {
+    /// Where the gathered key's tune was registered, if it was gathered and registered.
+    fn into_registration(self) -> Option<TuneRegistration> {
+        match self {
+            Self::Compiled { registration, .. } => registration,
+            Self::Done { .. } | Self::Pending => None,
+        }
+    }
 }
 
 /// The table entry an answer is stored under.
@@ -325,10 +335,9 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// of starting a second job for the same key. Returns where the key's tune was registered, if
     /// the override that gathered it registered it.
     pub fn track_pending(&mut self, key: K) -> Option<TuneRegistration> {
-        match self.answers.insert(key, CacheEntry::Pending) {
-            Some(CacheEntry::Compiled { registration, .. }) => registration,
-            _ => None,
-        }
+        self.answers
+            .insert(key, CacheEntry::Pending)
+            .and_then(CacheEntry::into_registration)
     }
 
     /// Drop the [tracked](Self::track_pending) tune of `key` that stopped before it settled, so
@@ -348,17 +357,15 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         service: ServiceId,
         register: impl FnOnce() -> Option<TuneRegistration>,
     ) {
-        if let Some(CacheEntry::Compiled { services, .. }) = self.answers.get_mut(&key) {
+        let compiled = || CacheEntry::Compiled {
+            registration: register(),
+            services: HashSet::new(),
+        };
+        if let CacheEntry::Compiled { services, .. } =
+            self.answers.entry(key).or_insert_with(compiled)
+        {
             services.insert(service);
-            return;
         }
-        self.answers.insert(
-            key,
-            CacheEntry::Compiled {
-                registration: register(),
-                services: HashSet::from_iter([service]),
-            },
-        );
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -367,9 +374,10 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         self.lost.insert(service);
     }
 
-    /// Track `fastest_index` as the pick of `key`, in memory.
-    pub fn track_answer(&mut self, key: K, fastest_index: usize) {
+    /// Track `fastest_index` as the pick of `key`, in memory, and answer it.
+    pub fn track_answer(&mut self, key: K, fastest_index: usize) -> TuneCacheResult {
         self.answers.insert(key, CacheEntry::Done { fastest_index });
+        TuneCacheResult::Hit { fastest_index }
     }
 }
 
@@ -398,9 +406,11 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         &self.table
     }
 
-    /// The store's answer for `key` under the set's `checksum`, read once memory missed. A miss
-    /// costs one read of the store, under the tuner mutex, and a key read counts as loaded.
-    pub fn look_up(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+    /// Track the store's answer for `key` under the set's `checksum`, read once memory missed,
+    /// and answer it. A miss costs one read of the store, under the tuner mutex, and a key read
+    /// counts as loaded. A stored index outside the `len` candidates of the set is a miss: it was
+    /// written by another build, or edited.
+    pub fn track_stored(&mut self, key: &K, checksum: &str, len: usize) -> TuneCacheResult {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return TuneCacheResult::Miss;
         };
@@ -408,20 +418,20 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             key: key.clone(),
             checksum: checksum.into(),
         };
-        let Some(value) = persistent_cache.remove(&stored) else {
+        let Some(value) = persistent_cache
+            .remove(&stored)
+            .filter(|value| value.decided_index < len)
+        else {
             return TuneCacheResult::Miss;
         };
-        let gathered = match self.answers.remove(key) {
-            Some(CacheEntry::Compiled { registration, .. }) => registration,
-            _ => None,
-        };
+        let gathered = self
+            .answers
+            .remove(key)
+            .and_then(CacheEntry::into_registration);
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
-        self.track_answer(key.clone(), value.decided_index);
-        TuneCacheResult::Hit {
-            fastest_index: value.decided_index,
-        }
+        self.track_answer(key.clone(), value.decided_index)
     }
 
     /// Store an answer in the table, and say whether it took it: never when the cache is
@@ -636,7 +646,7 @@ mod small_tests {
         };
 
         assert!(matches!(
-            tracker.look_up(&key(), "checksum"),
+            tracker.track_stored(&key(), "checksum", 1),
             TuneCacheResult::Miss
         ));
         assert!(!tracker.store_answer(key(), "checksum".into(), value));

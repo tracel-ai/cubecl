@@ -65,39 +65,31 @@ impl TuneLogger {
         }
     }
 
-    /// Write the tune's result to `logger`: a line for humans at the logger's level and,
-    /// independently, the [`AutotuneDecision`](crate::tune::AutotuneDecision) for tools if
-    /// decisions have a sink. Either, both, or neither.
+    /// Write the tune's result to `logger`: the
+    /// [`AutotuneDecision`](crate::tune::AutotuneDecision) for tools if decisions have a sink,
+    /// and a line for humans at the logger's level. Either, both, or neither.
     ///
-    /// Nothing is written when the decided candidate, at `fastest_index`, has no measurement: an
-    /// all-failed plan can decide an unmeasured winner, which already warned with the full
-    /// results, and the report must not be what kills it.
+    /// A decided candidate at `decided_index` with no measurement still writes its decision,
+    /// with no time, so the cross-checks it carries are reported; it writes no line for humans:
+    /// an all-failed plan can decide an unmeasured winner, which already warned with the full
+    /// results.
     pub fn log_result<K: AutotuneKeyable>(
         &self,
         logger: &mut Logger,
         key: &K,
         results: &[AutotuneResult],
-        fastest_index: usize,
+        decided_index: usize,
     ) {
-        let level = logger.config().autotune.logger.level;
-        let decisions = logger.config().autotune.decisions_enabled();
-        if matches!(level, AutotuneLogLevel::Disabled) && !decisions {
-            return;
-        }
-        let Some(fastest) = measured_at(results, fastest_index) else {
-            return;
-        };
-
         let reporter = ResultReporter {
             key,
             results,
             log_context: self.context.as_ref(),
-            fastest,
+            decided_index,
         };
-        if decisions {
-            reporter.report_decision(logger);
+        reporter.report_decision(logger);
+        if let Some(decided) = measured_at(results, decided_index) {
+            reporter.report_log(logger, decided);
         }
-        reporter.report_log(logger, level);
     }
 }
 
@@ -113,7 +105,7 @@ impl TuneLogger {
 fn measured_at(results: &[AutotuneResult], index: usize) -> Option<&AutotuneOutcome> {
     results
         .iter()
-        .filter_map(|result| result.outcome.as_ref().ok())
+        .filter_map(AutotuneResult::measured)
         .find(|outcome| outcome.index == index)
 }
 
@@ -123,20 +115,24 @@ struct ResultReporter<'a, K> {
     key: &'a K,
     results: &'a [AutotuneResult],
     log_context: Option<&'a AutotuneLogContext>,
-    fastest: &'a AutotuneOutcome,
+    decided_index: usize,
 }
 
 impl<K: AutotuneKeyable> ResultReporter<'_, K> {
     /// The decision, for tools: one JSON object on the decisions' sink.
-    fn report_decision(&self, logger: &mut Logger) {
+    pub fn report_decision(&self, logger: &mut Logger) {
+        if !logger.config().autotune.decisions_enabled() {
+            return;
+        }
         #[cfg(std_io)]
         {
             use alloc::borrow::Cow;
 
             let decision = crate::tune::AutotuneDecision {
                 key: Cow::Borrowed(self.key),
-                decided_index: self.fastest.index,
-                decided_time: self.fastest.computation.median,
+                decided_index: self.decided_index,
+                decided_time: measured_at(self.results, self.decided_index)
+                    .map(|decided| decided.computation.median),
                 results: Cow::Borrowed(self.results),
                 log_context: self.log_context.map(Cow::Borrowed),
                 checks: self
@@ -158,20 +154,21 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         }
     }
 
-    /// The line for humans, at whatever the logger's level asks for.
-    fn report_log(&self, logger: &mut Logger, level: AutotuneLogLevel) {
-        match level {
-            AutotuneLogLevel::Minimal => self.report_minimal(logger),
-            AutotuneLogLevel::Full => self.report_full(logger),
+    /// The line for humans, at whatever the logger's level asks for, `decided` the decided
+    /// candidate's measurement.
+    pub fn report_log(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
+        match logger.config().autotune.logger.level {
+            AutotuneLogLevel::Minimal => self.report_minimal(logger, decided),
+            AutotuneLogLevel::Full => self.report_full(logger, decided),
             AutotuneLogLevel::Disabled => {}
         }
     }
 
-    fn report_minimal(&self, logger: &mut Logger) {
+    fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let top_times = self
             .results
             .iter()
-            .filter_map(|result| result.outcome.as_ref().ok())
+            .filter_map(AutotuneResult::measured)
             .map(|outcome| (outcome.index, outcome.computation.median))
             .take(TOP_TIME_COUNT)
             .collect::<alloc::vec::Vec<_>>();
@@ -180,16 +177,16 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
             .map(|context| format!(", context: {context}"))
             .unwrap_or_default();
         logger.log_autotune(&format!(
-            "Fastest result {}-{}. Top 3 times: {top_times:?}{context}",
-            self.fastest.name, self.key,
+            "Fastest result {}-{}. Top {TOP_TIME_COUNT} times: {top_times:?}{context}",
+            decided.name, self.key,
         ));
     }
 
-    fn report_full(&self, logger: &mut Logger) {
+    fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let context = self.log_context.map(full_context).unwrap_or_default();
         logger.log_autotune(&format!(
             "Fastest result {}-{}.\nContext:\n{context}",
-            self.fastest.name, self.key,
+            decided.name, self.key,
         ));
         for result in self.results {
             logger.log_autotune(&outcome_line(result));

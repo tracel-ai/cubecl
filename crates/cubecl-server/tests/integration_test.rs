@@ -2549,6 +2549,8 @@ fn autotune_evicts_before_every_measured_sample() {
         calls > unmeasured,
         "the candidates were launched {calls} times, no more than the {unmeasured} unmeasured ones"
     );
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     // One eviction per measured sample, and none for anything else.
     assert_eq!(
         evictions,
@@ -2602,6 +2604,8 @@ fn autotune_runs_its_winner_outside_every_stage() {
 }
 
 /// Every run of a tune's candidates is inside a stage its set's enterer entered.
+// `autotune-checks` races every candidate once more on every execute, outside every stage.
+#[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
@@ -2617,6 +2621,8 @@ fn autotune_runs_every_candidate_inside_a_stage() {
 
 /// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
 /// measures it.
+// `autotune-checks` races every candidate once more on every execute, outside every stage.
+#[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
@@ -2871,6 +2877,8 @@ fn autotune_patience_stops_measuring_the_group() {
         vec![(SlowWrong, Ranked), (Add, Ranked)],
     );
     assert_eq!(written, slow);
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(measured(calls[1]), !adaptive());
 
     let (written, _) = tune_ranked(
@@ -2915,10 +2923,14 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
     let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
     assert_eq!(written, vec![4, 5, 6]);
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     assert!(
         measured(calls[3]),
         "the second slow member is measured: {calls:?}"
     );
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         measured(calls[4]),
         !adaptive(),
@@ -2987,6 +2999,8 @@ fn autotune_stops_sampling_a_rejected_candidate() {
 
     // The rejected candidate is dropped after its first failure, and the surviving `add`
     // kernel still wins the tuning.
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
@@ -4068,6 +4082,8 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
         .collect();
     assert_eq!(runs.first(), Some(&"outer"));
     // Each inner candidate queues its kernels, then the first serves the call untuned.
+    // `autotune-checks` races every candidate once more on every execute, outside every stage.
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         first_pass,
         ["inner-a", "inner-b", "inner-a"],
