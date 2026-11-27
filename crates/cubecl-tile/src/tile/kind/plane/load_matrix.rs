@@ -51,9 +51,9 @@ pub(super) fn load_ldmatrix<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric
         }
     });
     let view = if col_major_window {
-        src.fragment_matrix_packed::<T, W>(cols, rows)
+        src.fragment_matrix_packed::<T, W>(cols, rows, comptime!(WalkUnits::none()))
     } else {
-        src.fragment_matrix_packed::<T, W>(rows, cols)
+        src.fragment_matrix_packed::<T, W>(rows, cols, comptime!(WalkUnits::none()))
     };
 
     let num_regs = def.vectors_per_lane(ident);
@@ -142,7 +142,8 @@ pub(super) fn load_ldmatrix_pair<
         PairAxis::Rows => (2 * frag_rows, frag_cols),
         PairAxis::Cols => (frag_rows, 2 * frag_cols),
     });
-    let view = src.fragment_matrix_packed::<T, W>(pair_rows, pair_cols);
+    let view =
+        src.fragment_matrix_packed::<T, W>(pair_rows, pair_cols, comptime!(WalkUnits::none()));
 
     let num_regs = def.vectors_per_lane(ident);
     comptime!(assert!(
@@ -215,7 +216,7 @@ pub(super) fn load_ldmatrix_b8_pair<
 ) {
     let width = src.vector_size();
     let (k, n) = comptime!(edges);
-    let view = src.fragment_matrix_packed::<T, W>(k, 2 * n);
+    let view = src.fragment_matrix_packed::<T, W>(k, 2 * n, comptime!(WalkUnits::none()));
     let row = key_row(UNIT_POS_PLANE, keys);
     let row_slice = view.line_slice(
         (row, 0u32),

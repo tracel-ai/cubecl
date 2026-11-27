@@ -190,7 +190,7 @@ fn descriptor<E: Numeric>(
         k: row,
     });
     let size!(W) = tile.vector_size();
-    let view = tile.fragment_matrix_packed::<E, W>(rows, k);
+    let view = tile.fragment_matrix_packed::<E, W>(rows, k, comptime!(WalkUnits::none()));
     let origin = view.line_slice(
         (0u32.runtime(), 0u32.runtime()),
         (1u32.runtime(), 1u32.runtime()),

@@ -244,14 +244,16 @@ impl Tile {
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 
-    /// The fragment's grouped matrix, unpacked if packed; `cols` is in scalars.
+    /// The fragment's grouped matrix, unpacked if packed, each cell read one count of `walk` past
+    /// where it is asked ([`Projected::walked`]); `cols` is in scalars.
     pub(crate) fn fragment_matrix_packed<T: Numeric, W: Size>(
         &self,
         #[comptime] rows: usize,
         #[comptime] cols: usize,
+        #[comptime] walk: WalkUnits,
     ) -> MatrixView<'_, Vector<T, W>> {
         let g = self.mem("fragment_matrix");
-        let layout = g.whole_matrix(&self.place.space, rows, cols);
+        let layout = g.whole_matrix(&self.place.space, rows, cols).walked(walk);
         g.packed::<T, W, Coords2d, ProjectedMatrix>(layout, comptime!(Guard::Checked))
     }
 }

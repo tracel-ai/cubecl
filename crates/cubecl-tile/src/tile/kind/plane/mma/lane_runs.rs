@@ -425,7 +425,7 @@ fn load_plain_run<T: Numeric, N: Size>(
         run.len,
     ));
     let size!(W) = width;
-    let view = src.fragment_matrix_packed::<T, W>(run.rows, run.k);
+    let view = src.fragment_matrix_packed::<T, W>(run.rows, run.k, comptime!(WalkUnits::none()));
     let lines = comptime!(run.len / width);
     let first = LaneRun::first(run);
     #[unroll]
