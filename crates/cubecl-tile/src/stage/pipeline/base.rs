@@ -10,6 +10,7 @@ use super::payload::base::{Payload, PayloadExpand, StageSpec};
 use super::payload::pair::OperandPair;
 use super::plan::StagePlan;
 use super::schedule::Prefetch;
+use crate::stage::transport::transposed::RunBlocks;
 use crate::*;
 
 /// What a plane does with the stages' slots.
@@ -316,6 +317,9 @@ pub(crate) enum FetchedFill {
     /// The packed source's loads as stored and the scale of every line they land, decoded at the
     /// store ([`Tile::fetch_decoded_from`]).
     Decoded,
+    /// The source's lines as they lie, in blocks along the run of a stage laid along one,
+    /// transposed at the store ([`Memory::store_blocks`]).
+    Transposed,
 }
 
 /// Bind the fetched line widths `FL` and `FR` for the rest of the kernel's scope.
@@ -333,14 +337,70 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
     pub(crate) fn register_fetch(&self, src: &Tile) -> comptime_type!(Option<FetchedFill>) {
         let straight = self.fetches_straight_from(src);
+        let transposed = self.fetches_transposed_from(src);
         let staged = self.packing();
         let decodes = src.decodes_into(staged);
         let turns = self.decoded_fetch_turns(src);
-        comptime!(match (straight, decodes && turns.is_some()) {
-            (true, _) => Some(FetchedFill::Straight),
-            (false, true) => Some(FetchedFill::Decoded),
-            (false, false) => None,
+        comptime!(match (straight, transposed, decodes && turns.is_some()) {
+            (true, _, _) => Some(FetchedFill::Straight),
+            (false, true, _) => Some(FetchedFill::Transposed),
+            (false, false, true) => Some(FetchedFill::Decoded),
+            (false, false, false) => None,
         })
+    }
+
+    /// Whether this stage, laid along a run, is filled from `src` by blocks of its lines as they
+    /// lie, which a register fetch can hold ([`Memory::fetches_transposed`]).
+    #[allow(dead_code)] // Reached through its expand, from `register_fetch`.
+    fn fetches_transposed_from(&self, src: &Tile) -> comptime_type!(bool) {
+        let space = comptime!(self.place.space.clone());
+        let bits = comptime!(self.element.size_bits());
+        let same = comptime!(self.element == src.element);
+        let decodes = src.decodes();
+        match &self.kind {
+            TileKind::Memory(stage) => match &src.kind {
+                TileKind::Memory(source) => {
+                    let blocks = stage.fetches_transposed(source, &space, bits);
+                    comptime!(same && !decodes && blocks)
+                }
+                TileKind::TmaGmem(_)
+                | TileKind::PlaneTile(_)
+                | TileKind::PlanePartition(_)
+                | TileKind::Procedural(_)
+                | TileKind::Lines(_) => comptime!(false),
+            },
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// The source lines one unit holds of this stage's fill from `src` by blocks, and their
+    /// width, where this stage is laid along a run and each unit's share is known.
+    #[allow(dead_code)] // Reached through its expand, from the register fetch's counts.
+    fn transposed_fetched_lines(&self, src: &Tile) -> comptime_type!(Option<(usize, usize)>) {
+        let space = comptime!(self.place.space.clone());
+        let bits = comptime!(self.element.size_bits());
+        let width = src.vector_size();
+        match &self.kind {
+            TileKind::Memory(stage) => {
+                let order = comptime!(stage.layout.order);
+                let fill = comptime!(stage.access.copy.clone());
+                comptime!(match order {
+                    StageOrder::AsSource => None,
+                    order => RunBlocks::new(&space, order, width, bits, &fill)
+                        .fetched_lines(&fill)
+                        .map(|lines| (lines, width)),
+                })
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(None),
+        }
     }
 
     /// 32-bit registers one unit holds between the fetch and the store of this stage's fill from
@@ -351,9 +411,13 @@ impl Tile {
         let straight = self.fetched_scalars();
         let width = self.vector_size();
         let decoded = self.decoded_fetched_registers(src);
+        let transposed = self.transposed_fetched_lines(src);
         comptime!(match fill {
             Some(FetchedFill::Straight) => straight.map(|scalars| {
                 Prefetch::straight_registers(scalars / width, width, src.element.size_bits())
+            }),
+            Some(FetchedFill::Transposed) => transposed.map(|(lines, width)| {
+                Prefetch::straight_registers(lines, width, src.element.size_bits())
             }),
             Some(FetchedFill::Decoded) => decoded,
             None => None,
@@ -367,7 +431,7 @@ impl Tile {
         let fill = self.register_fetch(src);
         comptime!(match fill {
             Some(FetchedFill::Decoded) => ElemType::UInt(cubecl::ir::UIntKind::U32),
-            Some(FetchedFill::Straight) | None => src.element,
+            Some(FetchedFill::Straight) | Some(FetchedFill::Transposed) | None => src.element,
         })
     }
 
@@ -381,10 +445,16 @@ impl Tile {
         let turns = self.decoded_fetch_turns(src);
         let decoded_width = self.decoded_fetch_width(src);
         let per_load = self.decoded_scales_per_load(src);
+        let transposed = self.transposed_fetched_lines(src);
         comptime!(match fill {
             Some(FetchedFill::Straight) => {
                 let scalars = straight.expect("Stages: a register-staged fill has a known share");
                 (straight_width, scalars / straight_width, 1)
+            }
+            Some(FetchedFill::Transposed) => {
+                let (lines, width) =
+                    transposed.expect("Stages: a register-staged fill has a known share");
+                (width, lines, 1)
             }
             Some(FetchedFill::Decoded) => {
                 let turns = turns.expect("Stages: a register-staged fill has a known share");
@@ -405,6 +475,11 @@ impl Tile {
         let fill = self.register_fetch(src);
         match comptime!(fill) {
             Some(FetchedFill::Decoded) => self.fetch_decoded_from(src, lines, scales),
+            Some(FetchedFill::Transposed) => {
+                let space = comptime!(self.place.space.clone());
+                self.mem("fetch_from")
+                    .fetch_blocks(src.mem("fetch_from"), &space, lines)
+            }
             Some(FetchedFill::Straight) | None => self.fetch_from(src, lines),
         }
     }
@@ -420,6 +495,10 @@ impl Tile {
         let fill = self.register_fetch(src);
         match comptime!(fill) {
             Some(FetchedFill::Decoded) => self.store_decoded(src, lines, scales),
+            Some(FetchedFill::Transposed) => {
+                let space = comptime!(self.place.space.clone());
+                self.mem_mut("store_fetched").store_blocks(&space, lines)
+            }
             Some(FetchedFill::Straight) | None => self.store_fetched(lines),
         }
     }

@@ -147,17 +147,10 @@ fn expand_kernel<K: CubeKernel + ?Sized>(kernel: &K) -> Result<KernelDefinition,
     #[cfg(feature = "std")]
     {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.define())).map_err(
-            |payload| {
-                let message = payload
-                    .downcast_ref::<&str>()
-                    .map(|message| String::from(*message))
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| String::from("a panic with no message"));
-                CompilationError::ExpansionPanicked {
-                    kernel: kernel.name().into(),
-                    message,
-                    backtrace: BackTrace::capture(),
-                }
+            |payload| CompilationError::ExpansionPanicked {
+                kernel: kernel.name().into(),
+                message: crate::panic_message::panic_message(&*payload),
+                backtrace: BackTrace::capture(),
             },
         )
     }

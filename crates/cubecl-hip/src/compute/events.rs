@@ -68,6 +68,16 @@ impl EventApi for Hip {
         checked("hipEventRecord", status)
     }
 
+    fn event_query(event: &Self::Event) -> Result<bool, DriverError> {
+        // SAFETY: the event is live for as long as `event`.
+        let status = unsafe { cubecl_hip_sys::hipEventQuery(event.0) };
+        if status == cubecl_hip_sys::hipError_t_hipErrorNotReady {
+            return Ok(false);
+        }
+        checked("hipEventQuery", status)?;
+        Ok(true)
+    }
+
     fn event_wait(event: &Self::Event) -> Result<(), DriverError> {
         // SAFETY: the event is live for as long as `event`.
         let status = unsafe { cubecl_hip_sys::hipEventSynchronize(event.0) };

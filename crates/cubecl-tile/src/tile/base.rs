@@ -434,10 +434,17 @@ impl Tile {
         })
     }
 
-    /// The order this tile's window lays its dimensions down in: its Space's, as the source holds
-    /// them, for every tile.
+    /// The order this tile's window lays its dimensions down in: the one a stage's buffer lays
+    /// its axes down in, its Space's for every other tile.
     pub(crate) fn stage_order(&self) -> comptime_type!(StageOrder) {
-        comptime!(StageOrder::AsSource)
+        match &self.kind {
+            TileKind::Memory(m) => comptime!(m.layout.order),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(StageOrder::AsSource),
+        }
     }
 
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.

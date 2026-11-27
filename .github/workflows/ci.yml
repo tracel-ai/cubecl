@@ -13,7 +13,7 @@ on:
       - "!LICENSE-APACHE"
       - "!LICENSE-MIT"
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     branches:
       - main
     paths:
@@ -30,11 +30,15 @@ env:
   RUST_PREVIOUS_VERSION: 1.95.0
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A merged PR's ref becomes main. Keep it in its PR group so closing it
+  # cancels its remaining jobs without interrupting the main branch run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
   prepare-checks:
+    # Draft and closed PR events can still cancel previous runs through concurrency.
+    if: github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft)
     runs-on: ubuntu-22.04
     outputs:
       rust-prev-version: ${{ env.RUST_PREVIOUS_VERSION }}

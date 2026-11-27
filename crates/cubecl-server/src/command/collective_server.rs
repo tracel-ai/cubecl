@@ -488,6 +488,13 @@ fn settle<S: CollectiveServer, const N: usize, Plan>(
         .collectives()
         .ensure_intact(group)
         .and_then(|()| server.streams().ensure_written(reads.iter()))
+        .and_then(|()| {
+            reads
+                .iter()
+                .chain([&dst])
+                .try_for_each(BufferBinding::ensure_shareable)
+                .map_err(ServerError::from)
+        })
         .and(checked);
     let mut written = server.write_set();
     written.push(dst.clone());
@@ -585,6 +592,7 @@ fn post_send<S: CollectiveServer>(
     server
         .streams()
         .ensure_written([&desc.handle].into_iter())?;
+    desc.handle.ensure_shareable()?;
 
     let binding = desc.handle.clone();
     let size = binding.size_in_used();
