@@ -34,7 +34,7 @@ impl Bound {
     ///
     /// # Panics
     ///
-    /// With [`Decline::IndexedBoundTensor`](crate::launch::Decline) for an operand that carries an index table.
+    /// For an operand a table places, as [`Bound::tensor`].
     pub fn atomic<E: Numeric>(self) -> OutputArgs<'static, E> {
         let (spec, width) = (self.spec.clone(), self.vector_size);
         OutputArgs::Atomic(AccumulateArgLaunch::new(self.tensor(), width, spec))
