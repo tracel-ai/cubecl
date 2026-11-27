@@ -66,7 +66,7 @@ impl<'a> TileTensor<'a> {
             space: Space::with_sizes(boxes_space.space(), partitioning.space.sizes.clone()),
             levels: boxes_space.levels().to_vec(),
         };
-        let (first, holders) = portion.holders_of_touched(i);
+        let (first, holders) = portion.nth_holders(i);
         let run = portion.run();
         let first_slot = 2 * first + select(portion.starts_in(i, first), 0usize, 1usize);
         let slots = self.tile_mut(&boxes);
@@ -84,7 +84,7 @@ impl<'a> TileTensor<'a> {
             own,
             arrivals,
             region: portion.region(i),
-            counter: portion.flat_index_of_touched(i),
+            counter: portion.nth_index(i),
             first,
             holders,
             first_slot,

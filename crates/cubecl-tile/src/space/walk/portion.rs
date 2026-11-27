@@ -48,12 +48,12 @@ impl Portion {
 
     /// The `i`-th region the portion touches, in the level's flat index: one for every region of
     /// the level, whichever instance touches it.
-    pub fn flat_index_of_touched(&self, i: usize) -> usize {
+    pub fn nth_index(&self, i: usize) -> usize {
         self.first + i
     }
 
     /// Start and length of this portion's steps within the `i`-th region's walk below.
-    pub fn steps_in_touched(&self, i: usize) -> (usize, usize) {
+    pub fn nth_steps(&self, i: usize) -> (usize, usize) {
         let base = (self.first + i) * self.stride;
         let from = select(base < self.start, self.start - base, 0);
         let to = select(self.end < base + self.stride, self.end - base, self.stride);
@@ -62,7 +62,7 @@ impl Portion {
 
     /// The first run holding steps of the `i`-th region the portion touches, and how many runs
     /// hold them. This run is one of them.
-    pub fn holders_of_touched(&self, i: usize) -> (usize, usize) {
+    pub fn nth_holders(&self, i: usize) -> (usize, usize) {
         let base = (self.first + i) * self.stride;
         let first_run = self.run_holding(base);
         let last_run = self.run_holding(base + self.stride - 1);
@@ -74,7 +74,7 @@ impl Portion {
         self.run
     }
 
-    /// Whether `run`, one of the [`holders_of_touched`](Portion::holders_of_touched) of the `i`-th region the portion
+    /// Whether `run`, one of the [`nth_holders`](Portion::nth_holders) of the `i`-th region the portion
     /// touches, starts there rather than in a region before it.
     pub(crate) fn starts_in(&self, i: usize, run: usize) -> bool {
         run * self.run_length >= (self.first + i) * self.stride

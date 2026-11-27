@@ -285,7 +285,7 @@ fn stream_matmul<E: Numeric>(
     let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
-        let (from, steps) = portion.steps_in_touched(i);
+        let (from, steps) = portion.nth_steps(i);
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
@@ -328,7 +328,7 @@ fn stream_matmul_staged_rhs<E: Numeric>(
     let portion = space.over(&outer).portion(inner.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
-        let (from, steps) = portion.steps_in_touched(i);
+        let (from, steps) = portion.nth_steps(i);
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
@@ -371,7 +371,7 @@ fn stream_matmul_prefix<E: Numeric>(
     let portion = space.over(&outer).portion_of(prefix);
     for i in 0..portion.touched() {
         let region = portion.region(i);
-        let (from, steps) = portion.steps_in_touched(i);
+        let (from, steps) = portion.nth_steps(i);
         let c_region = c.at(&region);
         let a_region = a.at(&region);
         let b_region = b.at(&region);
@@ -820,7 +820,7 @@ fn merged_stream_matmul(
     let portion = space.walk().portion(steps.clone());
     for i in 0..portion.touched() {
         let region = portion.region(i);
-        let (from, count) = portion.steps_in_touched(i);
+        let (from, count) = portion.nth_steps(i);
         let merge = slots.last_arrival::<Const<1>>(&space, &portion, i, arrivals);
         let (a_region, b_region) = (a.at(&region), b.at(&region));
         let acc = merge.tile().register_accumulator::<f32>(
