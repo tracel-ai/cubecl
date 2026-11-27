@@ -4,7 +4,7 @@ use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_manual_product_kernel,
     cdna_quantized_product_kernel, cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel,
     fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    peer_tally_kernel, plane_moves_kernel, relay_kernel, run_lines_drain_kernel, scale_kernel,
     staged_fragment_product_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
@@ -153,6 +153,34 @@ fn a_fragment_adds_into_shared_memory_without_scratch() {
         assert!(
             !asm[product..first_add].contains(store) && !asm.contains("scratch_"),
             "{arch}: no cell is stored between the product and its add:\n{asm}"
+        );
+    }
+}
+
+/// A destination bound four `f32` values a line takes a sum out of its registers in 16-byte
+/// stores, through no shared memory and no barrier: as an RDNA4 lane holds its lines, and on RDNA3
+/// and CDNA, whose lanes hold columns, after a regroup by DPP moves.
+#[test]
+fn a_sum_drains_in_b128_lines_from_registers() {
+    for (arch, lines, store, moves) in [
+        ("gfx1201", 2, "global_store_b128", 0),
+        ("gfx1151", 2, "global_store_b128", 8),
+        ("gfx942", 1, "global_store_dwordx4", 4),
+    ] {
+        let asm = asm_of(run_lines_drain_kernel(&GfxArch::parse(arch)), arch);
+        assert_eq!(
+            asm.matches("quad_perm").count(),
+            moves,
+            "{arch}: one move within a quad of lanes a cell:\n{asm}"
+        );
+        assert_eq!(
+            asm.matches(store).count(),
+            lines,
+            "{arch}: {lines} lines of four cells a lane:\n{asm}"
+        );
+        assert!(
+            !asm.contains("ds_") && !asm.contains("s_barrier") && !asm.contains("scratch_"),
+            "{arch}: no cell moves through shared memory or scratch:\n{asm}"
         );
     }
 }

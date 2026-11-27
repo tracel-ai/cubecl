@@ -1,6 +1,6 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::{MatrixIdent, MatrixShape};
+use cubecl::cmma::{MatrixIdent, MatrixLayout, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
     DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
@@ -10,6 +10,7 @@ use cubecl::ir::{
 use cubecl::quant::scheme::QuantValue;
 
 use crate::ops::matmul::mma_io::LaneVectors;
+use crate::tile::kind::plane::mma::cell_lines::CellLines;
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
 use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
@@ -65,6 +66,42 @@ impl Instruction {
         match self {
             Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
             Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// The widest line along the rows and along the columns of a sum of `cell`, held in `sum`,
+    /// that its units write out of their registers, compiled for `target`: a cmma fragment whose
+    /// positions the target states writes lines its units hold, alone or regrouped across units
+    /// in registers ([`CellLines`]), so a destination whose lines divide it takes them without a
+    /// bounce. One along each side for every other case: a fragment that hides its positions
+    /// bounces, and the other forms write their own cells one at a time.
+    pub fn widest_line(
+        self,
+        target: &TargetProperties,
+        [m, n]: [usize; 2],
+        sum: ElemType,
+    ) -> [usize; 2] {
+        let positions = match self.hides_cell_positions(target) {
+            true => None,
+            false => {
+                target
+                    .mma
+                    .element_positions_of(MatrixIdent::Accumulator, (m, n, m).into(), sum)
+            }
+        };
+        let lanes = target.mma.const_plane_lane_count as usize;
+        let elems = m * n * target.mma.register_copy_count_acc / lanes;
+        let widest = |layout| {
+            positions.as_ref().map_or(1, |positions| {
+                CellLines::widest(positions, lanes, elems, layout)
+            })
+        };
+        match self {
+            Self::Cmma => [
+                widest(MatrixLayout::ColMajor),
+                widest(MatrixLayout::RowMajor),
+            ],
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => [1, 1],
         }
     }
 
@@ -769,10 +806,9 @@ fn best_call<'a>(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
-        ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
-        features::Features,
+        ContiguousElements, CoordinatePart, DeviceIdentity, ElementIndex, ElementPositions,
+        HardwareProperties, MemoryDeviceProperties, OperandFact, VectorSize, features::Features,
     };
     use cubecl::profile::TimingMethod;
 
@@ -1398,5 +1434,41 @@ pub(crate) mod tests {
             [16, 16, 16],
         );
         assert_eq!(none_named, None);
+    }
+
+    /// A target whose lanes hold an `f32` accumulator's cells where `positions` places them,
+    /// stating them or hiding them as `stated` says.
+    fn holding(positions: ElementPositions, stated: FragmentPositions) -> TargetProperties {
+        let mut target = TargetProperties::default();
+        target.mma.element_positions = OperandFact::new(move |_, _, _| Some(positions.clone()));
+        target.mma.fragment_positions = stated;
+        target
+    }
+
+    /// A cmma fragment whose positions the target states writes lines as wide as its lanes hold
+    /// them, alone along a row as RDNA4's do, or regrouped where each lane holds a column as
+    /// RDNA3's do; one cell a line where it hides them, and for the other forms.
+    #[test]
+    fn a_stated_fragment_writes_the_lines_its_lanes_hold() {
+        use FragmentPositions::{AsElementPositions, Hidden};
+        let lane = CoordinatePart::of(ElementIndex::Lane);
+        let nth = CoordinatePart::of(ElementIndex::Nth);
+        let rdna3 = ElementPositions {
+            row: vec![nth.spaced_by(2), lane.in_runs_of(16)],
+            col: vec![lane.counted_over(16)],
+        };
+        let rdna4 = ElementPositions {
+            row: vec![lane.counted_over(16)],
+            col: vec![nth, lane.in_runs_of(16).spaced_by(8)],
+        };
+        let widest =
+            |target: &TargetProperties| Instruction::Cmma.widest_line(target, [16, 16], F32);
+        assert_eq!(widest(&holding(rdna4.clone(), AsElementPositions)), [8, 8]);
+        assert_eq!(widest(&holding(rdna3.clone(), AsElementPositions)), [1, 8]);
+        assert_eq!(widest(&holding(rdna3.clone(), Hidden)), [1, 1]);
+        assert_eq!(
+            mma().widest_line(&holding(rdna3, AsElementPositions), [16, 16], F32),
+            [1, 1]
+        );
     }
 }
