@@ -60,7 +60,7 @@ pub struct ResolvedBench {
     pub result: AutotuneResult,
 }
 
-/// Commits a tune: resolves the samples still queued, picks the winner, and hands it to the
+/// Commits a tune: resolves the samples still queued, picks the decided candidate, and hands it to the
 /// [`TuneSettler`]. Holds no borrow, so the browser event loop can run it.
 pub struct TuneCommitter<K: AutotuneKeyable> {
     key: K,

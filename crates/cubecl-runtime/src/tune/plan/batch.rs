@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use cubecl_environment::collections::HashMap;
 
 use crate::tune::plan::planner::PlannedTunable;
@@ -8,9 +8,11 @@ use crate::tune::set::group::{GroupId, Patience};
 /// to benchmark, and the [`Patience`] of each group that brought one in.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Batch {
-    /// The tunables in the order they are benchmarked (Arrival Usage).
+    /// The tunables in the order they are benchmarked (Arrival Usage), each found by its slot
+    /// (Position Usage).
     pub entries: Vec<BatchEntry>,
-    /// The patience of each group an entry names that has one, by group (Keyed Usage).
+    /// The patience of each group an entry names that has one, once a group (Membership Usage),
+    /// read whole.
     pub patience: HashMap<GroupId, Patience>,
 }
 
@@ -47,19 +49,14 @@ impl Batch {
         // The slot of each tunable's entry, by tunable index (Keyed Usage).
         let mut slots = HashMap::<usize, usize>::new();
         for planned in planned {
-            match slots.get(&planned.index) {
-                Some(&slot) => join(
-                    &mut entries
-                        .get_mut(slot)
-                        .expect("a kept slot should be one of the entries")
-                        .groups,
-                    planned.group,
-                ),
-                None => {
-                    slots.insert(planned.index, entries.len());
-                    entries.push(BatchEntry::grouped(&planned));
-                }
-            }
+            let slot = *slots.entry(planned.index).or_insert_with(|| {
+                entries.push(BatchEntry::placed(&planned));
+                entries.len() - 1
+            });
+            let entry = entries
+                .get_mut(slot)
+                .expect("a kept slot should be one of the entries");
+            join(&mut entry.groups, planned.group);
         }
         entries.extend(ungrouped.into_iter().map(BatchEntry::ungrouped_at));
         let patience = entries
@@ -77,6 +74,17 @@ impl Batch {
             entries: indices.into_iter().map(BatchEntry::ungrouped_at).collect(),
             patience: HashMap::new(),
         }
+    }
+
+    /// The candidates the batch measures before the bounds' time limit may end it: the most
+    /// members any of its groups' [`Patience`] measures, and at least one.
+    pub fn min_measured_count(&self) -> usize {
+        self.patience
+            .values()
+            .map(|patience| patience.min_measured_count)
+            .max()
+            .unwrap_or(0)
+            .max(1)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -102,10 +110,11 @@ impl Batch {
 }
 
 impl BatchEntry {
-    fn grouped(planned: &PlannedTunable) -> Self {
+    /// The entry of `planned`, at its priority, before any group joins it.
+    fn placed(planned: &PlannedTunable) -> Self {
         Self {
             index: planned.index,
-            groups: vec![planned.group],
+            groups: Vec::new(),
             priority: Some(planned.priority),
         }
     }
@@ -159,6 +168,33 @@ mod tests {
             batch.patience,
             HashMap::from_iter([(GroupId(0), patience(1))])
         );
+    }
+
+    #[test]
+    fn a_group_without_patience_brings_none() {
+        let batch = Batch::new([planned(0, 0)], [], &HashMap::new());
+
+        assert!(batch.patience.is_empty());
+    }
+
+    #[test]
+    fn the_batch_minimum_is_its_most_patient_group_s() {
+        let patience = |count| Patience {
+            min_measured_count: count,
+            max_miss_count: 1,
+        };
+        let held = HashMap::from_iter([(GroupId(0), patience(2)), (GroupId(1), patience(5))]);
+
+        let batch = Batch::new([planned(0, 0), planned(1, 1)], [], &held);
+
+        assert_eq!(batch.min_measured_count(), 5);
+    }
+
+    #[test]
+    fn a_batch_without_patience_measures_one_before_it_may_stop() {
+        let batch = Batch::new([], [0], &HashMap::new());
+
+        assert_eq!(batch.min_measured_count(), 1);
     }
 
     #[test]

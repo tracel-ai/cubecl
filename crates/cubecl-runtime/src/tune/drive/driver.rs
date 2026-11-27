@@ -230,7 +230,13 @@ where
     fn batch_measured(&self, batch: &Batch) -> bool {
         batch
             .indices()
-            .any(|index| self.committer.results()[index].outcome.is_ok())
+            .map(|index| {
+                self.committer
+                    .results()
+                    .get(index)
+                    .expect("an index should be one of the set's candidates")
+            })
+            .any(|result| result.outcome.is_ok())
     }
 
     /// Launch every candidate of `batch`, in order.

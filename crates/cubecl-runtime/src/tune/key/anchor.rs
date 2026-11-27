@@ -6,15 +6,6 @@ use crate::config::{CubeClRuntimeConfig, RuntimeConfig};
 /// How a key rounds one of its sizes, so that sizes close enough to share a decision share a
 /// key: up to the next power of a base scaled by the configured [`AutotuneLevel`], within a floor
 /// and a ceiling.
-///
-/// # Examples
-///
-/// ```
-/// use cubecl_runtime::tune::Anchor;
-///
-/// let size = Anchor { max: Some(1024), min: Some(16), ..Anchor::default() }.round(100);
-/// assert!((16..=1024).contains(&size));
-/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Anchor {
     /// The ceiling, if any.
@@ -35,7 +26,7 @@ impl Anchor {
     /// - [`Full`](AutotuneLevel::Full) rounds nothing: every size is its own key, `min` and `max`
     ///   set aside.
     /// - Otherwise at least `min`, and at most `max` unless `min` is larger. Between them, the
-    ///   smallest power of the scaled base, rounded up, that is at least `size`, and `0` for `0`.
+    ///   smallest power of the scaled base that is at least `size`, rounded up, and `0` for `0`.
     pub fn round(&self, size: usize) -> usize {
         anchored(
             size,
@@ -107,16 +98,18 @@ fn anchored(size: usize, base: Option<f64>, max: Option<usize>, min: Option<usiz
     min.map_or(capped, |min| capped.max(min))
 }
 
-/// The smallest power of `base`, rounded up, that is at least `size`, saturating at
+/// The smallest power of `base` that is at least `size`, rounded up, saturating at
 /// [`usize::MAX`].
 ///
 /// The exponent is counted rather than taken from a logarithm: `ln(2^29) / ln(2)` is a hair over
-/// 29, and its ceiling would round an exact power up to the next one. Each power is rounded up
-/// and compared as an integer, since `size` as a float rounds down above 2^53.
+/// 29, and its ceiling would round an exact power up to the next one. The power is compared as a
+/// float, so a power that is not an integer still has to reach `size` before rounding, and again
+/// rounded up as an integer, since `size` as a float rounds down above 2^53.
 fn power_reaching(base: f64, size: usize) -> usize {
     (0..)
-        .map(|exponent| rounded_up(base.powi(exponent)))
-        .find(|power| *power >= size)
+        .map(|exponent| base.powi(exponent))
+        .find(|power| *power >= size as f64 && rounded_up(*power) >= size)
+        .map(rounded_up)
         .expect("a power of a base above one should reach every size")
 }
 
@@ -211,6 +204,36 @@ mod tests {
         let base = scaled_base(None, code(AutotuneLevel::Balanced));
 
         assert_eq!(anchored(100, base, Some(8), Some(16)), 16);
+    }
+
+    /// What the base commit rounded `size` to over the scaled `base`, from a logarithm.
+    fn logarithmic(size: usize, base: f64) -> usize {
+        base.powf((size as f64).log(base).ceil()).ceil() as usize
+    }
+
+    fn at(level: AutotuneLevel, size: usize) -> usize {
+        anchored(size, scaled_base(None, code(level)), None, None)
+    }
+
+    #[test]
+    fn an_extensive_size_past_a_power_rounds_to_the_next_one() {
+        assert_eq!(at(AutotuneLevel::Extensive, 4), 6);
+    }
+
+    #[test]
+    fn a_minimal_size_past_a_power_rounds_to_the_next_one() {
+        assert_eq!(at(AutotuneLevel::Minimal, 3), 7);
+    }
+
+    /// The scaled bases that are not integers have no exact power past 1, so the logarithm rounds
+    /// every size as the count does.
+    #[test]
+    fn a_fractional_base_rounds_as_the_logarithm_does() {
+        for level in [AutotuneLevel::Minimal, AutotuneLevel::Extensive] {
+            let base = scaled_base(None, code(level)).expect("the level should round");
+            let differs = (1..200_000).find(|&size| at(level, size) != logarithmic(size, base));
+            assert_eq!(differs, None, "{level:?}");
+        }
     }
 
     #[test]

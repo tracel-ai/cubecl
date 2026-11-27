@@ -34,12 +34,7 @@ impl GroupTracker {
         }
     }
 
-    /// The members its patience measures before the group may stop.
-    pub fn min_measured_count(&self) -> usize {
-        self.patience.min_measured_count
-    }
-
-    /// Whether the group stops: one member is always measured, whatever the patience says.
+    /// Whether the group stops, as its [`Patience`] says.
     pub fn exhausted(&self) -> bool {
         self.measured_count >= self.patience.min_measured_count.max(1)
             && self.miss_count >= self.patience.max_miss_count

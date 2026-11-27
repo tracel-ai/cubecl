@@ -125,6 +125,7 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
             failed("a profiled sample carried no measurement".to_string()),
         ),
         AutotuneError::HoldFailed { name, reason } => (Some(name), failed(reason)),
+        AutotuneError::Unopened { name, reason } => (Some(name), failed(reason)),
         AutotuneError::Launch(error) => (None, failed(error.to_string())),
     }
 }

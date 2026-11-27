@@ -1,7 +1,7 @@
 //! # Autotuning
 //!
-//! Autotuning runs several candidate kernels on reference inputs and caches the fastest
-//! one per key.
+//! Autotuning runs several candidate kernels on reference inputs and caches the one it decides,
+//! per key.
 //!
 //! ```ignore
 //! #[derive(AutotuneKeyable)]

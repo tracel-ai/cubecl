@@ -5,7 +5,7 @@ use crate::tune::TuneInputs;
 /// # Guarantees
 ///
 /// - Every implementation answers from the inputs alone, and equal inputs give equal keys: a key
-///   that changes for one problem re-tunes it, and one shared by two problems serves one's winner
+///   that changes for one problem re-tunes it, and one shared by two problems serves one's decision
 ///   to the other.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid key generator",

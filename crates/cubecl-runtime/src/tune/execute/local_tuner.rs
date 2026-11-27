@@ -5,19 +5,16 @@ use alloc::sync::Arc;
 use core::hash::Hash;
 
 /// The autotune of one call site: the [`TunableSet`] each device builds there, and the candidate
-/// a tune of each key elects, run on every call of the key.
+/// a tune of each key decides, run on every call of the key.
+///
+/// # Assumptions
+///
+/// - An `ID` names one device.
 ///
 /// # Guarantees
 ///
 /// - An answer is shared by every id of the same [hardware](crate::device::HardwareIdentity)
 ///   executing the same candidates, from the first [`execute`](Self::execute) of each.
-///
-/// # Assumptions
-///
-/// - An `ID` names one device, and every call passes the [`Client`] of that device: the tuner of
-///   an id is opened on the hardware of the first client it is called with.
-/// - An initializer answers from the device alone, and never calls back into this tuner: it runs
-///   under the lock of the sets.
 ///
 /// # Examples
 ///
@@ -66,6 +63,11 @@ where
 
     /// The [`TunableSet`] `init_set` builds for `id`.
     ///
+    /// # Assumptions
+    ///
+    /// - `init_set` answers from the device alone, and never calls back into this tuner: it runs
+    ///   under the lock of the sets.
+    ///
     /// # Guarantees
     ///
     /// - `init_set` runs once per initializer type and `id`, until a [`clear`](Self::clear), and
@@ -89,7 +91,8 @@ where
     ///   cache by an [`execute`](Self::execute).
     /// - It never starts a round, never waits for one in flight to measure, never reads the
     ///   persistent cache, and never resets the tuner's cache after an environment switch: it
-    ///   answers `None` there until the next `execute`. It may wait for the tuner's lock while a
+    ///   answers `None` there until the next `execute`. It may wait for this tuner's locks while
+    ///   an `execute` opens a tuner, which may purge the tables of an earlier layout, or while a
     ///   tune reads or writes the store.
     /// - An `id` that has not executed `operations` sees none.
     pub fn fastest_identity<I, Out, Id>(
@@ -118,27 +121,32 @@ where
     /// Execute the candidate `operations` decides for the key of `inputs`, tuning the key on the
     /// first call that misses it.
     ///
+    /// # Assumptions
+    ///
+    /// - `client` is the client of the device `id` names, every call: the tuner of an id is opened
+    ///   on the hardware of the first client it is called with.
+    /// - `operations` holds a candidate, and some candidate serves `inputs`.
+    /// - Some candidate the plan schedules for the key, at a non-negative priority, ends measured,
+    ///   with only its profile failed ([`Unknown`](crate::tune::AutotuneError::Unknown)), or with
+    ///   the device unheld for it ([`HoldFailed`](crate::tune::AutotuneError::HoldFailed)). On
+    ///   wasm, that candidate is in the first batch of the plan that queues a sample: the
+    ///   fixed-count pass there resolves its samples on the browser event loop, and commits that
+    ///   batch without reaching a later one.
+    /// - The decided candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
+    /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
+    ///
     /// # Guarantees
     ///
     /// - A call the decided candidate rejects runs the next one that serves it.
-    /// - A tune that could hold the device for no candidate it scheduled, or that stopped on a
-    ///   lost card, decides nothing: the call runs the candidates in plan order.
-    ///
-    /// # Assumptions
-    ///
-    /// - `operations` holds a candidate, and some candidate serves `inputs`.
-    /// - Some candidate the plan schedules for the key, at a non-negative priority, executes on
-    ///   the device, or the device could not be held for it: it measures, or only its timing
-    ///   fails.
-    /// - The elected candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
-    /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
+    /// - A tune where no scheduled candidate executed and the device was unheld for one, or that
+    ///   stopped on a lost card, decides nothing: the call runs the candidates in plan order.
     ///
     /// # Panics
     ///
-    /// When no candidate serves `inputs`; when a tune measured none and none it scheduled
-    /// executed on a device it held; when the elected one rejects `inputs` and they have no spare; and under
-    /// `autotune-checks`, when a candidate's output does not match and nothing reports it: the
-    /// assumptions above.
+    /// When no candidate serves `inputs`; when a tune measured none, none it scheduled executed,
+    /// and the device was held for every one; when the decided candidate rejects `inputs` and
+    /// they have no spare; and under `autotune-checks`, when a candidate's output does not match
+    /// and nothing reports it: the assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(
         &self,
         id: &ID,

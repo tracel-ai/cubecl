@@ -99,13 +99,13 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
             check_candidates(&operations, &inputs, client, false);
-            return execute_elected(&operations, &key, decided_index, inputs);
+            return execute_decided(&operations, &key, decided_index, inputs);
         }
 
         let checks = |collect| check_candidates(&operations, &inputs, client, collect);
         match tuner.tune::<I, Out, Id>(&key, &inputs, &operations, client, checks) {
             TuneAnswer::Hit { decided_index } => {
-                execute_elected(&operations, &key, decided_index, inputs)
+                execute_decided(&operations, &key, decided_index, inputs)
             }
             TuneAnswer::Miss => unreachable!("a tune should never answer a miss"),
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
@@ -143,10 +143,9 @@ where
         use crate::tune::measure::candidate_gathering::CandidateGathering;
         use crate::tune::measure::candidate_sampler::CandidateSampler;
         use alloc::string::ToString;
+        use alloc::vec::IntoIter;
 
-        if ProcessMode::current().stream_mode() == StreamMode::Discard
-            || CandidateGathering::is_open()
-        {
+        if ProcessMode::current().discards_launches() || CandidateGathering::is_open() {
             return None;
         }
         let sampler = CandidateSampler::new(client, operations.device_access());
@@ -157,23 +156,27 @@ where
             let executing = StreamModeOverride::new(StreamMode::Execute, sampler.client());
             let outputs: Vec<_> = operations
                 .autotunables()
-                .map(|operation| {
-                    let output = sampler.contain_race(operation, inputs.clone());
-                    (operation.name().to_string(), output)
-                })
+                .map(|operation| sampler.contain_race(operation, inputs.clone()))
                 .collect();
             core::mem::drop(executing);
             outputs
         });
-        let outputs = raced.unwrap_or_else(|reason| {
-            operations
-                .autotunables()
-                .map(|operation| {
-                    let error = AutotuneError::hold_failed(operation.name(), &reason);
-                    (operation.name().to_string(), Err(error))
-                })
-                .collect()
+        let mut raced = raced.map(Vec::into_iter).inspect_err(|reason| {
+            log::warn!(
+                "The autotune cross-checks did not run: the device could not be held. {reason}"
+            )
         });
+        let outputs = operations
+            .autotunables()
+            .map(|operation| {
+                let output = match &mut raced {
+                    Ok(outputs) => IntoIter::next(outputs)
+                        .expect("a race should be one of the set's candidates"),
+                    Err(reason) => Err(AutotuneError::hold_failed(operation.name(), reason)),
+                };
+                (operation.name().to_string(), output)
+            })
+            .collect();
         Some(crate::tune::execute::checks::check_outputs(
             outputs, collect,
         ))
@@ -237,27 +240,27 @@ fn first_served<Out>(
     Err(failures)
 }
 
-/// Runs `elected`, the candidate the tune elected for `key`, or the next one in the key's run
-/// order that serves `inputs` when it rejects them: a key groups calls, and the elected candidate
+/// Runs `decided`, the candidate the tune decided for `key`, or the next one in the key's run
+/// order that serves `inputs` when it rejects them: a key groups calls, and the decided candidate
 /// may serve only some of them.
-fn execute_elected<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn execute_decided<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
-    elected: usize,
+    decided: usize,
     inputs: <I as TuneInputs>::At<'a>,
 ) -> Out {
     let spare = I::spare(&inputs);
-    let rejection = match operations.function_at(elected).execute(inputs) {
+    let rejection = match operations.function_at(decided).execute(inputs) {
         Ok(output) => return output,
         Err(rejection) => rejection,
     };
-    log::debug!("The candidate elected for {key} rejected a call of it: {rejection}");
+    log::debug!("The candidate decided for {key} rejected a call of it: {rejection}");
 
     let spare = spare.unwrap_or_else(|| {
-        panic!("The candidate elected for {key} should serve every call of it.\n{rejection}")
+        panic!("The candidate decided for {key} should serve every call of it.\n{rejection}")
     });
     let order = operations.plan_run_order(key);
-    let others = order.iter().copied().filter(|&index| index != elected);
+    let others = order.iter().copied().filter(|&index| index != decided);
     first_served(others, |index| {
         operations.function_at(index).execute(spare.clone())
     })
@@ -369,25 +372,25 @@ mod tests {
         let group = TuneGroup::<FakeAutotuneKey>::new("group", |_| 1);
         let operations = set()
             .with(answers("planned_last", 0).group(&group, |_| 0))
-            .with(fails("elected").group(&group, |_| 2))
+            .with(fails("decided").group(&group, |_| 2))
             .with(answers("planned_second", 2).group(&group, |_| 1));
 
-        assert_eq!(execute_elected(&operations, &FakeAutotuneKey, 1, ()), 2);
+        assert_eq!(execute_decided(&operations, &FakeAutotuneKey, 1, ()), 2);
     }
 
     #[test]
-    fn an_elected_candidate_that_serves_the_call_runs_alone() {
-        let operations = set().with(answers("other", 0)).with(answers("elected", 1));
+    fn a_decided_candidate_that_serves_the_call_runs_alone() {
+        let operations = set().with(answers("other", 0)).with(answers("decided", 1));
 
-        assert_eq!(execute_elected(&operations, &FakeAutotuneKey, 1, ()), 1);
+        assert_eq!(execute_decided(&operations, &FakeAutotuneKey, 1, ()), 1);
     }
 
     #[test]
     #[should_panic(expected = "should serve this call")]
     fn a_call_no_candidate_serves_panics() {
-        let operations = set().with(fails("elected")).with(fails("other"));
+        let operations = set().with(fails("decided")).with(fails("other"));
 
-        execute_elected(&operations, &FakeAutotuneKey, 0, ());
+        execute_decided(&operations, &FakeAutotuneKey, 0, ());
     }
 
     #[test]
@@ -405,7 +408,7 @@ mod tests {
                 FakeAutotuneKey
             })
             .with(Tunable::<FakeAutotuneKey, Borrowed, usize>::new(
-                "elected",
+                "decided",
                 |_| Err::<usize, _>("does not launch here"),
             ))
             .with(Tunable::<FakeAutotuneKey, Borrowed, usize>::new(
@@ -413,7 +416,7 @@ mod tests {
                 |_| Ok::<_, String>(1),
             ));
 
-        execute_elected(&operations, &FakeAutotuneKey, 0, ());
+        execute_decided(&operations, &FakeAutotuneKey, 0, ());
     }
 
     #[test]

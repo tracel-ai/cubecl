@@ -48,10 +48,10 @@ impl BatchOutcome {
             results: indices
                 .iter()
                 .map(|&index| {
-                    let operation = autotunables
-                        .get(index)
-                        .expect("an index should be one of the set's candidates");
-                    let error = AutotuneError::hold_failed(operation.name(), reason);
+                    let error = AutotuneError::hold_failed(
+                        operation_at(autotunables, index).name(),
+                        reason,
+                    );
                     (index, AutotuneResult::from_error(error))
                 })
                 .collect(),
@@ -260,7 +260,10 @@ impl<'i> Scheduler<'i> {
             .entries
             .into_iter()
             .map(|entry| {
-                CandidateTracker::new(entry.index, autotunables[entry.index].name().to_string())
+                CandidateTracker::new(
+                    entry.index,
+                    operation_at(autotunables, entry.index).name().to_string(),
+                )
             })
             .collect();
 
@@ -356,9 +359,9 @@ impl<'i> Scheduler<'i> {
         core::mem::drop(gathering);
     }
 
-    /// Fold the finished candidates into the batch outcome, naming the winner.
+    /// Fold the finished candidates into the batch outcome, naming the decided candidate.
     ///
-    /// The winner is picked here rather than left to the caller's comparison of the results,
+    /// The decided candidate is picked here rather than left to the caller's comparison of the results,
     /// because by this point the candidates no longer hold comparable evidence: an eliminated one
     /// stopped at `min_sample_count` while a survivor kept sampling, and
     /// `BenchmarkComputations::score` inflates with observed spread, which grows with the sample
@@ -460,7 +463,7 @@ impl<'i> Scheduler<'i> {
         if !candidate.state().live {
             return;
         }
-        let operation = autotunables[candidate.state().index];
+        let operation = operation_at(autotunables, candidate.state().index);
         if let Err(err) = sampler.warmup_once(operation, inputs.clone()) {
             return candidate.fail(err);
         }
@@ -489,7 +492,7 @@ impl<'i> Scheduler<'i> {
             .enumerate()
             .filter(|(_, candidate)| candidate.state().live && candidate.any_under(limit))
         {
-            let operation = autotunables[candidate.state().index];
+            let operation = operation_at(autotunables, candidate.state().index);
             let launched = self.options.track_steps.then(Instant::now);
             while candidate.state().summary.count < required
                 && self
@@ -585,7 +588,7 @@ impl<'i> Scheduler<'i> {
             candidate.state().live && candidate.state().summary.count < max_sample_count
         }) {
             let launched = self.options.track_steps.then(Instant::now);
-            let operation = autotunables[candidate.state().index];
+            let operation = operation_at(autotunables, candidate.state().index);
             match self.sample(operation, inputs, sampler) {
                 Ok(profile) => self.pending.push((slot, candidate.track_queued(profile))),
                 Err(err) => candidate.fail(err),
@@ -730,6 +733,17 @@ fn live(candidates: &[CandidateTracker]) -> impl Iterator<Item = CandidateState<
         .filter(|state| state.live)
 }
 
+/// The function of the candidate at `index` of `autotunables`, by tunable index.
+fn operation_at<'f, F: TuneInputs, Out>(
+    autotunables: &[&'f TuneFn<F, Out>],
+    index: usize,
+) -> &'f TuneFn<F, Out> {
+    autotunables
+        .get(index)
+        .copied()
+        .expect("an index should be one of the set's candidates")
+}
+
 /// How many of `candidates` are still in the round.
 fn live_count(candidates: &[CandidateTracker]) -> usize {
     live(candidates).count()
@@ -762,7 +776,10 @@ fn compile_together<'a, 'c, F: TuneInputs, Out: AutotuneCheckable>(
     let gathering = crate::tune::measure::candidate_gathering::CandidateGathering::open();
     for candidate in candidates {
         if let Err(unusable @ (AutotuneError::Rejected { .. } | AutotuneError::Panicked { .. })) =
-            sampler.contain_race(autotunables[candidate.state().index], inputs.clone())
+            sampler.contain_race(
+                operation_at(autotunables, candidate.state().index),
+                inputs.clone(),
+            )
         {
             candidate.fail(unusable);
         }

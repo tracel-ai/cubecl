@@ -3,6 +3,8 @@ use cubecl_common::profile::ProfileDuration;
 #[cfg(feature = "std")]
 use cubecl_environment::backtrace::BackTrace;
 
+use cubecl_environment::sync::{AtomicBool, Ordering};
+
 use crate::client::{Client, ProfileWindow};
 use crate::server::{ProfileError, ServerError};
 use crate::tune::hook::binding::BoundEvictor;
@@ -11,12 +13,6 @@ use crate::tune::{AutotuneError, TuneDeviceAccess, TuneInputs};
 
 /// Runs a tune's candidates on one device, the way its [`TuneDeviceAccess`] holds the device:
 /// warms them up, takes their samples, and contains their panics.
-///
-/// # Assumptions
-///
-/// - Every function but [`hold`](Self::hold) and [`client`](Self::client) runs inside a
-///   [`hold`](Self::hold), so that only a panic stops a race: the adaptive driver takes it once
-///   for the whole round robin rather than once per candidate.
 #[derive(Clone, Copy)]
 pub struct CandidateSampler<'c> {
     client: &'c Client,
@@ -37,7 +33,12 @@ impl<'c> CandidateSampler<'c> {
     ///
     /// # Errors
     ///
-    /// Where the device could not be taken exclusively.
+    /// Where the device could not be taken exclusively. Nothing ran.
+    ///
+    /// # Panics
+    ///
+    /// Where `task` panics outside a [contained race](Self::contain_race): only a candidate's own
+    /// panic is contained.
     pub fn hold<'t, R: Send + 'static>(
         &self,
         task: impl FnOnce() -> R + Send + 't,
@@ -46,7 +47,7 @@ impl<'c> CandidateSampler<'c> {
         'c: 't,
     {
         match self.access {
-            TuneDeviceAccess::Exclusive => self.client.exclusive(task),
+            TuneDeviceAccess::Exclusive => self.hold_exclusively(task),
             TuneDeviceAccess::Shared => Ok(task()),
         }
     }
@@ -54,6 +55,10 @@ impl<'c> CandidateSampler<'c> {
     /// Race `operation` on `inputs` ([`TuneFn::race`]), its panic contained so it costs no other
     /// candidate its measurement: in a device call of its own where the device is held, on the
     /// calling thread where it never is.
+    ///
+    /// # Assumptions
+    ///
+    /// - It runs inside a [`hold`](Self::hold), so that only a panic stops the race.
     pub fn contain_race<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,
@@ -64,6 +69,11 @@ impl<'c> CandidateSampler<'c> {
 
     #[cfg(not(target_family = "wasm"))]
     /// Run `operation` once without measuring it, to trigger compilation.
+    ///
+    /// # Assumptions
+    ///
+    /// - It runs inside a [`hold`](Self::hold): the adaptive driver takes one for the whole round
+    ///   robin rather than one per candidate.
     pub fn warmup_once<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,
@@ -81,6 +91,10 @@ impl<'c> CandidateSampler<'c> {
     /// Run `operation` `round_count` times, each profiled and none resolved, to trigger
     /// compilation and settle the clocks, as the fixed-count pass warms a candidate up.
     ///
+    /// # Assumptions
+    ///
+    /// - It runs inside a [`hold`](Self::hold).
+    ///
     /// # Errors
     ///
     /// The candidate's own error on the round it returned one, which it would return on every
@@ -97,11 +111,7 @@ impl<'c> CandidateSampler<'c> {
         let mut last_failure = None;
 
         for _ in 0..round_count {
-            let inputs = inputs.clone();
-            match self.profile(
-                move || self.contain_race(operation, inputs),
-                operation.name(),
-            ) {
+            match self.profiled_race(operation, inputs.clone()) {
                 // The tunable rejected its own configuration, which it will do identically on
                 // every call, so the remaining warmups and the whole sampling loop are skipped.
                 // The error is propagated as-is to keep the reason it was rejected.
@@ -111,10 +121,7 @@ impl<'c> CandidateSampler<'c> {
             }
         }
 
-        match last_failure.filter(|_| !profiled) {
-            Some(err) => Err(logged(AutotuneError::unprofiled(operation.name(), err))),
-            None => Ok(()),
-        }
+        last_failure.filter(|_| !profiled).map_or(Ok(()), Err)
     }
 
     /// Queue a single measured execution.
@@ -123,6 +130,10 @@ impl<'c> CandidateSampler<'c> {
     /// reads rather than what the previous launch left in cache ([`Evictor`](crate::tune::Evictor)). An
     /// eviction that fails is logged and the sample taken warm: the measurement is still worth
     /// more than none, and the failure is the eviction's, not the candidate's.
+    ///
+    /// # Assumptions
+    ///
+    /// - It runs inside a [`hold`](Self::hold).
     pub fn sample_once<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,
@@ -138,15 +149,43 @@ impl<'c> CandidateSampler<'c> {
             );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = self.profile(
-            move || self.contain_race(operation, inputs),
-            operation.name(),
-        );
-        sampled(operation.name(), profiled)
+        sampled(self.profiled_race(operation, inputs))
     }
 }
 
 impl CandidateSampler<'_> {
+    /// [`hold`](Self::hold) under exclusive access: a hold that fails once `task` started is
+    /// `task`'s own panic, raised again.
+    fn hold_exclusively<'t, R: Send + 'static>(
+        &self,
+        task: impl FnOnce() -> R + Send + 't,
+    ) -> Result<R, ServerError> {
+        let started = AtomicBool::new(false);
+        let running = &started;
+        let held = self.client.exclusive(move || {
+            running.store(true, Ordering::Relaxed);
+            task()
+        });
+        assert!(
+            held.is_ok() || !started.load(Ordering::Relaxed),
+            "a task held on the device should not panic outside a candidate's race: {:?}",
+            held.as_ref().err()
+        );
+        held
+    }
+
+    /// The race of `operation` on `inputs`, contained, and how long its launches took.
+    fn profiled_race<'a, I: TuneInputs, Out: Send + 'static>(
+        &self,
+        operation: &TuneFn<I, Out>,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Result<(Result<Out, AutotuneError>, ProfileDuration), AutotuneError> {
+        self.profile(
+            move || self.contain_race(operation, inputs),
+            operation.name(),
+        )
+    }
+
     /// What the race of the candidate `name` answers, its panic contained.
     fn contained_race<Out: Send + 'static>(
         &self,
@@ -172,30 +211,39 @@ impl CandidateSampler<'_> {
         }
     }
 
-    /// What `func` returns and how long its launches took on the calling stream.
+    /// What `func`, run for the candidate `name`, returns and how long its launches took on the
+    /// calling stream, or what the failed profile says of the candidate.
     fn profile<O: Send + 'static>(
         &self,
         func: impl FnOnce() -> O + Send,
         name: &str,
-    ) -> Result<(O, ProfileDuration), ProfileError> {
-        match self.access {
+    ) -> Result<(O, ProfileDuration), AutotuneError> {
+        let started = AtomicBool::new(false);
+        let running = &started;
+        let func = move || {
+            running.store(true, Ordering::Relaxed);
+            func()
+        };
+        let profiled = match self.access {
             TuneDeviceAccess::Exclusive => self.client.profile(func, name),
             TuneDeviceAccess::Shared => profile_on_stream(self.client, func),
-        }
+        };
+        profiled.map_err(|error| {
+            if started.load(Ordering::Relaxed) {
+                logged(AutotuneError::unprofiled(name, error))
+            } else {
+                AutotuneError::unopened(name, &error)
+            }
+        })
     }
 }
 
-/// What a profiled sample of the candidate `name` answers: its duration, its own error, or what a
-/// failed profile says of it.
+/// What a profiled sample answers: its duration, its own error, or what its failed profile says
+/// of it.
 fn sampled<Out>(
-    name: &str,
-    profiled: Result<(Result<Out, AutotuneError>, ProfileDuration), ProfileError>,
+    profiled: Result<(Result<Out, AutotuneError>, ProfileDuration), AutotuneError>,
 ) -> Result<ProfileDuration, AutotuneError> {
-    match profiled {
-        Ok((Ok(_), duration)) => Ok(duration),
-        Ok((Err(err), _)) => Err(err),
-        Err(err) => Err(logged(AutotuneError::unprofiled(name, err))),
-    }
+    profiled.and_then(|(output, duration)| output.map(|_| duration))
 }
 
 /// `error`, logged first where it is a panic: a defect in the candidate.
@@ -284,12 +332,12 @@ mod tests {
             reason: "no line of this shape".into(),
         };
         assert!(matches!(
-            sampled::<()>("candidate", Ok((Err(rejection), unresolved()))),
+            sampled::<()>(Ok((Err(rejection), unresolved()))),
             Err(AutotuneError::Rejected { .. })
         ));
     }
 
-    /// A profile that resolves to nothing, for samples that are never resolved.
+    /// A profile of a zero duration, for samples that are never resolved.
     fn unresolved() -> ProfileDuration {
         ProfileDuration::new_system_time(
             cubecl_common::profile::Instant::now(),

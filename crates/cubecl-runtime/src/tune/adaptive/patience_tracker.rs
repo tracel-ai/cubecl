@@ -10,8 +10,8 @@ mod group_tracker;
 
 use group_tracker::GroupTracker;
 
-/// Tracks how every group with a [`Patience`](crate::tune::Patience) in a [`Batch`] fares, through the groups that
-/// brought each slot of the batch in.
+/// Tracks how every group with a [`Patience`](crate::tune::Patience) in a [`Batch`] fares,
+/// through the groups that brought each slot of the batch in.
 #[derive(Debug)]
 pub struct PatienceTracker {
     /// The groups that brought in each slot, by slot (Position Usage).
@@ -48,17 +48,6 @@ impl PatienceTracker {
                 tracker.track(time);
             }
         }
-    }
-
-    /// The most members any group's patience measures before it may stop, and at least one: the
-    /// candidates the batch measures before the bounds' time limit may end it.
-    pub fn min_measured_count(&self) -> usize {
-        self.trackers
-            .values()
-            .map(GroupTracker::min_measured_count)
-            .max()
-            .unwrap_or(0)
-            .max(1)
     }
 
     /// Whether the candidate at `slot` is skipped: every group that brought it in ran out of
@@ -103,23 +92,6 @@ mod tests {
                 .collect(),
             patience: patience.iter().copied().collect(),
         }
-    }
-
-    #[test]
-    fn the_batch_minimum_is_its_most_patient_group_s() {
-        let tracker = PatienceTracker::new(&batch(
-            &[&[GroupId(0)], &[GroupId(1)]],
-            &[(GroupId(0), patience(2, 1)), (GroupId(1), patience(5, 1))],
-        ));
-
-        assert_eq!(tracker.min_measured_count(), 5);
-    }
-
-    #[test]
-    fn a_batch_without_patience_measures_one_before_it_may_stop() {
-        let tracker = PatienceTracker::new(&batch(&[&[]], &[]));
-
-        assert_eq!(tracker.min_measured_count(), 1);
     }
 
     const SPENT: GroupId = GroupId(0);

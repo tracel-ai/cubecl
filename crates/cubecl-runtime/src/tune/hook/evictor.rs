@@ -8,14 +8,14 @@ use alloc::string::{String, ToString};
 /// first: from the second launch on, an operand small enough for the cache is served from it.
 /// A memory-bound kernel then reads as several times faster than the bus, the round's
 /// throughput bound is met by the first candidate tried, and the round ends there — with a
-/// winner chosen on a read production never gets. The set says how to evict, since it knows
+/// decision made on a read production never gets. The set says how to evict, since it knows
 /// what its operands weigh; the tuner says when.
 ///
 /// What the eviction runs is the set's business — typically a launch that writes past the
 /// cache's capacity through the inputs' client. It receives the reference inputs the tune was
 /// called with rather than the generated ones the candidates are measured on, so it can scrub
 /// through buffers the caller already holds instead of allocating its own: an output the
-/// winner overwrites afterwards is scratch until then. Whether that reaches past the cache is
+/// decided candidate overwrites afterwards is scratch until then. Whether that reaches past the cache is
 /// the set's call — an operand-sized write evicts an operand-sized cache, no more.
 ///
 /// # Assumptions

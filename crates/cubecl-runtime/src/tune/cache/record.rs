@@ -132,8 +132,7 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
-            launches_discarded: crate::execution::ProcessMode::current().stream_mode()
-                == crate::execution::StreamMode::Discard,
+            launches_discarded: crate::execution::ProcessMode::current().discards_launches(),
             plan: Vec::new(),
         });
         Self { open }
@@ -202,11 +201,12 @@ fn trials(log_context: Option<&AutotuneLogContext>) -> (Vec<Trial>, Option<Strin
     (trials, short_circuit)
 }
 
-/// A stored winner is the environment changing; an answer kept in memory is not.
+/// A stored decision is the environment changing; an answer kept in memory is not.
 fn effect_when_stored(stored: bool) -> RecordEffect {
-    match stored {
-        true => RecordEffect::Changed,
-        false => RecordEffect::Observed,
+    if stored {
+        RecordEffect::Changed
+    } else {
+        RecordEffect::Observed
     }
 }
 

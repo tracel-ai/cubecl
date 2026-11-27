@@ -70,7 +70,7 @@ impl core::fmt::Display for Addition {
 }
 
 /// [`addition_set`] with each tunable identified by an [`Addition`]. `slow_runs` counts the runs
-/// of the slow, wrong tunable: a round runs it, and an `execute` of the settled winner does not.
+/// of the slow, wrong tunable: a round runs it, and an `execute` of the settled decision does not.
 pub fn identified_addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,

@@ -47,7 +47,7 @@ impl FirstPassPlanner {
     pub fn new(batch: &Batch, windows: CompileWindows) -> Self {
         let patience = PatienceTracker::new(batch);
         Self {
-            min_measured_count: patience.min_measured_count(),
+            min_measured_count: batch.min_measured_count(),
             compiled: vec![false; batch.entries.len()],
             patience,
             next: 0,
@@ -59,8 +59,7 @@ impl FirstPassPlanner {
 
     /// The next slot to measure, with the window to compile first when that slot is not compiled
     /// yet: the next slots from it that are neither compiled nor skipped, as many as the window
-    /// holds. `None` once
-    /// every remaining slot is skipped.
+    /// holds. `None` once every remaining slot is skipped.
     pub fn plan_next(&mut self) -> Option<FirstPassStep> {
         let slot =
             (self.next..self.compiled.len()).find(|slot| !self.patience.skips_slot(*slot))?;
@@ -89,12 +88,21 @@ impl FirstPassPlanner {
 impl FirstPassPlanner {
     /// Mark the window starting at `slot` compiled, and return it.
     fn claim_window_from_slot(&mut self, slot: usize) -> Vec<usize> {
-        let window: Vec<usize> = (slot..self.compiled.len())
-            .filter(|slot| !self.compiled[*slot] && !self.patience.skips_slot(*slot))
+        let patience = &self.patience;
+        let window: Vec<usize> = self
+            .compiled
+            .iter()
+            .enumerate()
+            .skip(slot)
+            .filter(|(slot, compiled)| !**compiled && !patience.skips_slot(*slot))
+            .map(|(slot, _)| slot)
             .take(self.window)
             .collect();
         for slot in &window {
-            self.compiled[*slot] = true;
+            *self
+                .compiled
+                .get_mut(*slot)
+                .expect("a window slot should be one of the batch's candidates") = true;
         }
         self.window = self.later_window;
         window

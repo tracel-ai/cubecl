@@ -23,7 +23,6 @@ use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::{
     AutotuneCheckable, AutotuneKeyable, CheckResult, TunableSet, TuneInputs, TuneStage,
 };
-use cubecl_environment::sync::{AtomicBool, Ordering};
 
 /// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.
 ///
@@ -78,9 +77,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
     ///
     /// - `key` is the key `tunables` generates for `inputs`.
     /// - `tunables` holds a candidate, and some candidate serves `inputs`.
-    /// - Some candidate the plan schedules for the key, at a non-negative priority, executes on
-    ///   the device, or the device could not be held for it: it measures, or only its timing
-    ///   fails.
+    /// - The plan's candidates end as [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s
+    ///   third Assumption says.
     ///
     /// # Guarantees
     ///
@@ -88,8 +86,9 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// - One tune of a key runs at a time within an environment: a concurrent call answers
     ///   [`Pending`](TuneAnswer::Pending). A switch drops the mark, so a tune may run once
     ///   more for the new environment while the old one's finishes.
-    /// - A tune that unwinds, or that could hold the device for no candidate it scheduled, leaves
-    ///   the key to the next call; one that stops on a lost card leaves it to another card.
+    /// - A tune that unwinds, or where no scheduled candidate executed and the device was unheld
+    ///   for one, leaves the key to the next call; one that stops on a lost card leaves it to
+    ///   another card.
     /// - An answer picked with nothing measured is kept in memory, never in the store.
     pub fn tune<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
         &self,
@@ -275,12 +274,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
         let mut enterer = tunables.bound_stage_enterer(key, inputs);
         let parallelism = CubeClRuntimeConfig::get().compilation.parallelism();
         let sampler = CandidateSampler::new(client, tunables.device_access());
-        // Set once the held task runs: a hold that fails after it is the task's own panic.
-        let started = AtomicBool::new(false);
-        let running = &started;
         let enterer = enterer.as_deref_mut();
         let held = sampler.hold(move || {
-            running.store(true, Ordering::Relaxed);
             let stage = enter_stage(enterer, TuneStage::Gathering);
             let gathering = CandidateGathering::open();
             plan.plan_top(parallelism, |index| {
@@ -297,9 +292,6 @@ impl<K: AutotuneKeyable> Tuner<K> {
                 client.service_id(),
                 register_ungathered,
             ),
-            Err(err) if started.load(Ordering::Relaxed) => {
-                panic!("The compile pass of {key} should not panic outside a candidate. {err}")
-            }
             Err(err) => log::warn!(
                 "The candidates of {key} queued nothing: the device could not be held. {err}"
             ),

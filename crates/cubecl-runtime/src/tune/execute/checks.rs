@@ -67,9 +67,10 @@ mod tests {
 
     impl AutotuneCheckable for Value {
         fn check_equivalence(&self, other: Self) -> Result<(), String> {
-            match self.0 == other.0 {
-                true => Ok(()),
-                false => Err(alloc::format!("{} against {}", other.0, self.0)),
+            if self.0 == other.0 {
+                Ok(())
+            } else {
+                Err(alloc::format!("{} against {}", other.0, self.0))
             }
         }
     }

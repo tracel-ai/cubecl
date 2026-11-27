@@ -5,14 +5,14 @@ use crate::server::{LaunchError, ProfileError, ServerError};
 
 /// Why a candidate has no measurement.
 ///
-/// [`Unknown`](Self::Unknown) is the only kind a tune that measured nothing falls back on: the
-/// candidate queued its work and only the harness around it failed. Every other kind says the
-/// candidate did not run, or runs wrong, so deciding it would fail the call it is decided for.
+/// [`Unknown`](Self::Unknown) is the only kind a tune that measured nothing falls back on. Every
+/// other kind says the candidate did not run, or runs wrong, so deciding it would fail the call it
+/// is decided for.
 #[derive(Clone, Display)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
-    /// The harness failed around work the candidate queued: a profile it could not take or
-    /// resolve.
+    /// The candidate ran, and the profile around it failed: its work was queued, and only its
+    /// timing is missing.
     #[display("{name}: An unknown error happened.\n{err}")]
     Unknown {
         /// The candidate's name.
@@ -36,6 +36,14 @@ pub enum AutotuneError {
         /// The candidate's name.
         name: String,
         /// Why the device could not be held.
+        reason: String,
+    },
+    /// The harness could not open the profile of a sample, so the candidate never ran in it.
+    #[display("{name}: The profile of a sample could not be opened.\n{reason}")]
+    Unopened {
+        /// The candidate's name.
+        name: String,
+        /// Why the profile could not be opened.
         reason: String,
     },
     /// A sample's profiled window carried no measurement.
@@ -75,8 +83,7 @@ pub enum AutotuneError {
 }
 
 impl AutotuneError {
-    /// The error of the candidate `name`, which the tune could not hold the device for: `reason`
-    /// says why.
+    /// [`HoldFailed`](Self::HoldFailed) for the candidate `name`.
     pub(crate) fn hold_failed(name: &str, reason: &ServerError) -> Self {
         Self::HoldFailed {
             name: name.into(),
@@ -84,8 +91,16 @@ impl AutotuneError {
         }
     }
 
-    /// What a failed profile of the candidate `name` says of it: a panic while its kernels
-    /// expanded, a launch that failed, or a failure of the harness around work it queued.
+    /// [`Unopened`](Self::Unopened) for the candidate `name`, whose profile failed before it ran.
+    pub(crate) fn unopened(name: &str, reason: &ProfileError) -> Self {
+        Self::Unopened {
+            name: name.into(),
+            reason: reason.to_string(),
+        }
+    }
+
+    /// What a profile that failed after the candidate `name` ran says of it: a panic while its
+    /// kernels expanded, a launch that failed, or a failure of the harness around work it queued.
     pub(crate) fn unprofiled(name: &str, error: ProfileError) -> Self {
         match error {
             error if error.is_expansion_panic() => Self::Panicked {
@@ -100,8 +115,7 @@ impl AutotuneError {
         }
     }
 
-    /// Whether the candidate executed and only its timing failed, so a tune that measured nothing
-    /// may decide it.
+    /// Whether a tune that measured nothing may decide the candidate.
     pub(crate) fn executed_unmeasured(&self) -> bool {
         matches!(self, Self::Unknown { .. })
     }
@@ -142,6 +156,15 @@ mod tests {
         };
 
         assert!(!AutotuneError::hold_failed("candidate", &error).executed_unmeasured());
+    }
+
+    #[test]
+    fn an_unopened_profile_is_not_executed_unmeasured() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        assert!(!AutotuneError::unopened("candidate", &error).executed_unmeasured());
     }
 
     #[test]

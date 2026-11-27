@@ -162,7 +162,11 @@ impl TunePlanner {
                 name: name_of(index).to_string(),
                 index,
                 batch,
-                groups: self.placements[index].clone(),
+                groups: self
+                    .placements
+                    .get(index)
+                    .expect("an index should be one of the set's candidates")
+                    .clone(),
             })
             .collect()
     }
@@ -301,7 +305,10 @@ fn group_plans<K>(priced: &[PricedMembership<'_, K>]) -> BTreeMap<i8, GroupPlan>
 fn placements<K>(priced: &[PricedMembership<'_, K>], len: usize) -> Vec<Vec<Placement>> {
     let mut placements = alloc::vec![Vec::new(); len];
     for member in priced {
-        placements[member.index].push(member.placement());
+        placements
+            .get_mut(member.index)
+            .expect("a member should be one of the set's candidates")
+            .push(member.placement());
     }
     placements
 }

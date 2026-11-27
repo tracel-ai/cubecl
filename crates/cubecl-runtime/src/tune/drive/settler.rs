@@ -59,9 +59,10 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         // measured nothing would keep failing the same way.
         self.tracker.lock().track_answer(key.clone(), decided_index);
         // Where the tune was registered, whether or not that override is still open.
-        let outcome = match unmeasured {
-            true => TuneOutcome::Failed,
-            false => TuneOutcome::Measured,
+        let outcome = if unmeasured {
+            TuneOutcome::Failed
+        } else {
+            TuneOutcome::Measured
         };
         #[cfg_attr(not(persistence), allow(unused_variables))]
         let settled = self

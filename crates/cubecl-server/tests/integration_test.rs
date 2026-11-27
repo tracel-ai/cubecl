@@ -1448,14 +1448,14 @@ fn a_key_no_round_settled_has_no_fastest_identity() {
     assert_eq!(TUNER.fastest_identity(&id, &set, &untuned), None);
 }
 
-/// The fastest tunable hands back what it was identified by. The environment is rooted afresh,
+/// The decided tunable hands back what it was identified by. The environment is rooted afresh,
 /// so the answer is this round's and no earlier run's.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn the_fastest_tunable_hands_back_its_identity() {
+fn the_decided_tunable_hands_back_its_identity() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("the_fastest_tunable_hands_back_its_identity");
+        local_tuner!("the_decided_tunable_hands_back_its_identity");
     #[cfg(persistence)]
     let root = tempfile::tempdir().unwrap();
     #[cfg(persistence)]
@@ -1653,7 +1653,7 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
     );
 }
 
-/// A candidate that panics is dropped alone: the others are still measured, and the fastest wins.
+/// A candidate that panics is dropped alone: the others are still measured, and the fastest is decided.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
@@ -1720,15 +1720,15 @@ fn assert_a_panicking_candidate_is_dropped_alone(
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// The elected candidate may reject a call of its key: the next candidate serves it.
+/// The decided candidate may reject a call of its key: the next candidate serves it.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
-fn a_call_the_elected_candidate_rejects_is_served_by_another() {
+fn a_call_the_decided_candidate_rejects_is_served_by_another() {
     use cubecl_server::tune::Tunable;
 
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_call_the_elected_candidate_rejects_is_served_by_another");
+        local_tuner!("a_call_the_decided_candidate_rejects_is_served_by_another");
 
     let client = test_client(&DummyDevice);
     let key = fresh_tune_key_uid();
@@ -2107,10 +2107,10 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let winner = ProcessTuner::new("recorded")
+    let decided = ProcessTuner::new("recorded")
         .tune(&set, &client, &handles)
         .expect("the tune should answer inline");
-    let decided_index = match winner {
+    let decided_index = match decided {
         dummy::Addition::Correct => 0,
         dummy::Addition::SlowAndWrong => 1,
     };
@@ -2544,11 +2544,11 @@ fn autotune_evicts_before_every_measured_sample() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    // The winner ran on the reference inputs once the tune was over.
+    // The decided candidate ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the compile runs and warm-ups, the winner's
-    // real run, and under `autotune-checks` one cross-check of each candidate.
+    // The launches that were not measured samples: the compile runs and warm-ups, the decided
+    // candidate's real run, and under `autotune-checks` one cross-check of each candidate.
     let checks = if cfg!(feature = "autotune-checks") {
         candidates
     } else {
@@ -2610,11 +2610,11 @@ fn staged_tune() -> dummy::StageTrace {
     std::mem::take(&mut *trace.lock().unwrap())
 }
 
-/// The winner of a tune runs as the call's work, in no stage.
+/// The candidate a tune decides runs as the call's work, in no stage.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
-fn autotune_runs_its_winner_outside_every_stage() {
+fn autotune_runs_its_decided_candidate_outside_every_stage() {
     let trace = staged_tune();
 
     assert_eq!(trace.ran_in.last(), Some(&None));
@@ -2628,7 +2628,7 @@ fn autotune_runs_its_winner_outside_every_stage() {
 fn autotune_runs_every_candidate_inside_a_stage() {
     let trace = staged_tune();
 
-    let (_winner, tuning) = trace
+    let (_decided, tuning) = trace
         .ran_in
         .split_last()
         .expect("the candidates should have run");
@@ -2799,7 +2799,7 @@ fn fresh_tune_key_uid() -> String {
 }
 
 /// Benchmarks a [`dummy::ranked_addition_set`] of `candidates` under `patience`, returning what
-/// the winner wrote and each candidate's call count.
+/// the decided candidate wrote and each candidate's call count.
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 fn tune_ranked(
     tuner: &'static LocalTuner<String, String>,
@@ -3066,7 +3066,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 /// The poisoning order: the candidate that fails to compile goes *first*, and every
 /// candidate after it shares its inputs and output. The failed launch never ran, so it
 /// must claim only the output it declared it would write — the shared inputs stay
-/// clean, the candidates behind it still run, and the winner's write releases the
+/// clean, the candidates behind it still run, and the decided candidate's write releases the
 /// failed candidate's claim on the output.
 ///
 /// This is what the declared IO on the launch arguments exists for. Without it the
@@ -3076,7 +3076,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
+fn autotune_survives_a_failing_candidate_ahead_of_the_decided_one() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_failing_compilation_first");
 
     let client = test_client(&DummyDevice);
@@ -3110,7 +3110,7 @@ fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
 
 /// The round robin end to end, which the unit tests around it cannot reach: a candidate far
 /// enough behind has to stop being sampled partway through, while the ones still in contention
-/// keep going and the fastest of them wins.
+/// keep going and the fastest of them is decided.
 ///
 /// Skipped unless the adaptive scheduler is the strategy in force, since a fixed-count pass
 /// samples every candidate the same number of times by design.
@@ -3292,7 +3292,7 @@ fn a_stream_mode_follows_its_client_across_threads() {
 /// The exception that makes the mode worth having: autotune still executes,
 /// because its launches *are* the measurement.
 ///
-/// Tuning happens under the override; the winner is then executed outside it. A
+/// Tuning happens under the override; the decided candidate is then executed outside it. A
 /// tuner whose candidates had all been skipped would have nothing to tell them
 /// apart, and the slow kernel — which writes `[0, 1, 2]` — would win as often
 /// as not.
@@ -3326,7 +3326,7 @@ fn an_override_still_autotunes() {
         core::mem::drop(tune);
     }
 
-    // Cached now, so this is the fast path: it executes the winner and nothing
+    // Cached now, so this is the fast path: it executes the decided candidate and nothing
     // else.
     TUNER.execute(
         &"test".to_string(),
