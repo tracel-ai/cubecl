@@ -107,19 +107,19 @@ impl<K: AutotuneKeyable> Tuner<K> {
             ProcessMode::current() == ProcessMode::CompileOnly || CandidateGathering::is_open();
         let opened = match self.open(key, tunables, client, compiling) {
             Ok(opened) => opened,
-            Err(answer) => return answered(answer, checks),
+            Err(answer) => return check_then_answer(answer, checks),
         };
 
         log::info!("Tuning {key}");
         // A `CompileOnly` override queues the kernels of the top of the plan and measures
         // nothing; the key stays untuned for the pass that profiles it.
         let Some((unmarker, gathered)) = opened else {
-            return answered(self.compile_plan(key, inputs, tunables, client), checks);
+            return check_then_answer(self.compile_plan(key, inputs, tunables, client), checks);
         };
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
         let settling = (unmarker, gathered.or_else(TuneRegistration::register));
         let decisions = self.logger.lock().config().autotune.decisions_enabled();
-        self.driver(key, inputs, tunables, client, settling, checks(decisions))
+        self.prepare_driver(key, inputs, tunables, client, settling, checks(decisions))
             .drive(client)
     }
 }
@@ -187,7 +187,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// The driver of the tune of `key`, prepared to measure: its inputs generated, the kernels a
     /// `CompileOnly` override queued compiled, its plan, bounds and record begun. `settling` is
     /// the unmarker of the key's pending mark and where its tune is registered.
-    fn driver<'t, 'a, F: TuneInputs, Out: AutotuneCheckable, Id>(
+    fn prepare_driver<'t, 'a, F: TuneInputs, Out: AutotuneCheckable, Id>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
@@ -302,7 +302,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
 
 /// `answer`, a key answered without a tune, its candidates cross-checked uncollected: nothing
 /// reports them.
-fn answered(
+fn check_then_answer(
     answer: TuneAnswer,
     checks: impl FnOnce(bool) -> Option<Vec<CheckResult>>,
 ) -> TuneAnswer {

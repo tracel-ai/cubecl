@@ -4,7 +4,7 @@ use cubecl_common::profile::ProfileTicks;
 /// A resolved sample's time, or `None` where it is no time: unmeasured, or zero. No launch that
 /// ran takes zero; a zero is a window that timed nothing, such as a candidate whose kernel never
 /// launched, and recorded it would be the fastest sample in the round and end it on the spot.
-pub fn measured(ticks: Option<ProfileTicks>) -> Option<Duration> {
+pub fn sample_time(ticks: Option<ProfileTicks>) -> Option<Duration> {
     ticks
         .map(|ticks| ticks.duration())
         .filter(|duration| !duration.is_zero())
@@ -18,12 +18,15 @@ mod tests {
     #[test]
     fn a_zero_sample_is_no_time() {
         let now = Instant::now();
-        assert_eq!(measured(Some(ProfileTicks::from_start_end(now, now))), None);
+        assert_eq!(
+            sample_time(Some(ProfileTicks::from_start_end(now, now))),
+            None
+        );
     }
 
     #[test]
     fn an_unmeasured_sample_is_no_time() {
-        assert_eq!(measured(None), None);
+        assert_eq!(sample_time(None), None);
     }
 
     #[test]
@@ -31,7 +34,7 @@ mod tests {
         let now = Instant::now();
         let later = now + Duration::from_micros(3);
         assert_eq!(
-            measured(Some(ProfileTicks::from_start_end(now, later))),
+            sample_time(Some(ProfileTicks::from_start_end(now, later))),
             Some(Duration::from_micros(3))
         );
     }

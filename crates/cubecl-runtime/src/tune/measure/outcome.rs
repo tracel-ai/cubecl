@@ -100,15 +100,19 @@ impl PartialEq for AutotuneResult {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_failed_result_scores_worst_and_two_failures_are_equal() {
-        let failure = || {
-            AutotuneResult::from_error(AutotuneError::Skip {
-                name: "skipped".into(),
-            })
-        };
+    fn failure() -> AutotuneResult {
+        AutotuneResult::from_error(AutotuneError::Skip {
+            name: "skipped".into(),
+        })
+    }
 
+    #[test]
+    fn a_failed_result_scores_worst() {
         assert_eq!(failure().score(), u64::MAX);
+    }
+
+    #[test]
+    fn two_failures_are_equal() {
         assert_eq!(failure(), failure());
     }
 }

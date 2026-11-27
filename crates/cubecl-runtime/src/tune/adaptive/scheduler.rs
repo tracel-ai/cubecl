@@ -29,7 +29,7 @@ pub struct BatchOutcome {
     pub steps: Vec<(String, Duration)>,
     pub short_circuit: Option<String>,
     pub any_success: bool,
-    /// The index the round robin picked, when it produced one. See [`Scheduler::outcome`] for why
+    /// The index the round robin picked, when it produced one. See [`Scheduler::conclude_batch`] for why
     /// the caller must not re-derive it by comparing the results. `None` where every survivor
     /// failed after elimination: the commit then falls back on the best-scored result, an
     /// eliminated candidate, as the base commit did.
@@ -231,14 +231,9 @@ impl<'i> Scheduler<'i> {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        let measuring = crate::execution::StreamModeOverride::new(
-            crate::execution::StreamMode::Execute,
-            sampler.client(),
-        );
-        let stage = enter_stage(self.stage_enterer.as_deref_mut(), TuneStage::Measuring);
+        let measuring = sampler.open_measuring_stage(self.stage_enterer.as_deref_mut());
         let outcome =
             cubecl_environment::future::block_on(self.drive(batch, autotunables, inputs, sampler));
-        core::mem::drop(stage);
         core::mem::drop(measuring);
         outcome
     }
@@ -290,7 +285,7 @@ impl<'i> Scheduler<'i> {
             }
         };
 
-        self.outcome(candidates, confirmed)
+        self.conclude_batch(candidates, confirmed)
     }
 
     /// The [first pass](FirstPassPlanner), its samples resolved inline so the batch can stop
@@ -367,7 +362,7 @@ impl<'i> Scheduler<'i> {
     /// dropped early. Elimination decides who is eligible; the score only ranks the survivors. A
     /// batch that a short circuit ended is decided by the candidate at slot `confirmed`, the one
     /// confirmed under the limit: the others may hold fewer samples than its confirmations.
-    fn outcome(
+    fn conclude_batch(
         &mut self,
         candidates: Vec<CandidateTracker>,
         confirmed: Option<usize>,
@@ -480,8 +475,7 @@ impl<'i> Scheduler<'i> {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        let limit = self.options.short_circuit_limit?;
-        let required = self.options.config.clamped_short_circuit_sample_count();
+        let (limit, required) = self.confirmation_bar()?;
 
         for (slot, candidate) in candidates
             .iter_mut()
@@ -637,13 +631,22 @@ impl<'i> Scheduler<'i> {
         }
     }
 
+    /// The time limit a short circuit needs a candidate under, and how many of its samples, where
+    /// the short circuit is on.
+    fn confirmation_bar(&self) -> Option<(Duration, usize)> {
+        let limit = self.options.short_circuit_limit?;
+        Some((
+            limit,
+            self.options.config.clamped_short_circuit_sample_count(),
+        ))
+    }
+
     /// The slot of the first candidate confirmed under the limit, which stops everything.
     ///
     /// The decision is persisted and reused on later runs, so it needs more than one sample:
     /// a single lucky measurement would pin a suboptimal kernel permanently.
     fn short_circuit_hit(&self, candidates: &[CandidateTracker]) -> Option<usize> {
-        let limit = self.options.short_circuit_limit?;
-        let required = self.options.config.clamped_short_circuit_sample_count();
+        let (limit, required) = self.confirmation_bar()?;
         candidates
             .iter()
             .position(|candidate| candidate.confirmed_under(limit, required))
@@ -866,7 +869,7 @@ mod tests {
     fn a_short_circuit_decides_the_confirmed_candidate() {
         let candidates = vec![candidate(0, [40]), candidate(1, [50, 50, 50])];
 
-        let outcome = schedule(1.5).outcome(candidates, Some(1));
+        let outcome = schedule(1.5).conclude_batch(candidates, Some(1));
 
         assert_eq!(outcome.decided, Some(1));
     }
@@ -875,7 +878,7 @@ mod tests {
     fn a_short_circuit_names_the_confirmed_candidate() {
         let candidates = vec![candidate(0, [40]), candidate(1, [50, 50, 50])];
 
-        let outcome = schedule(1.5).outcome(candidates, Some(1));
+        let outcome = schedule(1.5).conclude_batch(candidates, Some(1));
 
         assert_eq!(outcome.short_circuit.as_deref(), Some("k1"));
     }
@@ -885,7 +888,8 @@ mod tests {
         let mut prefetched = candidate(1, []);
         prefetched.skip();
 
-        let outcome = schedule(1.5).outcome(vec![candidate(0, [10, 10, 10]), prefetched], None);
+        let outcome =
+            schedule(1.5).conclude_batch(vec![candidate(0, [10, 10, 10]), prefetched], None);
 
         assert_eq!(outcome.unmeasured, vec![1]);
     }
@@ -903,7 +907,7 @@ mod tests {
         let mut first = candidate(0, [10]);
         first.track_cost(Some(Duration::from_micros(3)));
 
-        let outcome = tracked.outcome(vec![first, candidate(1, [20])], None);
+        let outcome = tracked.conclude_batch(vec![first, candidate(1, [20])], None);
 
         assert_eq!(
             outcome.steps,
@@ -1022,7 +1026,7 @@ mod tests {
         eliminated.eliminate();
         let survivor = candidate(0, [50, 900, 60, 800, 55]);
 
-        let outcome = schedule(1.5).outcome(vec![survivor, eliminated], None);
+        let outcome = schedule(1.5).conclude_batch(vec![survivor, eliminated], None);
 
         assert_eq!(outcome.decided, Some(0));
     }
@@ -1044,7 +1048,10 @@ mod tests {
             candidate(2, [70, 70, 70]),
         ];
 
-        assert_eq!(schedule(1.5).outcome(candidates, None).decided, Some(1));
+        assert_eq!(
+            schedule(1.5).conclude_batch(candidates, None).decided,
+            Some(1)
+        );
     }
 
     #[test]
@@ -1056,7 +1063,7 @@ mod tests {
             name: "k0".to_string(),
         });
 
-        let outcome = schedule(1.5).outcome(vec![failed, candidate(1, [])], None);
+        let outcome = schedule(1.5).conclude_batch(vec![failed, candidate(1, [])], None);
 
         assert_eq!(outcome.decided, None);
     }

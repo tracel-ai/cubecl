@@ -89,25 +89,32 @@ mod tests {
         (name.to_string(), output)
     }
 
-    #[test]
-    fn the_first_served_output_is_the_reference_and_comes_last() {
-        let checks = check_outputs(
+    fn three_outputs() -> Vec<CheckResult> {
+        check_outputs(
             vec![
                 named("rejects", rejected()),
                 named("reference", Ok(Value(1))),
                 named("same", Ok(Value(1))),
             ],
             true,
-        );
+        )
+    }
 
-        let names: Vec<_> = checks
-            .iter()
-            .map(|check| (check.name.as_str(), check.passed))
-            .collect();
-        assert_eq!(
-            names,
-            [("rejects", false), ("same", true), ("reference", true)]
-        );
+    #[test]
+    fn the_first_served_output_is_the_reference_and_comes_last() {
+        let last = three_outputs().pop().map(|check| check.name);
+
+        assert_eq!(last.as_deref(), Some("reference"));
+    }
+
+    #[test]
+    fn a_candidate_that_did_not_serve_fails_its_check() {
+        assert!(!three_outputs()[0].passed);
+    }
+
+    #[test]
+    fn a_matching_output_passes_its_check() {
+        assert!(three_outputs()[1].passed);
     }
 
     #[test]

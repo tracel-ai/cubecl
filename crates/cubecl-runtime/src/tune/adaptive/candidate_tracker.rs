@@ -3,7 +3,7 @@ use core::time::Duration;
 use cubecl_common::profile::{Instant, ProfileDuration, ProfileTicks, TimingMethod};
 
 use crate::tune::adaptive::sample_keeper::{SampleKeeper, SampleSummary};
-use crate::tune::measure::sample_time::measured;
+use crate::tune::measure::sample_time::sample_time;
 use crate::tune::{AutotuneError, AutotuneOutcome, AutotuneResult};
 
 /// Tracks one candidate kernel of a batch and the evidence gathered about it so far.
@@ -83,7 +83,7 @@ impl CandidateTracker {
     /// Track what a resolved sample measured, or [fail](Self::fail) the candidate as
     /// [`NotMeasured`](AutotuneError::NotMeasured) where it is [no time](measured).
     pub fn track_ticks(&mut self, ticks: Option<ProfileTicks>) {
-        match measured(ticks) {
+        match sample_time(ticks) {
             Some(duration) => self.track_duration(duration),
             None => self.fail(AutotuneError::NotMeasured {
                 name: self.name.clone(),

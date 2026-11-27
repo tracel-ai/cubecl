@@ -221,11 +221,16 @@ mod tests {
 
     #[test]
     fn a_candidate_changes_the_checksum() {
-        let empty = set();
         let one = set().with(Tunable::new("one", runs));
 
-        assert_ne!(empty.compute_checksum(), one.compute_checksum());
-        assert_ne!(empty.checksum(), one.checksum());
+        assert_ne!(set().compute_checksum(), one.compute_checksum());
+    }
+
+    #[test]
+    fn a_candidate_changes_the_low_half_of_the_checksum() {
+        let one = set().with(Tunable::new("one", runs));
+
+        assert_ne!(set().checksum(), one.checksum());
     }
 
     #[test]

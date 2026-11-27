@@ -259,8 +259,12 @@ mod tests {
     }
 
     #[test]
-    fn only_a_stored_answer_changes_the_environment() {
+    fn a_stored_answer_changes_the_environment() {
         assert_eq!(effect_when_stored(true), RecordEffect::Changed);
+    }
+
+    #[test]
+    fn an_answer_kept_in_memory_only_observes_the_environment() {
         assert_eq!(effect_when_stored(false), RecordEffect::Observed);
     }
 }

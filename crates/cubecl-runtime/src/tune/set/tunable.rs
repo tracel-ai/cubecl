@@ -140,11 +140,18 @@ mod tests {
         ));
     }
 
+    fn identified() -> Tunable<(), (), (), u8> {
+        Tunable::<(), (), (), u8>::identified(7, |_: ()| Ok::<_, String>(()))
+    }
+
     #[test]
     fn an_identified_tunable_is_named_by_its_identity() {
-        let tunable = Tunable::<(), (), (), u8>::identified(7, |_: ()| Ok::<_, String>(()));
+        assert_eq!(identified().function().name(), "7");
+    }
 
-        assert_eq!((tunable.function().name(), *tunable.identity()), ("7", 7));
+    #[test]
+    fn an_identified_tunable_keeps_its_identity() {
+        assert_eq!(*identified().identity(), 7);
     }
 
     #[test]

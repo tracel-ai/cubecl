@@ -91,8 +91,13 @@ mod tests {
 
     #[test]
     fn a_neutral_time_is_a_miss() {
-        // 99 is within the threshold of 100 and misses, and 97 improves on 100 and resets the
-        // misses.
+        // 99 is within the threshold of 100, so it misses, and 98 misses too.
+        assert_eq!(stops_after(patience(1, 2), &[100, 99, 98]), Some(3));
+    }
+
+    #[test]
+    fn an_improvement_counts_the_misses_afresh() {
+        // 97 improves on 100 and resets the miss 99 counted.
         assert_eq!(stops_after(patience(1, 2), &[100, 99, 97, 96]), None);
     }
 

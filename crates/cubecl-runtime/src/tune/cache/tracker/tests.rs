@@ -198,7 +198,7 @@ fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
 
 fn answer_at(decided_index: usize) -> PersistentCacheValue {
     PersistentCacheValue {
-        decided_index: decided_index,
+        decided_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

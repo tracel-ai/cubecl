@@ -6,10 +6,21 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::{AtomicBool, Ordering};
 
 use crate::client::{Client, ProfileWindow};
+use crate::execution::{StreamMode, StreamModeOverride};
 use crate::server::{ProfileError, ServerError};
-use crate::tune::hook::hook_binder::BoundEvictor;
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer, enter_stage};
 use crate::tune::measure::tune_fn::TuneFn;
-use crate::tune::{AutotuneError, TuneDeviceAccess, TuneInputs};
+use crate::tune::{AutotuneError, TuneDeviceAccess, TuneInputs, TuneStage};
+use alloc::boxed::Box;
+use core::any::Any;
+
+/// A measuring stage open on a sampler's stream until it drops: the stream executes its launches,
+/// whatever the process mode discards, and the set's enterer entered the measuring stage.
+pub struct MeasuringStage {
+    // Dropped first: the stage ends before its launches stop executing.
+    _stage: Option<Box<dyn Any>>,
+    _executing: StreamModeOverride,
+}
 
 /// Runs a tune's candidates on one device, the way its [`TuneDeviceAccess`] holds the device:
 /// warms them up, takes their samples, and contains their panics.
@@ -52,6 +63,23 @@ impl<'c> CandidateSampler<'c> {
         }
     }
 
+    /// Open the measuring stage `enterer` enters, the launches of the measurement executing.
+    ///
+    /// # Assumptions
+    ///
+    /// - It runs inside a [`hold`](Self::hold): the stream switches to executing only while the
+    ///   measurement holds the device.
+    pub fn open_measuring_stage(
+        &self,
+        enterer: Option<&mut BoundStageEnterer<'_>>,
+    ) -> MeasuringStage {
+        let executing = StreamModeOverride::new(StreamMode::Execute, self.client);
+        MeasuringStage {
+            _stage: enter_stage(enterer, TuneStage::Measuring),
+            _executing: executing,
+        }
+    }
+
     /// Race `operation` on `inputs` ([`TuneFn::race`]), its panic contained so it costs no other
     /// candidate its measurement: in a device call of its own where the device is held, on the
     /// calling thread where it never is.
@@ -67,13 +95,13 @@ impl<'c> CandidateSampler<'c> {
         self.contained_race(operation.name(), || operation.race(inputs))
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// Run `operation` once without measuring it, to trigger compilation.
     ///
     /// # Assumptions
     ///
     /// - It runs inside a [`hold`](Self::hold): the adaptive driver takes one for the whole round
     ///   robin rather than one per candidate.
+    #[cfg(not(target_family = "wasm"))]
     pub fn warmup_once<'a, I: TuneInputs, Out: Send + 'static>(
         &self,
         operation: &TuneFn<I, Out>,

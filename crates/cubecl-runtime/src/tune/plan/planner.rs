@@ -436,7 +436,6 @@ mod tests {
         assert!(plan.plan_next().is_empty());
     }
 
-    #[cfg(persistence)]
     /// A plan of four tunables, one ungrouped and one its group skips.
     #[cfg(persistence)]
     fn accounted_plan() -> TunePlanner {
@@ -514,7 +513,7 @@ mod tests {
     #[test]
     fn test_plan_falls_through_when_all_group_tunables_fail() {
         // Every tunable lives in exactly one group; the caller treats every batch as a failure
-        // by continuing to call next(). The plan must still surface every tunable, in priority
+        // by continuing to call plan_next(). The plan must still surface every tunable, in priority
         // order, before going empty.
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
@@ -590,7 +589,7 @@ mod tests {
     #[test]
     fn test_plan_no_group_tunables_only_emitted_once_even_on_failures() {
         // The ungrouped tunables are emitted together with the first group batch. If the caller
-        // keeps calling next() (treating the first batch as failing), they must not be
+        // keeps calling plan_next() (treating the first batch as failing), they must not be
         // re-emitted, and the plan must still advance to later groups.
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
@@ -649,7 +648,7 @@ mod tests {
         //
         // Cross-group dedup in strike compares (index, group id), so a
         // tunable appearing in both group_hi and group_lo isn't auto-removed from group_lo
-        // when popped from group_hi — the `returned` + `all_skip` path is the only guard.
+        // when popped from group_hi: `returned` is the only guard.
         let group_hi = TuneGroup::<FakeAutotuneKey>::new("hi", |_| 2);
         let group_lo = TuneGroup::<FakeAutotuneKey>::new("lo", |_| 1);
 
@@ -666,8 +665,7 @@ mod tests {
         // First call: group_hi yields tunable0.
         assert_eq!(indices(&plan.plan_next()), vec![0]);
         // Second call: group_lo's higher intra-priority batch is just tunable0 (already
-        // returned). Without the fix this returns [] and the autotuner aborts. With the fix
-        // the plan recurses and yields tunable1.
+        // returned), so the plan recurses and yields tunable1 rather than an empty batch.
         assert_eq!(indices(&plan.plan_next()), vec![1]);
         assert!(plan.plan_next().is_empty());
     }
@@ -698,8 +696,7 @@ mod tests {
 
     #[test]
     fn test_plan_batch_carries_every_group_of_an_entry() {
-        // The batch carries patience only for the group that has one, and a tunable two
-        // groups bring in is one entry naming both.
+        // A tunable two groups bring in is one entry naming both.
         let patience = Patience {
             min_measured_count: 10,
             max_miss_count: 5,
@@ -970,7 +967,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_top_falls_back_only_past_a_batch_that_served_nothing() {
+    fn test_plan_top_stops_at_a_batch_that_served() {
         let first = TuneGroup::<FakeAutotuneKey>::new("first", |_| 2);
         let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
         let tunables = || {
@@ -985,7 +982,22 @@ mod tests {
         let plan = || plan_of(&FakeAutotuneKey, &tunables());
 
         assert_eq!(queued(plan(), 4, &[]), vec![0]);
-        assert_eq!(queued(plan(), 4, &[0]), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_plan_top_falls_back_past_a_batch_that_served_nothing() {
+        let first = TuneGroup::<FakeAutotuneKey>::new("first", |_| 2);
+        let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
+        let tunables = [
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&first, |_| 1),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&fallback, |_| 1),
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&fallback, |_| 1),
+        ];
+
+        assert_eq!(
+            queued(plan_of(&FakeAutotuneKey, &tunables), 4, &[0]),
+            vec![0, 1, 2]
+        );
     }
 
     #[test]

@@ -225,8 +225,8 @@ where
         self.batch_measured(batch)
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// Whether a candidate of `batch` measured.
+    #[cfg(not(target_family = "wasm"))]
     fn batch_measured(&self, batch: &Batch) -> bool {
         batch
             .indices()
@@ -282,7 +282,7 @@ where
     /// commit it with nothing measured.
     fn exhausted(self, client: &Client) -> TuneAnswer {
         #[cfg(not(target_family = "wasm"))]
-        if let Some(lost) = lost_device(client) {
+        if let Some(lost) = check_device_lost(client) {
             return self.committer.stop_on_lost_card(client.service_id(), lost);
         }
         #[cfg(target_family = "wasm")]
@@ -293,7 +293,7 @@ where
 
 /// The fault a sync of `client` reports, where it poisoned the device.
 #[cfg(not(target_family = "wasm"))]
-fn lost_device(client: &Client) -> Option<ServerError> {
+fn check_device_lost(client: &Client) -> Option<ServerError> {
     cubecl_environment::future::block_on(client.sync())
         .err()
         .filter(ServerError::is_device_poisoned)

@@ -76,6 +76,7 @@ impl Batch {
 
     /// The candidates the batch measures before the bounds' time limit may end it: the most
     /// members any of its groups' [`Patience`] measures, and at least one.
+    #[cfg(not(target_family = "wasm"))]
     pub fn min_measured_count(&self) -> usize {
         self.patience
             .values()
@@ -175,6 +176,7 @@ mod tests {
         assert!(batch.patience.is_empty());
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn the_batch_minimum_is_its_most_patient_group_s() {
         let patience = |count| Patience {
@@ -188,6 +190,7 @@ mod tests {
         assert_eq!(batch.min_measured_count(), 5);
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn a_batch_without_patience_measures_one_before_it_may_stop() {
         let batch = Batch::new([], [0], &HashMap::new());

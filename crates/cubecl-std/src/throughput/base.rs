@@ -260,12 +260,12 @@ pub fn roofline_bounds(
 }
 
 /// The compute half of a roofline: `work`'s operations against the peak of `compute_key`,
-/// close enough to it past `threshold`.
+/// close enough to it past `threshold_fraction` of it.
 pub fn compute_bound(
     client: &Client,
     compute_key: ThroughputKey,
     work: Work,
-    threshold: f32,
+    threshold_fraction: f32,
 ) -> AutotuneBound {
     // An unmeasurable ceiling is zero, which `time_at_peak` declines.
     let peak = measure_peak_throughput(client, compute_key).unwrap_or(ThroughputValue::ZERO);
@@ -274,7 +274,7 @@ pub fn compute_bound(
             amount: work.compute_ops,
             peak_per_s: peak.ops_per_s(),
         },
-        threshold_fraction: threshold,
+        threshold_fraction,
     }
 }
 
@@ -288,7 +288,7 @@ pub fn memory_bound(
     client: &Client,
     access: MemoryAccess,
     work: Work,
-    threshold: f32,
+    threshold_fraction: f32,
 ) -> AutotuneBound {
     // Past what the device will allocate the probe measures the cap regardless,
     // so capping the ask keeps one cache entry rather than one per kernel.
@@ -305,7 +305,7 @@ pub fn memory_bound(
             amount: work.bytes,
             peak_per_s: peak.bytes_per_s(&memory_key),
         },
-        threshold_fraction: threshold,
+        threshold_fraction,
     }
 }
 

@@ -95,4 +95,9 @@ mod tests {
         assert!(initializer.cached::<u32>(&key(0)).is_none());
         core::mem::drop(closed);
     }
+
+    #[test]
+    fn an_initializer_that_built_nothing_has_no_set() {
+        assert!(SetInitializer::<u8>::new().cached::<u32>(&key(0)).is_none());
+    }
 }

@@ -2,10 +2,10 @@ use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_environment::config::RuntimeConfig;
 
-use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer, enter_stage};
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::measure::tune_fn::TuneFn;
-use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs, TuneStage};
+use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs};
 
 /// The warmups the fixed-count pass runs before it samples a candidate.
 const WARMUP_ROUND_COUNT: usize = 3;
@@ -37,20 +37,10 @@ fn profile_held<'a, F: TuneInputs, Out: AutotuneCheckable>(
     mut evictor: Option<&mut BoundEvictor<'_>>,
     stage: Option<&mut BoundStageEnterer<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
-    // These launches are the measurement, so their stream executes whatever
-    // the process mode drops: it exists to skip the *workload*, not the tuning it is
-    // there to provoke. The guard covers the warm-up too, since a candidate
-    // measured without one is measured on its slowest run.
-    //
-    // Inside the `exclusive` call, so the stream switches to executing only
-    // while this measurement holds the device. `exclusive` runs the body
-    // under the issuing thread's stream, so the client resolves the same
-    // stream here as there.
-    let measuring = crate::execution::StreamModeOverride::new(
-        crate::execution::StreamMode::Execute,
-        sampler.client(),
-    );
-    let measuring_stage = enter_stage(stage, TuneStage::Measuring);
+    // These launches are the measurement, so they execute whatever the process mode drops: it
+    // exists to skip the *workload*, not the tuning it is there to provoke. The stage covers the
+    // warm-up too, since a candidate measured without one is measured on its slowest run.
+    let measuring = sampler.open_measuring_stage(stage);
 
     sampler.warmup_rounds(operation, inputs.clone(), WARMUP_ROUND_COUNT)?;
 
@@ -68,7 +58,6 @@ fn profile_held<'a, F: TuneInputs, Out: AutotuneCheckable>(
     let samples = (0..sample_count)
         .map(|_| sampler.sample_once(operation, inputs.clone(), evictor.as_deref_mut()))
         .collect();
-    core::mem::drop(measuring_stage);
     core::mem::drop(measuring);
     samples
 }

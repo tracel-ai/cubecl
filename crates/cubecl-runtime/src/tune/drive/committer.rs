@@ -14,7 +14,7 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::drive::settler::TuneSettler;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::measure::outcome::best_scored;
-use crate::tune::measure::sample_time::measured;
+use crate::tune::measure::sample_time::sample_time;
 use crate::tune::{AutotuneError, AutotuneKeyable, AutotuneOutcome, AutotuneResult};
 
 /// One candidate of a fixed-count batch, launched.
@@ -94,8 +94,8 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         &self.results
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// Every candidate's result, for a strategy that writes them in place.
+    #[cfg(not(target_family = "wasm"))]
     pub fn results_mut(&mut self) -> &mut [AutotuneResult] {
         &mut self.results
     }
@@ -113,20 +113,20 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// [`TuneLogger::log_step`].
+    #[cfg(not(target_family = "wasm"))]
     pub fn log_step(&mut self, name: String, duration: Duration) {
         self.logger.log_step(name, duration);
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// [`TuneLogger::log_short_circuit`].
+    #[cfg(not(target_family = "wasm"))]
     pub fn log_short_circuit(&mut self, name: String) {
         self.logger.log_short_circuit(name);
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// [`TuneSettler::stop_on_lost_card`], logging the `lost` device's fault.
+    #[cfg(not(target_family = "wasm"))]
     pub fn stop_on_lost_card(self, service: ServiceId, lost: ServerError) -> TuneAnswer {
         log::error!(
             "Autotune of {} stopped, the device is lost: {lost}",
@@ -297,7 +297,7 @@ async fn resolve_samples(
         futures_util::future::join_all(profiles.into_iter().map(ProfileDuration::resolve))
             .await
             .into_iter()
-            .map(measured)
+            .map(sample_time)
             .collect::<Option<Vec<Duration>>>()
     else {
         return AutotuneResult::from_error(AutotuneError::NotMeasured { name });

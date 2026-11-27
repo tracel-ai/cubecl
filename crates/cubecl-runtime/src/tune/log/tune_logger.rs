@@ -39,8 +39,8 @@ impl TuneLogger {
         self.log_event(AutotuneLogEvent::TuningStep(name, duration));
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// Log that the candidate `name` ended the tune under the time limit.
+    #[cfg(not(target_family = "wasm"))]
     pub fn log_short_circuit(&mut self, name: String) {
         self.log_event(AutotuneLogEvent::ShortCircuit(name));
     }
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unmeasured_decision_has_nothing_to_report() {
+    fn an_unmeasured_decision_has_no_measurement_to_report() {
         let results = [AutotuneResult::from_error(
             crate::tune::AutotuneError::Skip { name: "k0".into() },
         )];

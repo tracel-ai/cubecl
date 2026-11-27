@@ -155,59 +155,68 @@ mod tests {
 
     #[test]
     fn drops_the_warmup_biased_first_sample_once_enough_remain() {
-        // The first sample is the fastest here, so dropping it has to move `best` upward:
-        // that is the bias being removed, not data being lost.
-        let keeper = keeper([5, 20, 21]);
-        assert_eq!(keeper.reliable().len(), 2);
-        assert_eq!(keeper.summary().best, Some(Duration::from_millis(20)));
+        assert_eq!(keeper([5, 20, 21]).reliable().len(), 2);
     }
 
     #[test]
-    fn converges_after_consecutive_non_improving_samples() {
-        // Gains under the 2% epsilon do not count as progress. The third sample only shifts the
-        // window, so two further flat samples are what trips convergence.
-        let mut keeper = keeper([100, 20, 20]);
-        assert!(!keeper.summary().converged);
-        keeper.keep(Duration::from_millis(20));
-        assert!(!keeper.summary().converged);
-        keeper.keep(Duration::from_millis(20));
-        assert!(keeper.summary().converged);
+    fn dropping_the_first_sample_raises_the_best() {
+        // The first sample is the fastest here, so dropping it has to move `best` upward:
+        // that is the bias being removed, not data being lost.
+        assert_eq!(
+            keeper([5, 20, 21]).summary().best,
+            Some(Duration::from_millis(20))
+        );
+    }
+
+    #[test]
+    fn one_flat_sample_after_the_window_shift_does_not_converge() {
+        // Gains under the 2% epsilon do not count as progress, but the third sample only shifts
+        // the window.
+        assert!(!keeper([100, 20, 20, 20]).summary().converged);
+    }
+
+    #[test]
+    fn two_flat_samples_after_the_window_shift_converge() {
+        assert!(keeper([100, 20, 20, 20, 20]).summary().converged);
     }
 
     #[test]
     fn aging_out_the_biased_sample_does_not_count_as_a_stall() {
         // The first sample is the fastest, so dropping it raises `best`. That is the window
         // moving, not the candidate failing to improve, and must not count toward convergence.
-        let mut keeper = keeper([5, 20, 21]);
-        assert!(!keeper.summary().converged);
-        keeper.keep(Duration::from_millis(20));
-        assert!(!keeper.summary().converged);
-        keeper.keep(Duration::from_millis(20));
-        assert!(keeper.summary().converged);
+        assert!(!keeper([5, 20, 21, 20]).summary().converged);
+    }
+
+    #[test]
+    fn flat_samples_after_the_biased_one_aged_out_converge() {
+        assert!(keeper([5, 20, 21, 20, 20]).summary().converged);
     }
 
     #[test]
     fn a_real_improvement_resets_convergence() {
-        let mut keeper = keeper([20, 20, 20, 20, 20]);
-        assert!(keeper.summary().converged);
-        keeper.keep(Duration::from_millis(5));
-        assert!(!keeper.summary().converged);
+        assert!(!keeper([20, 20, 20, 20, 20, 5]).summary().converged);
     }
 
     #[test]
-    fn short_circuit_needs_independent_confirmations() {
-        let limit = Duration::from_millis(10);
-        // One fast sample among slow ones is exactly the lucky measurement that must not
-        // commit a decision to the persistent cache on its own.
-        assert!(!keeper([5, 50]).confirmed_under(limit, 2));
-        assert!(keeper([5, 50, 6]).confirmed_under(limit, 2));
+    fn one_fast_sample_among_slow_ones_is_no_confirmation() {
+        // The lucky measurement that must not commit a decision to the persistent cache on its
+        // own.
+        assert!(!keeper([5, 50]).confirmed_under(Duration::from_millis(10), 2));
+    }
+
+    #[test]
+    fn two_fast_samples_confirm_the_limit() {
+        assert!(keeper([5, 50, 6]).confirmed_under(Duration::from_millis(10), 2));
     }
 
     #[test]
     fn any_sample_under_the_limit_is_worth_confirming() {
-        let limit = Duration::from_millis(10);
-        assert!(keeper([50, 5]).any_under(limit));
-        assert!(!keeper([50, 60]).any_under(limit));
+        assert!(keeper([50, 5]).any_under(Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn samples_over_the_limit_are_not_worth_confirming() {
+        assert!(!keeper([50, 60]).any_under(Duration::from_millis(10)));
     }
 
     #[test]

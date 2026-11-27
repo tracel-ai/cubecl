@@ -185,8 +185,8 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
     /// Track `service` as a card a tune found lost.
+    #[cfg(not(target_family = "wasm"))]
     pub fn track_lost(&mut self, service: ServiceId) {
         self.lost.insert(service);
     }
