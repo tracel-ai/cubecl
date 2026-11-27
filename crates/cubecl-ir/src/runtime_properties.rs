@@ -162,6 +162,33 @@ impl MmaProperties {
         shape: MatrixShape,
         elem: ElemType,
     ) -> VectorSize {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.contiguous_elements.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// Where the elements a lane holds of operand `ident`, of `elem`, in a contraction of `shape`
+    /// lie in it, where the target states it: what a kernel reads off its own definition of it,
+    /// for code that picks one ahead.
+    pub fn element_positions_of(
+        &self,
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+    ) -> Option<ElementPositions> {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.element_positions.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// `fact` of operand `ident`, of `elem`, in a contraction of `shape`, asked in a context of
+    /// its own.
+    fn with_matrix<T>(
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+        fact: impl FnOnce(&Context, TypedHandle<MatrixType>) -> T,
+    ) -> T {
         let ctx = Context::default();
         let matrix = MatrixType::get(
             &ctx,
@@ -171,7 +198,7 @@ impl MmaProperties {
             MatrixLayout::ColMajor,
             MatrixScope::Plane,
         );
-        self.contiguous_elements.apply(&ctx, ident, matrix)
+        fact(&ctx, matrix)
     }
 }
 

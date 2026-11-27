@@ -27,8 +27,9 @@ pub struct ProductStep {
 ///
 /// # Assumptions
 ///
-/// - A sum that bounces no cell is drained into destinations bound one value a line, as a unit
-///   writing the cells it holds writes them.
+/// - A sum that bounces no cell is drained into destinations whose lines divide its
+///   [`widest_line`](StepCost::widest_line) along their contiguous side, as its units write the
+///   lines they hold.
 ///
 /// # Guarantees
 ///
@@ -41,6 +42,9 @@ pub struct StepCost {
     /// The cell a drained sum is spilled through shared memory in, one call's output; `None`
     /// where each unit holds its own cells and writes them where they go.
     pub bounced_cell: Option<[usize; 2]>,
+    /// The widest line along the rows and along the columns of the sum its units write out of
+    /// their registers where nothing bounces ([`Instruction::widest_line`]).
+    pub widest_line: [usize; 2],
 }
 
 impl ProductStep {
@@ -80,7 +84,7 @@ impl ProductStep {
     /// it on `device` compiling for `target`, which a host Declines.
     pub fn cost(&self, device: &DeviceProperties, target: &TargetProperties) -> Option<StepCost> {
         self.call(device, target, OpenedBy::Accumulator)
-            .map(|call| StepCost::drained(call, target))
+            .map(|call| StepCost::drained(call, target, self.sum))
     }
 
     /// What this Step spends where its sum's rows are scaled between its products
@@ -112,7 +116,7 @@ impl ProductStep {
         };
         ProductStep { lhs: held, ..*next }
             .call(device, target, OpenedBy::Accumulator)
-            .map(|call| StepCost::drained(call, target))
+            .map(|call| StepCost::drained(call, target, next.sum))
     }
 
     /// How a stage its operands are staged through lays its cells out, asked for as `stated` and
@@ -178,12 +182,13 @@ impl StepCost {
     /// The cost of a Step computed by `call` on `target` whose sum is drained: an instruction
     /// that hides which unit holds a cell there ([`Instruction::hides_cell_positions`]) bounces
     /// its sum through shared memory a call's cell at a time.
-    fn drained(call: ShapedInstruction, target: &TargetProperties) -> Self {
+    fn drained(call: ShapedInstruction, target: &TargetProperties, sum: ElemType) -> Self {
         Self {
             bounced_cell: call
                 .instruction
                 .hides_cell_positions(target)
                 .then_some(call.cell()),
+            widest_line: call.instruction.widest_line(target, call.cell(), sum),
         }
     }
 
@@ -196,6 +201,7 @@ impl StepCost {
                 .instruction
                 .scales_through_scratch()
                 .then_some(call.cell()),
+            widest_line: [1, 1],
         }
     }
 }
@@ -288,13 +294,15 @@ mod tests {
         assert_eq!(
             step([8, 8, 8]).cost(&metal(), &target),
             Some(StepCost {
-                bounced_cell: Some([8, 8])
+                bounced_cell: Some([8, 8]),
+                widest_line: [1, 1],
             })
         );
         assert_eq!(
             step([16, 16, 16]).cost(&cuda(), &target),
             Some(StepCost {
-                bounced_cell: Some([16, 16])
+                bounced_cell: Some([16, 16]),
+                widest_line: [1, 1],
             })
         );
     }
@@ -307,7 +315,10 @@ mod tests {
         mma_only.features.matmul.mma.insert(shape(16, 8, 16));
         assert_eq!(
             step([16, 16, 16]).cost(&mma_only, &sum_is_next_a()),
-            Some(StepCost { bounced_cell: None })
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
         );
     }
 
@@ -326,7 +337,10 @@ mod tests {
         let narrow = step([16, 8, 16]);
         assert_eq!(
             narrow.kept_for(&narrow, &cuda(), &sum_is_next_a()),
-            Some(StepCost { bounced_cell: None })
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
         );
         let wide = step([16, 16, 16]);
         assert_eq!(wide.kept_for(&wide, &cuda(), &sum_is_next_a()), None);
@@ -439,11 +453,15 @@ mod tests {
     fn scratch_takes_a_cell_or_the_whole_output() {
         let bounced = StepCost {
             bounced_cell: Some([16, 8]),
+            widest_line: [1, 1],
         };
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::None), 0);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::OneTile), 128);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::WholeGrid), 1024);
-        let written = StepCost { bounced_cell: None };
+        let written = StepCost {
+            bounced_cell: None,
+            widest_line: [1, 1],
+        };
         assert_eq!(written.scratch_cells([32, 32], Scratch::WholeGrid), 0);
     }
 

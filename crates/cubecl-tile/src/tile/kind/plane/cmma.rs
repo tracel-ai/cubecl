@@ -262,11 +262,10 @@ impl CmmaData {
         });
     }
 
-    /// Whether this fragment's sum reaches a destination bound `width` values a line written cell
-    /// by cell out of its units' registers where it would otherwise bounce
-    /// ([`FragmentDrain::Cells`]): where the target states which unit holds which cell, into a
-    /// destination one value a line, or a unit's run of cells a line along a row of a row-major
-    /// sum.
+    /// Whether this fragment's sum reaches a destination bound `width` values a line written out
+    /// of its units' registers where it would otherwise bounce ([`FragmentDrain::Cells`]): where
+    /// the target states which unit holds which cell, and its units, alone or regrouped, hold
+    /// lines `width` wide along the destination's rows ([`CellLines`]).
     pub(crate) fn drains_by_cell<T: Numeric>(
         &self,
         #[comptime] width: usize,
@@ -275,11 +274,15 @@ impl CmmaData {
         let (m, n) = comptime!(self.shape);
         // The depth names no cell of an accumulator.
         let def = MmaDefinition::<T, T, T>::new(m, n, m);
-        let run = def.vector_size(MatrixIdent::Accumulator);
+        let elems = def.elems_per_lane(MatrixIdent::Accumulator);
+        let positions = def.element_positions(MatrixIdent::Accumulator);
         let layout = comptime!(self.layout);
+        let lanes = comptime!(target.mma.const_plane_lane_count as usize);
         comptime!(
             target.mma.fragment_positions == FragmentPositions::AsElementPositions
-                && (width == 1 || (width == run && layout == MatrixLayout::RowMajor))
+                && positions.is_some_and(|positions| {
+                    CellLines::of(&positions, lanes, elems, layout, width).is_some()
+                })
         )
     }
 
