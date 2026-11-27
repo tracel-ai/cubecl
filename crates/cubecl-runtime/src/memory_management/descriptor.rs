@@ -91,6 +91,27 @@ impl ManagedMemoryDescriptor {
         self.location().init != 0
     }
 
+    /// Whether this is host memory a device [imported](crate::client::Client::import_host_memory).
+    #[doc(hidden)]
+    pub fn is_imported(&self) -> bool {
+        self.location().pool == super::IMPORTED_POOL_POS
+    }
+
+    /// Whether the device may write this memory: never imported host memory, which the host and
+    /// other devices read too.
+    #[doc(hidden)]
+    pub fn is_device_writable(&self) -> bool {
+        !self.is_imported()
+    }
+
+    /// Whether work outside the streams of the device that holds it, a peer, a collective or a
+    /// transfer between devices, may hold this memory: never imported host memory, whose release
+    /// waits only on the importing device's streams.
+    #[doc(hidden)]
+    pub fn is_shareable(&self) -> bool {
+        !self.is_imported()
+    }
+
     /// The index of the allocation's slice in its page.
     #[doc(hidden)]
     pub fn slice(&self) -> usize {

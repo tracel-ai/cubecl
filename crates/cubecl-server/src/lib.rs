@@ -26,6 +26,13 @@
 //! [`memory_management::Taint`]. Host memory a copy still reads is kept by
 //! `memory_management::drop_queue::PendingDropQueue` until the device is done
 //! with it.
+//!
+//! # Host memory
+//!
+//! A runtime imports host memory through its [`storage::HostMemoryApi`], the driver's pinning
+//! calls: a [`storage::HostImports`] in each stream's storage imports a
+//! [`storage::HostRange`] for its device, and the runtime's [`storage::HostPins`] pins each
+//! memory once for all of them.
 
 #[cfg(feature = "std")]
 extern crate std;

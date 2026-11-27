@@ -15,6 +15,9 @@
 //! [`TuneGroup`](tune::TuneGroup)s, on inputs the [`TuneInputs`](tune::TuneInputs) family
 //! names, and keys each answer by sizes an [`Anchor`](tune::Anchor) rounds.
 //!
+//! A [`HostRange`](storage::HostRange) is host memory a device imports, which its kernels read
+//! in place.
+//!
 //! # Error handling
 //!
 //! A failure belongs to the memory that work left unwritten and travels the

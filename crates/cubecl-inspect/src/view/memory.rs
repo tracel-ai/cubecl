@@ -54,6 +54,13 @@ impl fmt::Display for Text<'_, MemorySnapshots> {
                 }
             }
             table.row_in(Some(Role::Strong), total_row(&total));
+            // Host memory, so after the device's total and outside it.
+            for stream in &snapshot.record.report.streams {
+                let name = format!("stream {} imported host", stream.stream.value);
+                let role =
+                    (stream.pools.imported.usage.allocation_count == 0).then_some(Role::Idle);
+                table.row_in(role, pool_row(name, &stream.pools.imported));
+            }
             fmt::Display::fmt(&table, f)?;
             writeln!(f)?;
         }

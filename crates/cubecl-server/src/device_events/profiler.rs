@@ -458,6 +458,10 @@ mod tests {
             Ok(())
         }
 
+        fn event_query(_event: &Self::Event) -> Result<bool, DriverError> {
+            Ok(true)
+        }
+
         fn event_elapsed(start: &Self::Event, end: &Self::Event) -> Result<Duration, DriverError> {
             let start = start.0.lock().expect("recorded");
             let end = end.0.lock().expect("recorded");
