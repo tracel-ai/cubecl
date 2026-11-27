@@ -26,89 +26,49 @@
 //! See [`TuneInputs`] for the borrowed-inputs story, and [`Tunable::new`] for why its
 //! HRTB bound is spelled out directly (closure inference).
 
-mod anchor;
-mod binding;
 mod bounds;
-mod bounds_generator;
-mod candidate_planner;
-mod candidate_sampler;
-mod checkable;
-#[cfg(feature = "autotune-checks")]
-mod checks;
-mod clone_input_generator;
-mod committer;
 mod device_access;
-mod driver;
 mod error;
-mod evictor;
-mod gathering;
-mod group;
-mod input_generator;
-mod key_generator;
-mod keyable;
-mod local;
 mod log;
-mod membership;
-mod pending_unmarker;
-#[cfg(persistence)]
-mod persister;
+
+#[cfg(not(target_family = "wasm"))]
+mod adaptive;
+mod cache;
+mod drive;
+mod execute;
+mod hook;
+mod key;
 mod plan;
-// What a tune leaves in the environment beside its answer.
-#[cfg(persistence)]
-mod record;
-mod sample_time;
-mod set_initializer;
-mod settler;
-mod stage;
-mod tunable;
-mod tunable_set;
-mod tune_benchmark;
-mod tune_cache;
-mod tune_executor;
-mod tune_fn;
-mod tune_inputs;
-mod tune_logger;
-mod tune_stage;
-mod tuner;
-mod tuner_opener;
-// The adaptive strategy, which only the native driver can run.
-#[cfg(not(target_family = "wasm"))]
-mod first_pass;
-#[cfg(not(target_family = "wasm"))]
-mod patience;
-#[cfg(not(target_family = "wasm"))]
-mod sampler;
-#[cfg(not(target_family = "wasm"))]
-mod schedule;
+mod set;
 
 pub use crate::local_tuner;
 pub use crate::throughput::ResourceBound;
-pub use anchor::Anchor;
 pub use bounds::{AutotuneBound, Bounds, Thresholds};
-pub use bounds_generator::BoundsGenerator;
-pub use checkable::AutotuneCheckable;
+pub use hook::bounds_generator::BoundsGenerator;
+pub use key::anchor::Anchor;
+pub use set::checkable::AutotuneCheckable;
 // `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
 // autotune bounds and benchmark reporting share one definition.
+#[cfg(persistence)]
+pub use cache::record::{PlannedCandidate, Trial, TuneRecord};
+pub use cache::tracker::{AutotuneResult, LAYOUT_PREFIX};
+#[cfg(persistence)]
+pub use cache::tracker::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
 pub use cubecl_common::work::Work;
 pub use device_access::TuneDeviceAccess;
 pub use error::{AutotuneError, AutotuneOutcome};
-pub use evictor::Evictor;
-pub use group::{OrderedSettings, Patience, TuneGroup};
-pub use input_generator::InputGenerator;
-pub use key_generator::KeyGenerator;
-pub use keyable::AutotuneKeyable;
-pub use local::LocalTuner;
+pub use execute::local::LocalTuner;
+pub use hook::evictor::Evictor;
+pub use hook::input_generator::InputGenerator;
+pub use hook::key_generator::KeyGenerator;
+pub use hook::stage_enterer::StageEnterer;
+pub use hook::tune_stage::TuneStage;
+pub use key::keyable::AutotuneKeyable;
 #[cfg(std_io)]
 pub use log::AutotuneDecision;
 pub use log::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
-pub use plan::Placement;
-#[cfg(persistence)]
-pub use record::{PlannedCandidate, Trial, TuneRecord};
-pub use stage::StageEnterer;
-pub use tunable::Tunable;
-pub use tunable_set::TunableSet;
-pub use tune_cache::{AutotuneResult, LAYOUT_PREFIX};
-#[cfg(persistence)]
-pub use tune_cache::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
-pub use tune_inputs::TuneInputs;
-pub use tune_stage::TuneStage;
+pub use plan::planner::Placement;
+pub use set::group::{OrderedSettings, Patience, TuneGroup};
+pub use set::tunable::Tunable;
+pub use set::tunable_set::TunableSet;
+pub use set::tune_inputs::TuneInputs;
