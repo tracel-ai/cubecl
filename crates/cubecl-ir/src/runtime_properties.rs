@@ -5,35 +5,41 @@ use crate::{
     types::matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape, MatrixType},
 };
 
-/// Hacky solution for getting comptime properties into the scope.
-/// Allows querying certain target-specific properties at compile time, rather than at runtime.
-/// Review on how to better solve this and delegate to the compiler if possible.
+/// What a target states of itself to the kernels expanded for it, read while they expand.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash, Default)]
 pub struct TargetProperties {
     pub mma: MmaProperties,
 }
 
+/// How a target's manual matrix instruction holds its operands in the registers of a plane.
+///
+/// # Guarantees
+///
+/// - A deserialized value holds the defaults of `contiguous_elements` and `element_positions`,
+///   which are not serialized.
+/// - Two values compare equal only where their operand facts are the same functions: two calls
+///   building the same facts give unequal values.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 pub struct MmaProperties {
-    /// Size of registers in bits, used to calculate vector size
+    /// The bits one register holds, which a vector of an operand's elements fills.
     pub register_size_bits: usize,
-    /// Constant size of planes, for calculating lane indices in a matrix
-    pub const_plane_size: u32,
-    /// Layout of registers in Matrix A
+    /// The lanes of the plane the instruction runs on, which a lane's place in an operand counts
+    /// over.
+    pub const_plane_lane_count: u32,
+    /// The layout along which a lane's run of A's elements lies.
     pub register_layout_a: MatrixLayout,
-    /// Layout of registers in Matrix B
+    /// The layout along which a lane's run of B's elements lies.
     pub register_layout_b: MatrixLayout,
-    /// Layout of registers in Matrix C/D
+    /// The layout along which a lane's run of the accumulator's elements lies.
     pub register_layout_acc: MatrixLayout,
-
-    /// How many copies of each piece of data exist for matrix A
-    pub register_duplication_a: usize,
-    /// How many copies of each piece of data exist for matrix B
-    pub register_duplication_b: usize,
-    /// How many copies of each piece of data exist for matrix C/D
-    pub register_duplication_acc: usize,
+    /// The lanes that hold each cell of A.
+    pub register_copy_count_a: usize,
+    /// The lanes that hold each cell of B.
+    pub register_copy_count_b: usize,
+    /// The lanes that hold each cell of the accumulator.
+    pub register_copy_count_acc: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub contiguous_elements: ContiguousElements,
     /// Where the elements a lane holds of an operand lie in it, where the target has a manual
@@ -44,6 +50,11 @@ pub struct MmaProperties {
 
 /// What a target says of each operand of its manual matrix instructions, by the operand's role and
 /// its matrix type.
+///
+/// # Guarantees
+///
+/// - Two facts compare equal only where they are clones of one fact, and every fact hashes
+///   alike, so a hash never tells two facts apart.
 #[derive(Clone)]
 pub struct OperandFact<T> {
     #[allow(clippy::type_complexity)]
@@ -63,6 +74,11 @@ impl<T> OperandFact<T> {
         }
     }
 
+    /// What the fact says of operand `ident` of type `matrix`.
+    ///
+    /// # Guarantees
+    ///
+    /// - The answer is the one the function the fact was built from gives.
     pub fn apply(&self, ctx: &Context, ident: MatrixIdent, matrix: TypedHandle<MatrixType>) -> T {
         (self.inner)(ctx, ident, matrix)
     }
@@ -125,13 +141,13 @@ impl Default for MmaProperties {
     fn default() -> Self {
         Self {
             register_size_bits: 32,
-            const_plane_size: 32,
+            const_plane_lane_count: 32,
             register_layout_a: MatrixLayout::RowMajor,
             register_layout_b: MatrixLayout::ColMajor,
             register_layout_acc: MatrixLayout::RowMajor,
-            register_duplication_a: 1,
-            register_duplication_b: 1,
-            register_duplication_acc: 1,
+            register_copy_count_a: 1,
+            register_copy_count_b: 1,
+            register_copy_count_acc: 1,
             contiguous_elements: Default::default(),
             element_positions: Default::default(),
         }

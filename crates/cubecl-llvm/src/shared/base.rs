@@ -1,5 +1,5 @@
 #[cfg(feature = "amdgpu")]
-use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxMatrixCore};
+use crate::amdgpu::{abi::AmdGpuLowering, matrix::set_matrix_core};
 #[cfg(feature = "nvptx")]
 use crate::nvptx::{
     abi::NvptxLowering,
@@ -293,7 +293,7 @@ impl PlironCompiler {
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
         let matrix = arch.matrix_core();
-        ctx.set_matrix_core(matrix);
+        set_matrix_core(&mut ctx, matrix);
 
         let Lowered {
             io,

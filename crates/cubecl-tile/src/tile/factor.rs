@@ -480,7 +480,7 @@ impl FactorExpand {
     /// plain whatever the values' storage, since no instruction fragment-loads them.
     pub(crate) fn staged(&self, scope: &Scope, spec: &StageSpec) -> FactorExpand {
         let spec = StageSpec {
-            storage: StageStorage::Strided,
+            storage: StageStorage::STRIDED,
             width: None,
             ..spec.clone()
         };

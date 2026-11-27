@@ -147,6 +147,7 @@ impl Case {
         let storage = StageStorage::Tiled {
             block: launcher.partitioning().leaf().extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         };
 
         // Small integers, exact in `f16` and in the `f32` sums.

@@ -354,6 +354,7 @@ fn check(case: Case) {
             StageStorage::Tiled {
                 block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
                 chunks,
+                order: StageOrder::AsSource,
             },
             Delivery::default(),
             client.properties(),

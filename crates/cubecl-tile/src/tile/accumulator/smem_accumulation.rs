@@ -34,7 +34,7 @@ impl Tile {
         let form = comptime!(StageForm::dense(
             &space,
             1,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(elem_bytes)
         ));
         let cells = form.cells();

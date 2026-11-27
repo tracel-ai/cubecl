@@ -6,18 +6,33 @@ use cubecl::prelude::TensorMapSwizzle;
 
 /// Where a stage lives and how it lays its cells out, stated at
 /// [`Stages::smem`](crate::Stages::smem).
+///
+/// # Assumptions
+///
+/// - A shared-memory stage lays its axes down in the [`order`](StageOrder) it holds, the
+///   innermost one carrying its lines.
+/// - A gathered operand stages only into a [`Strided`](StageStorage::Strided) storage in the
+///   source's order.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageStorage {
     /// Shared memory grouped into `block`-sized tiles, one edge per dimension of the operation.
     Tiled {
+        /// The edge of a block along each dimension, read by its dimension (a Keyed Usage).
         block: Vec<(Dimension, usize)>,
         chunks: RowChunks,
+        order: StageOrder,
     },
-    Strided,
+    /// Shared memory as one dense block.
+    Strided { order: StageOrder },
     /// The plane's units, one line per unit.
-    Lines {
-        read: UnitRead,
-    },
+    Lines { read: UnitRead },
+}
+
+/// The order in which a shared-memory stage lays its axes down.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum StageOrder {
+    /// The order of the stage's Space, as the source holds it: its last dimension innermost.
+    AsSource,
 }
 
 /// How a [`Tiled`](StageStorage::Tiled) block lays each row down, in 16-byte chunks.
@@ -70,15 +85,30 @@ pub enum UnitRead {
 }
 
 impl StageStorage {
+    /// One dense block of shared memory in the source's order.
+    pub const STRIDED: Self = StageStorage::Strided {
+        order: StageOrder::AsSource,
+    };
+
     /// This storage as a stage read by `instruction` and written by `delivery` lays its cells
     /// out: a tiled stage's rows arranged as both can use (`RowChunks::read_by`); any other
     /// storage as it is. What a host that names its instruction asks; one that names its Step
     /// asks the Step ([`ProductStep::stage_storage`](crate::ProductStep::stage_storage)).
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage keeps its kind, its block and its order: only a tiled stage's row chunks
+    ///   change.
     pub fn read_by(self, instruction: Instruction, delivery: Delivery) -> Self {
         match self {
-            Self::Tiled { block, chunks } => Self::Tiled {
+            Self::Tiled {
+                block,
+                chunks,
+                order,
+            } => Self::Tiled {
                 block,
                 chunks: chunks.read_by(instruction, delivery),
+                order,
             },
             other => other,
         }
@@ -89,12 +119,23 @@ impl StageStorage {
     /// `elem_bits` bits, which a line holds whole bytes of (a packed operand's line is its words).
     /// What the launch builds the descriptor with, and what the stage fill holds the stage to.
     ///
+    /// # Assumptions
+    ///
+    /// - A line of `vector_size` values of `elem_bits` bits is whole bytes.
+    /// - The storage is in shared memory, and a tiled storage's block states an edge for every
+    ///   dimension of `space` that divides its extent.
+    ///
     /// # Errors
     ///
     /// Blocks splitting a row, which a box lands whole; blocks stacking a number of rows the
     /// swizzle's period of rows does not divide, whose rows a box keys off their place in the
     /// stage rather than in the block; padded rows, which a box lands dense, and swizzled rows
     /// longer than a descriptor swizzle spans.
+    ///
+    /// # Panics
+    ///
+    /// - Where a line is not whole bytes, or the storage is not shared memory, or a block lacks
+    ///   or does not divide an edge.
     pub fn tma_swizzle(
         &self,
         space: &Space,
@@ -103,8 +144,8 @@ impl StageStorage {
     ) -> Result<TensorMapSwizzle, Decline> {
         assert!(
             (vector_size * elem_bits).is_multiple_of(8),
-            "StageStorage::tma_swizzle: a line of {vector_size} {elem_bits}-bit values is not whole \
-             bytes"
+            "StageStorage::tma_swizzle: a line of {vector_size} {elem_bits}-bit values should be \
+             whole bytes"
         );
         let form = StageForm::dense(
             space,
@@ -124,7 +165,7 @@ impl StageStorage {
             TensorMapSwizzle::None => 1,
             _ => ChunkSwizzle::ROWS_PER_PERIOD,
         };
-        for block in self.nesting(space) {
+        for block in self.nesting(space).iter() {
             let rows = match rank > span {
                 true => block.extent_at(rank - 1 - span),
                 false => 1,
@@ -142,44 +183,63 @@ impl StageStorage {
     }
 
     /// Bytes a stage over `space` holds laid out this way, its lines `vector_size` values of
-    /// `elem_bits` bits, which a line holds whole bytes of: every line of its cells, and the
-    /// padding after each row. [`Stages::smem`](crate::Stages::smem) allocates it once, rounding each
-    /// plane's copy up to the stage alignment where planes own one each.
+    /// `elem_bits` bits, which a line holds whole bytes of. [`Stages::smem`](crate::Stages::smem)
+    /// allocates it once, rounding each plane's copy up to the stage alignment where planes own
+    /// one each.
+    ///
+    /// # Assumptions
+    ///
+    /// - The storage is in shared memory, and a tiled storage's block states an edge for every
+    ///   dimension of `space` that divides its extent.
+    ///
+    /// # Guarantees
+    ///
+    /// - The bytes cover every line of the block in its physical order, and the padding after
+    ///   each of its rows.
+    ///
+    /// # Panics
+    ///
+    /// - Where the storage is not shared memory, or a block lacks or does not divide an edge.
     pub fn bytes(&self, space: &Space, vector_size: usize, elem_bits: usize) -> usize {
         let line = vector_size * elem_bits / 8;
         StageForm::dense_cells(space, vector_size, self, LineBytes(line)) * line
     }
+}
 
-    /// The storage-tiling nesting a stage over `space` gets, coarse to fine; empty is row-major.
-    pub(crate) fn nesting(&self, space: &Space) -> Vec<Space> {
+impl StageStorage {
+    /// The storage-tiling block a stage over `space` nests in its grid, `None` where it is one
+    /// row-major block.
+    pub(crate) fn nesting(&self, space: &Space) -> Option<Space> {
         match self {
             StageStorage::Lines { .. } => {
-                panic!("StageStorage::Lines: the plane's units are not shared memory")
+                panic!(
+                    "StageStorage::Lines: the plane's units should not be laid out as shared memory"
+                )
             }
-            StageStorage::Tiled { block, .. } => {
-                let nested = Space::new(
-                    &space
-                        .dimensions()
-                        .map(|dimension| {
-                            let edge = block
-                                .iter()
-                                .find(|&&(a, _)| a == dimension)
-                                .unwrap_or_else(|| {
-                                    panic!(
-                                        "StageStorage::Tiled: the block states no edge for {dimension:?}"
-                                    )
-                                })
-                                .1;
-                            (dimension, edge)
-                        })
-                        .collect::<Vec<_>>(),
-                );
-                if &nested == space {
-                    return Vec::new();
-                }
-                vec![nested]
-            }
-            StageStorage::Strided => Vec::new(),
+            StageStorage::Tiled { block, .. } => block_space(block, space),
+            StageStorage::Strided { .. } => None,
         }
     }
+}
+
+/// The block of edges `block` over `space`, `None` where it covers the whole of `space`.
+fn block_space(block: &[(Dimension, usize)], space: &Space) -> Option<Space> {
+    let nested = Space::new(
+        &space
+            .dimensions()
+            .map(|dimension| {
+                let edge = block
+                    .iter()
+                    .find(|&&(a, _)| a == dimension)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "StageStorage::Tiled: the block should state an edge for {dimension:?}"
+                        )
+                    })
+                    .1;
+                (dimension, edge)
+            })
+            .collect::<Vec<_>>(),
+    );
+    (&nested != space).then_some(nested)
 }

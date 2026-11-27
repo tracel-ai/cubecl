@@ -116,7 +116,8 @@ impl Tile {
         });
         let fragment = match acc {
             PlaneTile::Cmma(_) => {
-                let read = comptime!(FragmentRead::new(side, &own, out));
+                let order = self.stage_order();
+                let read = comptime!(FragmentRead::new(side, &own, out, order));
                 let fragment = self.cmma_fragment::<T>(ident, read.clone());
                 PlaneTile::new_Cmma(CmmaData {
                     fragment: unsafe { fragment.downcast_unchecked::<Held>() },

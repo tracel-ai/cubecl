@@ -281,9 +281,9 @@ impl Meeting {
         match self {
             Meeting::Barrier { full, elected, .. } => match (&mut dst.kind, &src.kind) {
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => {
-                    d.issue_box::<Served>(s, full, *elected)
+                    issue_box::<Served>(d, s, full, *elected)
                 }
-                (TileKind::Memory(d), TileKind::Memory(s)) => d.fill_from::<Served>(s, space),
+                (TileKind::Memory(d), TileKind::Memory(s)) => fill_from::<Served>(d, s, space),
                 (TileKind::Memory(d), TileKind::Procedural(s)) => {
                     d.fill_procedural::<Served>(s, space)
                 }

@@ -48,7 +48,7 @@ fn tiled_packed_stage(
     let values = values.tile(&space);
     let scales = scales.tile(&space);
     let mut output = output.tile_mut(&space);
-    let mut stage = values.stage(level, StageStorage::Strided);
+    let mut stage = values.stage(level, StageStorage::STRIDED);
     stage.copy_from(&values);
     sync_cube();
     output.dequantize_from(&stage.mul(&scales));

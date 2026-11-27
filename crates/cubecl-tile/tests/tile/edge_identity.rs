@@ -45,7 +45,7 @@ fn staged_copy_past_edge_kernel(
 ) {
     let x = input.tile(&space);
     let o = out.tile_mut(&space);
-    let mut stage = x.stage(level.clone(), StageStorage::Strided);
+    let mut stage = x.stage(level.clone(), StageStorage::STRIDED);
     for region in space.over(&level) {
         stage.copy_from(&x.at(&region));
         sync_cube();

@@ -2,8 +2,9 @@
 
 use cubecl::{
     cmma::{self, Matrix, MatrixIdent, MatrixLayout},
-    ir::{ElemType, FloatKind},
+    ir::{ElemType, FloatKind, Scope},
     prelude::*,
+    unexpanded,
 };
 
 use crate::*;
@@ -130,12 +131,21 @@ impl CmmaData {
         scales: &mut CellScales,
         #[comptime] origin: (usize, usize),
     ) {
-        self.spill_to_scratch::<T>();
-        sync_plane();
+        self.bounced::<T>(|| self.scale_spilled::<T>(scales, origin));
+    }
+
+    /// Each of this fragment's spilled cells under its `scales`, the fragment's first cell at
+    /// `origin` of the sum's window, the plane's units taking them in turns. The caller owns the
+    /// barriers.
+    fn scale_spilled<T: Numeric>(
+        &self,
+        scales: &mut CellScales,
+        #[comptime] origin: (usize, usize),
+    ) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        let mut nth = UNIT_POS_PLANE as usize;
-        while nth < m * n {
+        let (first, stride) = plane_turns();
+        for nth in range_stepped(first, m * n, stride) {
             let mut cells = Sequence::<HeldCell>::new();
             cells.push(HeldCell {
                 row: (nth / n) as u32 + comptime!(origin.0 as u32),
@@ -144,11 +154,7 @@ impl CmmaData {
             });
             let cell = Vector::<T, Const<1>>::cast_from(scratch[nth]);
             scratch[nth] = scales.applied::<T, Const<1>>(cell, &cells).extract(0usize);
-            nth += PLANE_DIM as usize;
         }
-        sync_plane();
-        self.reload_from_scratch::<T>();
-        sync_plane();
     }
 
     /// `self[i, :] *= factors[first + i]` for every slice `i` along the fragment's columns,
@@ -156,12 +162,7 @@ impl CmmaData {
     /// turns, and reloaded, each step met on `sync_plane`. The slot is the plane's own, so no
     /// other plane waits; every unit of the plane calls it.
     pub(crate) fn mul_along<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
-        self.spill_to_scratch::<T>();
-        sync_plane();
-        self.mul_spilled(factors, first);
-        sync_plane();
-        self.reload_from_scratch::<T>();
-        sync_plane();
+        self.bounced::<T>(|| self.mul_spilled(factors, first));
     }
 
     /// `slot[i, :] *= factors[first + i]` over this fragment's spilled cells, the plane's units
@@ -169,10 +170,9 @@ impl CmmaData {
     pub(crate) fn mul_spilled<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        let mut cell = UNIT_POS_PLANE as usize;
-        while cell < m * n {
+        let (start, stride) = plane_turns();
+        for cell in range_stepped(start, m * n, stride) {
             scratch[cell] *= factors[first + cell / n];
-            cell += PLANE_DIM as usize;
         }
     }
 
@@ -188,7 +188,12 @@ impl CmmaData {
         self.store_scratch(&self.scratch_slot::<T>());
     }
 
-    /// Write this fragment's spilled cells into `mem` through the store's own write.
+    /// Write this fragment's spilled cells into `mem` through the store's own write
+    /// ([`cell_sink`]), the plane's units taking its lines in turns ([`plane_turns`]).
+    ///
+    /// # Panics
+    ///
+    /// - Where the store's lines do not divide the fragment's columns.
     pub(crate) fn add_from_scratch<T: Numeric, Out: Numeric>(
         &self,
         mem: &mut Memory,
@@ -199,17 +204,15 @@ impl CmmaData {
         let width = comptime!(mem.store.vector_size);
         comptime!(assert!(
             n.is_multiple_of(width),
-            "CmmaData::add_from_scratch: the store's lines ({width}) do not divide the \
+            "CmmaData::add_from_scratch: the store's lines ({width}) should divide the \
              fragment's columns ({n})"
         ));
         let size!(W) = width;
         let lines_per_row = n / width;
         let lines = m * lines_per_row;
-        let dimensions = comptime!(MatrixDimensions::trailing(space));
-        let mut sink = mem.matrix_mut::<Out, W>(0usize, dimensions, space);
-        let plane_units = PLANE_DIM as usize;
-        let mut line = UNIT_POS_PLANE as usize;
-        while line < lines {
+        let mut sink = cell_sink::<Out, W>(mem, space);
+        let (first, stride) = plane_turns();
+        for line in range_stepped(first, lines, stride) {
             let mut value = Vector::<Out, W>::empty();
             #[unroll]
             for e in 0..width {
@@ -219,7 +222,6 @@ impl CmmaData {
                 ((line / lines_per_row) as u32, (line % lines_per_row) as u32),
                 value,
             );
-            line += plane_units;
         }
     }
 
@@ -265,6 +267,32 @@ impl CmmaData {
             stride,
             comptime!(self.layout),
         )
+    }
+}
+
+impl CmmaData {
+    /// Runs `work` on this fragment's cells spilled into its slot of the plane's scratch, then
+    /// reloads it, each step met on `sync_plane`: the slot is the plane's own, so no other plane
+    /// waits, and every unit of the plane calls it.
+    // `T` is read by the expansion, which spills and reloads the fragment at it.
+    #[allow(clippy::extra_unused_type_parameters)]
+    pub(crate) fn bounced<T: Numeric>(&self, _work: impl FnOnce()) {
+        unexpanded!()
+    }
+}
+
+impl CmmaDataExpand {
+    pub(crate) fn __expand_bounced_method<T: Numeric>(
+        &self,
+        scope: &Scope,
+        work: impl FnOnce(&Scope),
+    ) {
+        self.__expand_spill_to_scratch_method::<T>(scope);
+        sync_plane::expand(scope);
+        work(scope);
+        sync_plane::expand(scope);
+        self.__expand_reload_from_scratch_method::<T>(scope);
+        sync_plane::expand(scope);
     }
 }
 
@@ -384,9 +412,13 @@ mod fragment_drain_tests {
     }
 
     #[test]
-    fn an_overhanging_or_summing_window_bounces() {
+    fn an_overhanging_window_bounces() {
         let masked = FragmentDrain::of(&access(Write::Replace, Overhang::Masked), true, true);
         assert_eq!(masked, FragmentDrain::Bounce);
+    }
+
+    #[test]
+    fn a_summing_window_bounces() {
         for overhang in [Overhang::Never, Overhang::Fits, Overhang::Masked] {
             for write in [Write::Accumulate, Write::Exclusive(Schedule::Sequential)] {
                 assert_eq!(

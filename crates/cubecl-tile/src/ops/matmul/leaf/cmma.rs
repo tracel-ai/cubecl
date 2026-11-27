@@ -18,8 +18,9 @@ impl CmmaData {
         rhs: &Tile,
         #[comptime] out: &Space,
     ) {
-        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, out));
-        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, out));
+        let (a_order, b_order) = (lhs.stage_order(), rhs.stage_order());
+        let a_read = comptime!(FragmentRead::new(Side::Lhs, &lhs.place.space, out, a_order));
+        let b_read = comptime!(FragmentRead::new(Side::Rhs, &rhs.place.space, out, b_order));
         cmma::execute(
             &lhs.cmma_fragment::<EL>(MatrixIdent::A, a_read),
             &rhs.cmma_fragment::<ER>(MatrixIdent::B, b_read),
@@ -40,26 +41,35 @@ impl Tile {
     ) -> Matrix<E> {
         match &self.kind {
             TileKind::PlaneTile(tile) => match tile {
-                PlaneTile::Cmma(fragment) => {
-                    self.refuse_factor("PlaneTile::Mma");
-                    fragment.fragment.downcast::<E>()
-                }
+                PlaneTile::Cmma(fragment) => self.held_fragment::<E>(fragment),
                 PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                    panic!("Tile::cmma_fragment: a held operand must be a cmma fragment")
+                    panic!("Tile::cmma_fragment: a held operand should be a cmma fragment")
                 }
             },
             TileKind::Memory(_)
             | TileKind::PlanePartition(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => {
-                let mut fragment = unsafe {
-                    Matrix::<E>::uninitialized(ident, read.m, read.n, read.k, read.layout)
-                };
-                self.load(&mut fragment, comptime!(read));
-                fragment
-            }
+            | TileKind::Lines(_) => self.loaded_fragment::<E>(ident, read),
         }
+    }
+
+    /// The fragment this factor holds, which carries no scale.
+    fn held_fragment<E: Numeric>(&self, fragment: &CmmaData) -> Matrix<E> {
+        self.refuse_factor("PlaneTile::Mma");
+        fragment.fragment.downcast::<E>()
+    }
+
+    /// A new `ident` fragment holding this factor's window, loaded as `read` says.
+    fn loaded_fragment<E: Numeric>(
+        &self,
+        #[comptime] ident: MatrixIdent,
+        #[comptime] read: FragmentRead,
+    ) -> Matrix<E> {
+        let mut fragment =
+            unsafe { Matrix::<E>::uninitialized(ident, read.m, read.n, read.k, read.layout) };
+        self.load(&mut fragment, read);
+        fragment
     }
 }
 
@@ -70,24 +80,27 @@ pub(crate) struct FragmentRead {
     pub m: usize,
     pub n: usize,
     pub k: usize,
-    /// The window's layout, read off its trailing dimension.
+    /// The window's layout, read off its innermost physical dimension.
     pub layout: MatrixLayout,
     /// What this factor's scales are checked against.
     pub side: Side,
     pub out: Space,
+    /// The order the window lays its dimensions down in.
+    pub order: StageOrder,
 }
 
 impl FragmentRead {
-    /// How the `side` factor spanning `own` is read for a contraction into `out`, from it alone.
-    pub(crate) fn new(side: Side, own: &Space, out: &Space) -> Self {
+    /// How the `side` factor spanning `own`, laid down in `order`, is read for a contraction into
+    /// `out`, from it alone.
+    pub(crate) fn new(side: Side, own: &Space, out: &Space, order: StageOrder) -> Self {
         let acc_dimensions = accumulator_dimensions(side, out, own);
         let m = acc_dimensions.rows(out);
         let n = acc_dimensions.cols(out);
         // A split contraction is one `k` edge.
         let k = own.contracted_extent(out);
-        // Whether the window's trailing dimension is one of the output's, its rows for the lhs and
+        // Whether the window's innermost dimension is one of the output's, its rows for the lhs and
         // its columns for the rhs, or the contracted one: a window is read as it is laid out.
-        let trailing_kept = out.contains(own.dimension_at(own.rank() - 1));
+        let (trailing_kept, _) = innermost_run(own, out, order);
         let layout = match (side, trailing_kept) {
             (Side::Lhs, false) | (Side::Rhs, true) => MatrixLayout::RowMajor,
             (Side::Lhs, true) | (Side::Rhs, false) => MatrixLayout::ColMajor,
@@ -99,8 +112,32 @@ impl FragmentRead {
             layout,
             side,
             out: out.clone(),
+            order,
         }
     }
+}
+
+/// Where `window`'s innermost run lies against `out`, the window laid down in `order`: whether
+/// its innermost dimension is one of `out`'s, and the position of the last dimension on the
+/// other side, `None` where every dimension lies on the innermost's side.
+fn innermost_run(window: &Space, out: &Space, order: StageOrder) -> (bool, Option<usize>) {
+    match order {
+        StageOrder::AsSource => innermost_run_in_space_order(window, out),
+    }
+}
+
+/// [`innermost_run`] of a window laid down in its Space's order, its last dimension innermost.
+fn innermost_run_in_space_order(window: &Space, out: &Space) -> (bool, Option<usize>) {
+    let rank = window.rank();
+    let kept = |p: usize| out.contains(window.dimension_at(p));
+    let innermost = kept(rank - 1);
+    (innermost, (0..rank).rev().find(|&p| kept(p) != innermost))
+}
+
+/// Whether a factor reaches its fragment through its plane's landing rather than as it lies: a
+/// scaled factor, one packed other than as stored, or one outside shared memory.
+fn loads_through_landing(scaled: bool, as_stored: bool, shared: bool) -> bool {
+    scaled || !as_stored || !shared
 }
 
 #[cube]
@@ -112,34 +149,38 @@ impl Tile {
         let scaled = self.quantized();
         let packing = self.packing();
         let shared = self.is_shared();
-        if comptime!(scaled || !packing.as_stored() || !shared) {
-            let landing = self.landed::<E>(read.side, &read.out);
-            landing.load_into(frag, &read.out);
-            // The landing is this region's until every unit's load has read it.
-            sync_plane();
+        if comptime!(loads_through_landing(scaled, packing.as_stored(), shared)) {
+            self.load_landed::<E>(frag, read.clone());
         } else {
-            // A row is every dimension past the last one on the other side of the output, which a
-            // window of several dimensions a side holds as one run: its stride is that dimension's.
-            let row = comptime!({
-                let space = &self.place.space;
-                let rank = space.rank();
-                let innermost = read.out.contains(space.dimension_at(rank - 1));
-                (0..rank)
-                    .rev()
-                    .find(|&p| read.out.contains(space.dimension_at(p)) != innermost)
-                    .unwrap_or(rank - 2)
-            });
-            match &self.kind {
-                TileKind::Memory(m) => {
-                    cmma::load(frag, m.window_slice::<E>(), m.row_stride_at(row))
-                }
-                TileKind::PlaneTile(_)
-                | TileKind::PlanePartition(_)
-                | TileKind::TmaGmem(_)
-                | TileKind::Procedural(_)
-                | TileKind::Lines(_) => {
-                    panic!("mma: an operand reaches a fragment from a memory window")
-                }
+            self.load_in_place::<E>(frag, read.clone());
+        }
+    }
+
+    /// This factor read into `frag` through its plane's landing.
+    fn load_landed<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] read: FragmentRead) {
+        let landing = self.landed::<E>(read.side, &read.out);
+        landing.load_into(frag, &read.out);
+        // The landing is this region's until every unit's load has read it.
+        sync_plane();
+    }
+
+    /// This factor's shared, plain window read into `frag` as it lies.
+    fn load_in_place<E: Numeric>(&self, frag: &mut Matrix<E>, #[comptime] read: FragmentRead) {
+        // A row is every dimension past the last one on the other side of the output, which a
+        // window of several dimensions a side holds as one run: its stride is that dimension's.
+        let row = comptime!({
+            let space = &self.place.space;
+            let (_, other_side) = innermost_run(space, &read.out, read.order);
+            other_side.unwrap_or(space.rank() - 2)
+        });
+        match &self.kind {
+            TileKind::Memory(m) => cmma::load(frag, m.window_slice::<E>(), m.row_stride_at(row)),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => {
+                panic!("mma: an operand should reach a fragment from a memory window")
             }
         }
     }
@@ -255,13 +296,11 @@ impl Tile {
 }
 
 /// The column count of a landed window's matrix: the trailing dimensions on the innermost
-/// dimension's side of the contraction.
+/// dimension's side of the contraction. A landing is laid down in its Space's order.
 fn landed_cols(window: &Space, out: &Space) -> usize {
-    let rank = window.rank();
-    let innermost = out.contains(window.dimension_at(rank - 1));
-    (0..rank)
-        .rev()
-        .take_while(|&p| out.contains(window.dimension_at(p)) == innermost)
+    let (_, other_side) = innermost_run(window, out, StageOrder::AsSource);
+    let first = other_side.map_or(0, |p| p + 1);
+    (first..window.rank())
         .map(|p| window.extent_at(p))
         .product()
 }
@@ -291,6 +330,81 @@ fn dense_strides(space: &Space) -> Vec<usize> {
         strides[p] = below;
     }
     strides
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const M: Dimension = Dimension(0);
+    const N: Dimension = Dimension(1);
+    const K: Dimension = Dimension(2);
+
+    fn out() -> Space {
+        Space::new(&[(M, 16), (N, 16)])
+    }
+
+    /// A window whose innermost dimension is the contracted one reads its lhs row-major and its
+    /// rhs column-major.
+    #[test]
+    fn a_window_contracted_innermost_reads_lhs_by_rows_and_rhs_by_columns() {
+        let lhs = Space::new(&[(M, 16), (K, 16)]);
+        let rhs = Space::new(&[(N, 16), (K, 16)]);
+        let order = StageOrder::AsSource;
+        let lhs_read = FragmentRead::new(Side::Lhs, &lhs, &out(), order);
+        let rhs_read = FragmentRead::new(Side::Rhs, &rhs, &out(), order);
+        assert_eq!(lhs_read.layout, MatrixLayout::RowMajor);
+        assert_eq!(rhs_read.layout, MatrixLayout::ColMajor);
+    }
+
+    /// A window whose innermost dimension is one of the output's reads its lhs column-major and
+    /// its rhs row-major.
+    #[test]
+    fn a_window_kept_innermost_reads_lhs_by_columns_and_rhs_by_rows() {
+        let lhs = Space::new(&[(K, 16), (M, 16)]);
+        let rhs = Space::new(&[(K, 16), (N, 16)]);
+        let order = StageOrder::AsSource;
+        let lhs_read = FragmentRead::new(Side::Lhs, &lhs, &out(), order);
+        let rhs_read = FragmentRead::new(Side::Rhs, &rhs, &out(), order);
+        assert_eq!(lhs_read.layout, MatrixLayout::ColMajor);
+        assert_eq!(rhs_read.layout, MatrixLayout::RowMajor);
+    }
+
+    /// The run sharing the innermost dimension's side stops at the last dimension on the other
+    /// side: a split column group is one run.
+    #[test]
+    fn the_innermost_run_stops_at_the_other_side() {
+        let (n0, n1) = (Dimension(3), Dimension(4));
+        let out = Space::new(&[(M, 16), (n0, 2), (n1, 8)]);
+        let rhs = Space::new(&[(K, 16), (n0, 2), (n1, 8)]);
+        assert_eq!(
+            innermost_run(&rhs, &out, StageOrder::AsSource),
+            (true, Some(0))
+        );
+        assert_eq!(landed_cols(&rhs, &out), 16);
+    }
+
+    /// A window lying wholly on one side has no dimension on the other, and its whole extent is
+    /// one run.
+    #[test]
+    fn a_window_on_one_side_is_one_run() {
+        let rhs = Space::new(&[(N, 4), (Dimension(3), 4)]);
+        let out = Space::new(&[(M, 16), (N, 4), (Dimension(3), 4)]);
+        assert_eq!(
+            innermost_run(&rhs, &out, StageOrder::AsSource),
+            (true, None)
+        );
+        assert_eq!(landed_cols(&rhs, &out), 16);
+    }
+
+    /// A scaled, repacked or global factor lands first; a plain shared one loads as it lies.
+    #[test]
+    fn only_a_plain_shared_factor_loads_as_it_lies() {
+        assert!(!loads_through_landing(false, true, true));
+        assert!(loads_through_landing(true, true, true));
+        assert!(loads_through_landing(false, false, true));
+        assert!(loads_through_landing(false, true, false));
+    }
 }
 
 /// The scalar offset of `coords` under `strides`.
