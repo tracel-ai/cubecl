@@ -544,7 +544,13 @@ mod shared {
                     // Compute is emitted once, after the fill branch, keeping its accumulator live.
                     if_else_expand(scope, prefetching, |scope| {
                         let prefetch = walk.__expand_region_method(scope, ahead);
-                        fill(scope, stages, (j + depth - 1) % depth, &prefetch, Reach::Walked);
+                        fill(
+                            scope,
+                            stages,
+                            (j + depth - 1) % depth,
+                            &prefetch,
+                            Reach::Walked,
+                        );
                     })
                     .or_else(scope, |scope| {
                         // Draining: no fill follows, so this consume publishes.

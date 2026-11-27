@@ -476,8 +476,7 @@ impl Stages<OperandPair> {
         sources: &OperandPair,
         region: &Region,
     ) {
-        let (mut lhs, mut rhs, mut lhs_scales, mut rhs_scales) =
-            self.fetch_buffers::<Lhs, Rhs>();
+        let (mut lhs, mut rhs, mut lhs_scales, mut rhs_scales) = self.fetch_buffers::<Lhs, Rhs>();
         self.fetch::<Lhs, Rhs>(
             slot,
             sources,
@@ -493,15 +492,7 @@ impl Stages<OperandPair> {
         schedule_barrier();
         self.slot_mut(slot).meeting.acquire_write();
         schedule_barrier();
-        self.store::<Lhs, Rhs>(
-            slot,
-            sources,
-            region,
-            &lhs,
-            &rhs,
-            &lhs_scales,
-            &rhs_scales,
-        );
+        self.store::<Lhs, Rhs>(slot, sources, region, &lhs, &rhs, &lhs_scales, &rhs_scales);
         self.slot_mut(slot).meeting.release_write();
     }
 }
