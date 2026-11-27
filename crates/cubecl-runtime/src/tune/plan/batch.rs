@@ -4,8 +4,7 @@ use cubecl_environment::collections::HashMap;
 use crate::tune::plan::group::{GroupId, Patience};
 use crate::tune::plan::planner::PlannedTunable;
 
-/// One batch of a [`TunePlanner`](crate::tune::plan::planner::TunePlanner)'s plan: the tunables
-/// to benchmark, and the [`Patience`] of each group that brought one in.
+/// One batch of a [`TunePlanner`](crate::tune::plan::planner::TunePlanner)'s plan.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     /// The tunables in the order they are benchmarked (Arrival Usage), each found by its slot
@@ -16,8 +15,7 @@ pub struct Batch {
     pub patience: HashMap<GroupId, Patience>,
 }
 
-/// One tunable of a [`Batch`], with every group that brought it into the batch. An ungrouped
-/// tunable has none.
+/// One tunable of a [`Batch`]. An ungrouped tunable has no group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchEntry {
     pub index: usize,

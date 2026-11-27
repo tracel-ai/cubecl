@@ -4,9 +4,9 @@ use core::any::{Any, TypeId};
 use core::hash::Hash;
 use cubecl_environment::collections::HashMap;
 
-/// Initializes the tunable sets of a [`LocalTuner`](crate::tune::LocalTuner), once per initializer and
-/// device: a set is built from the device it will run on — its client, its hardware properties —
-/// so one device's set cannot answer for another's.
+/// Initializes the tunable sets of a [`LocalTuner`](crate::tune::LocalTuner). Keyed by device as
+/// well as initializer: a set is built from the device it will run on — its client, its hardware
+/// properties — so one device's set cannot answer for another's.
 pub struct SetInitializer<ID> {
     /// Every set built, by the type of its initializer and its device (Keyed Usage), made on the
     /// first one.

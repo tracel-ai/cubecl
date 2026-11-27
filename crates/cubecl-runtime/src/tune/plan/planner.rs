@@ -59,8 +59,7 @@ impl PlannedTunable {
         self.index == other.index && self.group == other.group
     }
 
-    /// The order a level holds its tunables in: highest priority first, registration order among
-    /// equals.
+    /// The key a level is kept sorted by.
     fn rank(&self) -> (Reverse<i8>, usize) {
         (Reverse(self.priority), self.index)
     }
@@ -259,10 +258,8 @@ impl TunePlanner {
     }
 }
 
-/// The plan of each group priority of `priced`.
-///
-/// An ordered group is one batch at its best member's level, so a cutoff group at the same group
-/// priority interleaves with it by priority.
+/// The plan of each group priority of `priced`, an ordered group as one level at its best
+/// member's priority.
 fn group_plans<K>(priced: &[PricedMembership<'_, K>]) -> BTreeMap<i8, GroupPlan> {
     let mut ordered_levels = HashMap::<GroupId, i8>::new();
     for member in priced

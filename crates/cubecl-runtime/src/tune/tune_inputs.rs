@@ -6,12 +6,8 @@
 /// lifetime-parameterized `At` works here: the set is `'static`, but every
 /// tunable function accepts `Self::At<'a>` for any `'a` via HRTB.
 ///
-/// Implementing it manually is needed when the inputs are genuinely borrowed. Example:
-/// burn's fusion autotune passes `TuneInput<'a, R, O>` (which wraps `&'a mut Context`)
-/// by defining a `FusionTuneInputs<R, O>` marker with
-/// `At<'a> = TuneInput<'a, R, O>`. Such a marker must not implement `Clone`, otherwise
-/// it would overlap with the blanket impl below. Owned inputs, through that blanket
-/// implementation, have a clone for a spare.
+/// Inputs that borrow implement it on a marker type of their own, which must not implement
+/// `Clone`: owned inputs implement it through a blanket implementation, with a clone for a spare.
 ///
 /// # Guarantees
 ///

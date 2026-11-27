@@ -14,9 +14,9 @@ use core::any::Any;
 ///
 /// # Assumptions
 ///
-/// - Every stage is entered where the set's
-///   [`TuneDeviceAccess`](crate::tune::TuneDeviceAccess) holds the tuned device, on the thread
-///   that runs the candidates.
+/// - Every stage is entered inside the hold the set's
+///   [`TuneDeviceAccess`](crate::tune::TuneDeviceAccess) takes, on the thread that runs the
+///   candidates: the calling thread under `Shared`, which never holds.
 ///
 /// # Guarantees
 ///

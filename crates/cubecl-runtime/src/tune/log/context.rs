@@ -10,14 +10,13 @@ use core::time::Duration;
 #[derive(Debug, Clone)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
-    /// Tracks a tunable kernel that was executed during autotuning.
+    /// A candidate ran, compiling and benchmarking, for the duration.
     TuningStep(String, Duration),
-    /// A short circuit event where autotuning stopped early because this candidate
-    /// achieved sufficient throughput.
+    /// The candidate ended the tune under the time limit.
     ShortCircuit(String),
 }
 
-/// The context containing bounds, limits, and events that happened during autotuning.
+/// What one tune logged.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneLogContext {
@@ -61,11 +60,12 @@ pub struct AutotuneDecision<'a, K: Clone> {
     pub decided_index: usize,
     /// Its median time, `None` where it was decided with nothing measured.
     pub decided_time: Option<Duration>,
-    /// Every candidate's result, ranked as the table stores them.
+    /// Every candidate's result, ranked as the table stores them (Arrival Usage).
     pub results: Cow<'a, [AutotuneResult]>,
     /// What the tune logged, when something read it.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
-    /// The context's [checks](AutotuneLogContext::checks), written beside it.
+    /// The context's [checks](AutotuneLogContext::checks), written beside it, in its order
+    /// (Arrival Usage).
     pub checks: Option<Cow<'a, [CheckResult]>>,
 }
 

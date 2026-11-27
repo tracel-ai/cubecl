@@ -10,8 +10,7 @@ use crate::throughput::ResourceBound;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct Bounds {
-    /// Every resource the problem moves, each against its peak: read whole for the slowest
-    /// (Arrival Usage).
+    /// Every resource the problem moves, each against its peak: read whole for the slowest.
     pub bounds: Vec<AutotuneBound>,
     /// What a launch costs beside the work, added to the time limit.
     pub launch_overhead: Duration,
@@ -20,8 +19,8 @@ pub struct Bounds {
 // Sound because [`AutotuneBound`] compares its floats bitwise, so equality stays reflexive.
 impl Eq for Bounds {}
 
-/// A bound for autotuning a throughput kernel: a [`ResourceBound`] plus the
-/// threshold over which the kernel is considered accurate.
+/// One resource of a problem's [`Bounds`]: a [`ResourceBound`] and the fraction of its peak a
+/// candidate has to reach.
 #[derive(Debug, Clone)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {

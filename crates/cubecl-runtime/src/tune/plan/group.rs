@@ -14,7 +14,8 @@ use crate::config::autotune::AutotuneLevel;
 /// # Guarantees
 ///
 /// - A batch of a higher group priority is benchmarked before a batch of a lower one, and once a
-///   batch measured a candidate, no later batch is benchmarked.
+///   candidate of a batch measured without failing, no later batch is benchmarked. On wasm, the
+///   first batch that queues a sample is the last one benchmarked.
 pub struct TuneGroup<K> {
     id: GroupId,
     name: Arc<String>,
@@ -73,14 +74,19 @@ impl OrderedSettings {
 /// nor a miss: it says nothing about how the order is faring.
 ///
 /// Adaptive scheduler only: the fixed-count pass, the only one on wasm, ignores it.
+///
+/// # Guarantees
+///
+/// - One member is always measured, whatever the counts say.
+/// - A [`max_miss_count`](Self::max_miss_count) of zero stops the group at
+///   [`min_measured_count`](Self::min_measured_count), whatever its members measured.
+/// - The adaptive scheduler measures [`min_measured_count`](Self::min_measured_count)
+///   candidates of the batch before the [bounds](crate::tune::Bounds)' time limit may end it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Patience {
-    /// Members measured before the group may stop. One member is always measured. The adaptive
-    /// scheduler also measures this many candidates of the batch before the
-    /// [bounds](crate::tune::Bounds)' time limit may end it.
+    /// Members measured before the group may stop.
     pub min_measured_count: usize,
-    /// Members in a row that miss before the group stops. Zero stops it at
-    /// [`min_measured_count`](Self::min_measured_count), whatever they measured.
+    /// Members in a row that miss before the group stops.
     pub max_miss_count: usize,
 }
 
@@ -119,12 +125,11 @@ impl<K> TuneGroup<K> {
     /// A group whose member priorities order one round rather than cut it off: every member with
     /// a non-negative priority is in the batch, best first.
     ///
-    /// The batch is benchmarked in that order, and the short circuit may end it at the first
-    /// candidate under the [bounds](crate::tune::Bounds)' time limit: on the adaptive scheduler,
-    /// once the batch measured its [`Patience::min_measured_count`]. So the priority decides how
-    /// much of the group is compiled rather than which of it can win. Without a bounds generator,
-    /// or with the short circuit disabled, only the group's patience ends the batch early, and on
-    /// the fixed-count pass, the only one on wasm, nothing does.
+    /// The batch is benchmarked in that order, and natively the short circuit may end it at the
+    /// first candidate under the [bounds](crate::tune::Bounds)' time limit, as its [`Patience`]
+    /// allows: so the priority decides how much of the group is compiled rather than which of it
+    /// can win. Without a bounds generator, with the short circuit disabled, or on wasm, which has
+    /// no short circuit, only the group's patience ends the batch early.
     ///
     /// The batch sits at the priority of its best member, so a cutoff group at the same group
     /// priority interleaves with it by priority.

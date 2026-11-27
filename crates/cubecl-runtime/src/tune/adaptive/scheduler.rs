@@ -30,7 +30,9 @@ pub struct BatchOutcome {
     pub short_circuit: Option<String>,
     pub any_success: bool,
     /// The index the round robin picked, when it produced one. See [`Scheduler::outcome`] for why
-    /// the caller must not re-derive it by comparing the results.
+    /// the caller must not re-derive it by comparing the results. `None` where every survivor
+    /// failed after elimination: the commit then falls back on the best-scored result, an
+    /// eliminated candidate, as the base commit did.
     pub decided: Option<usize>,
     /// The candidates skipped by their groups' patience or not reached before a short circuit, in
     /// batch order (Arrival Usage).
@@ -92,11 +94,8 @@ pub struct ScheduleOptions {
 
 /// Schedules a tune's candidates: round robin benchmarking with early elimination.
 ///
-/// A first pass measures the candidates one at a time in priority order, each with one warmup
-/// and one sample resolved inline, compiling them ahead a window at a time. After each, a group
-/// whose members stop improving on its leader skips the rest of them, and once the batch
-/// measured its groups' minimum, a candidate confirmed under the time limit ends the batch.
-/// After that, every live candidate gets one sample per round and the whole round is resolved
+/// A [first pass](FirstPassPlanner) measures each candidate once, each with one warmup. After
+/// that, every live candidate gets one sample per round and the whole round is resolved
 /// at once: a profile only submits its readback when first polled, so resolving per sample would
 /// serialize a device round trip per measurement, which for short kernels costs more than the
 /// samples it saves.
@@ -294,10 +293,9 @@ impl<'i> Scheduler<'i> {
         self.outcome(candidates, confirmed)
     }
 
-    /// The first pass: one warmup and one sample each, resolved inline so the batch can stop
-    /// before the remaining kernels are ever compiled. This is the one place where paying a
-    /// device round trip per sample is worth it. Answers the slot of the candidate a short circuit
-    /// confirmed, if one did.
+    /// The [first pass](FirstPassPlanner), its samples resolved inline so the batch can stop
+    /// before the remaining kernels compile: the one place where paying a device round trip per
+    /// sample is worth it. Answers the slot of the candidate a short circuit confirmed, if one did.
     async fn first_pass_all<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         planner: &mut FirstPassPlanner,
@@ -425,13 +423,11 @@ impl<'i> Scheduler<'i> {
 
     /// How many of a batch of `len` candidates the first pass compiles together when the next
     /// one to measure is not compiled yet. Where the round may stop early, `patient` or bounded by
-    /// a time limit, its first window holds as many as compile at once, so a round that stops
-    /// there compiles at most one window it never measures. A `patient` batch, whose groups may
-    /// skip the rest of their members, keeps to that window, so a pass its patience ends compiles
-    /// at most one window it never measures too. Elsewhere the rest of the batch compiles at once:
-    /// a bounded round its first window did not end rarely ends on the next, and window after
-    /// window would wait on each window's slowest kernel, then on its measurements, with the
-    /// compiler idle. Either way the windows decide when kernels compile, never which are measured.
+    /// a time limit, its first window holds as many as compile at once. A `patient` batch, whose
+    /// groups may skip the rest of their members, keeps to that window. Elsewhere the rest of the
+    /// batch compiles at once: a bounded round its first window did not end rarely ends on the
+    /// next, and window after window would wait on each window's slowest kernel, then on its
+    /// measurements, with the compiler idle.
     fn compile_windows(&self, len: usize, patient: bool) -> CompileWindows {
         let bounded = self.options.short_circuit_limit.is_some();
         CompileWindows {
@@ -540,8 +536,8 @@ impl<'i> Scheduler<'i> {
         sampler.sample_once(operation, inputs.clone(), self.evictor.as_deref_mut())
     }
 
-    /// The later rounds, each resolved whole. Answers the slot of the candidate a short circuit
-    /// confirmed, if one did.
+    /// The later rounds, each resolved whole, answering as
+    /// [`first_pass_all`](Self::first_pass_all) does.
     async fn sample_rounds<'a, F: TuneInputs, Out: AutotuneCheckable>(
         &mut self,
         candidates: &mut [CandidateTracker],

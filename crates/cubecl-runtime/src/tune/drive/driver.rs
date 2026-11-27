@@ -154,9 +154,9 @@ where
         }
     }
 
-    /// Benchmark every candidate with a fixed sample count. This is the only strategy available
-    /// on wasm, where nothing can be awaited inline: the first batch that queued a sample is
-    /// resolved on the browser event loop, and the later ones are never reached.
+    /// Benchmark every candidate with a fixed sample count, on wasm, where nothing can be awaited
+    /// inline: the first batch that queued a sample is resolved on the browser event loop, and
+    /// the later ones are never reached.
     #[cfg(target_family = "wasm")]
     fn drive_fixed(mut self, client: &Client) -> TuneAnswer {
         let sampler = CandidateSampler::new(client, self.access);
@@ -185,7 +185,7 @@ where
         }
     }
 
-    /// Launch every candidate of `batch`, then resolve their samples together.
+    /// Launch every candidate of `batch`, then [record](TuneCommitter::record_launched) them.
     #[cfg(not(target_family = "wasm"))]
     fn bench_all(&mut self, batch: &Batch, sampler: CandidateSampler<'_>) -> bool {
         let launched = self.launch_batch(batch, sampler);

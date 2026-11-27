@@ -11,15 +11,15 @@ use crate::tune::{
     AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
 };
 
-/// Logs what one tune did into its [`AutotuneLogContext`], kept only while something reads it.
+/// Logs what one tune did into its [`AutotuneLogContext`].
 #[derive(Debug)]
 pub struct TuneLogger {
     context: Option<AutotuneLogContext>,
 }
 
 impl TuneLogger {
-    /// A logger of one tune, keeping its context when `logger` logs or writes decisions, or when
-    /// the tune is `recorded`.
+    /// A logger of one tune, keeping its context only when `logger` logs or writes decisions, or
+    /// when the tune is `recorded`.
     pub fn new(logger: &Logger, recorded: bool) -> Self {
         let autotune = &logger.config().autotune;
         let logging = !matches!(autotune.logger.level, AutotuneLogLevel::Disabled);
@@ -29,7 +29,7 @@ impl TuneLogger {
         }
     }
 
-    /// The context logged so far, when something reads it.
+    /// The context logged so far, where it is kept.
     pub fn as_context(&self) -> Option<&AutotuneLogContext> {
         self.context.as_ref()
     }
@@ -68,10 +68,8 @@ impl TuneLogger {
     /// [`AutotuneDecision`](crate::tune::AutotuneDecision) for tools if decisions have a sink,
     /// and a line for humans at the logger's level. Either, both, or neither.
     ///
-    /// A decided candidate at `decided_index` with no measurement still writes its decision,
-    /// with no time, so the cross-checks it carries are reported; it writes no line for humans:
-    /// an all-failed plan can decide an unmeasured candidate, which already warned with the full
-    /// results.
+    /// A decided candidate with no measurement writes no line for humans: an all-failed plan can
+    /// decide one, which already warned with the full results.
     pub fn log_result<K: AutotuneKeyable>(
         &self,
         logger: &mut Logger,
@@ -94,18 +92,22 @@ impl TuneLogger {
     /// Report the cross-checks of a tune that stopped with nothing decided, which no decision
     /// carries: written to the log, as a warning.
     pub fn report_undecided<K: AutotuneKeyable>(&self, key: &K) {
-        #[cfg(feature = "autotune-checks")]
-        if let Some(checks) = self
-            .context
+        if let Some(report) = self.undecided_report(key) {
+            log::warn!("{report}");
+        }
+    }
+
+    /// The report of the cross-checks of the undecided tune of `key`, where the tune collected
+    /// some.
+    pub fn undecided_report<K: AutotuneKeyable>(&self, key: &K) -> Option<String> {
+        self.context
             .as_ref()
             .and_then(|context| context.checks.as_ref())
-        {
-            log::warn!(
-                "Autotune of {key} stopped with nothing decided, so no decision reports its cross-checks: {checks:?}"
-            );
-        }
-        #[cfg(not(feature = "autotune-checks"))]
-        let _ = key;
+            .map(|checks| {
+                format!(
+                    "Autotune of {key} stopped with nothing decided, so no decision reports its cross-checks: {checks:?}"
+                )
+            })
     }
 }
 
@@ -125,8 +127,7 @@ fn measured_at(results: &[AutotuneResult], index: usize) -> Option<&AutotuneOutc
         .find(|outcome| outcome.index == index)
 }
 
-/// Reports a tune's result: its key, every result, the context, and the decided candidate's
-/// index.
+/// Reports one tune's result.
 struct ResultReporter<'a, K> {
     key: &'a K,
     results: &'a [AutotuneResult],
@@ -136,7 +137,7 @@ struct ResultReporter<'a, K> {
 }
 
 impl<K: AutotuneKeyable> ResultReporter<'_, K> {
-    /// The decision, for tools: one JSON object on the decisions' sink.
+    /// The decision: one JSON object.
     pub fn report_decision(&self, logger: &mut Logger) {
         if !logger.config().autotune.decisions_enabled() {
             return;
@@ -171,8 +172,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         }
     }
 
-    /// The line for humans, at whatever the logger's level asks for, `decided` the decided
-    /// candidate's measurement.
+    /// The line at the logger's level, `decided` the decided candidate's measurement.
     pub fn report_log(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         match logger.config().autotune.logger.level {
             AutotuneLogLevel::Minimal => self.report_minimal(logger, decided),
@@ -184,30 +184,16 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
 
 impl<K: AutotuneKeyable> ResultReporter<'_, K> {
     fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
-        use core::fmt::Write;
-
-        let mut line = format!(
-            "Decided result {}-{}. Top {TOP_TIME_COUNT} times: [",
-            decided.name, self.key
-        );
-        let top = self
-            .results
-            .iter()
-            .filter_map(AutotuneResult::measured)
-            .take(TOP_TIME_COUNT);
-        for (rank, outcome) in top.enumerate() {
-            let separator = if rank == 0 { "" } else { ", " };
-            let _ = write!(
-                line,
-                "{separator}({}, {:?})",
-                outcome.index, outcome.computation.median
-            );
-        }
-        line.push(']');
-        if let Some(context) = self.log_context {
-            let _ = write!(line, ", context: {context}");
-        }
-        logger.log_autotune(&line);
+        let context = self
+            .log_context
+            .map(|context| format!(", context: {context}"))
+            .unwrap_or_default();
+        logger.log_autotune(&format!(
+            "Decided result {}-{}. Top {TOP_TIME_COUNT} times: {:?}{context}",
+            decided.name,
+            self.key,
+            TopTimes(self.results),
+        ));
     }
 
     fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
@@ -219,6 +205,21 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         for result in self.results {
             logger.log_autotune(&outcome_line(result));
         }
+    }
+}
+
+/// The index and median of the first [`TOP_TIME_COUNT`] measured results, written as a list.
+struct TopTimes<'a>(&'a [AutotuneResult]);
+
+impl core::fmt::Debug for TopTimes<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let top = self
+            .0
+            .iter()
+            .filter_map(AutotuneResult::measured)
+            .map(|outcome| (outcome.index, outcome.computation.median))
+            .take(TOP_TIME_COUNT);
+        f.debug_list().entries(top).finish()
     }
 }
 
@@ -378,5 +379,35 @@ mod tests {
         }]);
 
         assert!(logger.as_context().is_none());
+    }
+
+    #[test]
+    fn the_top_times_list_the_measured_results_first() {
+        let results = [measured(1, 40), measured(0, 50)];
+
+        assert_eq!(
+            alloc::format!("{:?}", TopTimes(&results)),
+            "[(1, 40µs), (0, 50µs)]"
+        );
+    }
+
+    #[test]
+    fn an_undecided_tune_reports_the_checks_it_collected() {
+        let logger = TuneLogger {
+            context: Some(AutotuneLogContext {
+                checks: Some(vec![crate::tune::CheckResult {
+                    name: "k0".into(),
+                    passed: false,
+                }]),
+                ..Default::default()
+            }),
+        };
+
+        assert!(logger.undecided_report(&"key".to_string()).is_some());
+    }
+
+    #[test]
+    fn an_undecided_tune_with_no_checks_reports_nothing() {
+        assert_eq!(logging().undecided_report(&"key".to_string()), None);
     }
 }

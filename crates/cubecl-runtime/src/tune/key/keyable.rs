@@ -22,7 +22,7 @@ pub trait Persistable: serde::Serialize + serde::de::DeserializeOwned {}
 #[cfg(serializable)]
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Persistable for T {}
 
-/// What a key needs to be stored in a table, where tunes persist: nothing otherwise.
+/// [`Persistable`] where nothing persists: nothing.
 #[cfg(not(serializable))]
 pub trait Persistable {}
 

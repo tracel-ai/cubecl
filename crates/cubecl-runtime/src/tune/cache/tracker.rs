@@ -72,7 +72,9 @@ pub enum TuneAnswer {
     Hit { decided_index: usize },
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// Callers that see this fall through to running the operation rather than blocking on
-    /// the in-flight job. A card a tune found lost answers this for every key it has not settled.
+    /// the in-flight job. A card a tune found lost answers this for every key it has not settled,
+    /// except a key a compile pass on it already queued, which answers
+    /// [`Compiled`](Self::Compiled) to that pass.
     Pending,
     /// A [`CompileOnly`](crate::execution::ProcessMode::CompileOnly) override or another key's
     /// compile pass queued the kernels of the top of the key's plan on this card, and measured and
@@ -110,9 +112,8 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         }
     }
 
-    /// What memory holds for `key`: [`Miss`](TuneAnswer::Miss) for a key only gathered, and,
-    /// where tunes persist, for every key once the environment has switched away from the one the
-    /// answers were built under. The reset that switch owes is left to the next lookup that tunes.
+    /// What memory holds for `key`, as [`TuneAnswer`] says. The reset an environment switch owes
+    /// is left to the next lookup that tunes.
     pub fn decided(&self, key: &K) -> TuneAnswer {
         #[cfg(persistence)]
         if self.environment_switched() {
@@ -293,7 +294,9 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 #[cfg(persistence)]
 impl<K: AutotuneKeyable> TuneTracker<K> {
     /// A tracker over the table `name` names, reading and writing it unless the cache is
-    /// disabled. Opening a table drops, once per process, every table an earlier layout wrote.
+    /// disabled. Opening a table, unless the cache is disabled, drops the tables an earlier layout
+    /// wrote in the environment open then: once per process, so an environment switched to later
+    /// keeps its own.
     fn open(name: TuneTableName<'_>) -> Self {
         use crate::config::RuntimeConfig;
 

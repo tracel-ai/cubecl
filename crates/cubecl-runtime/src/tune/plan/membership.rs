@@ -10,7 +10,6 @@ pub struct GroupMembership<K> {
 }
 
 impl<K> GroupMembership<K> {
-    /// A membership of `group` at `priority`.
     pub fn new(group: &TuneGroup<K>, priority: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
         Self {
             group: group.clone(),

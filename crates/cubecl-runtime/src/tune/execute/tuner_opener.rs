@@ -13,8 +13,7 @@ const MODULE_PATH_SEPARATOR: &str = "::";
 /// What a table name joins the module path with in its place.
 const TABLE_NAME_SEPARATOR: &str = "-";
 
-/// Opens the tuners of a [`LocalTuner`](crate::tune::LocalTuner): one per hardware and candidate
-/// list, which an id keeps for each list it executed.
+/// Opens the tuners of a [`LocalTuner`](crate::tune::LocalTuner), keeping each id's.
 pub struct TunerOpener<AK: AutotuneKeyable, ID> {
     /// An id's tuners, by id then by the checksum of the list each runs (Keyed Usage), made on the
     /// first execute.
@@ -26,7 +25,7 @@ pub struct TunerOpener<AK: AutotuneKeyable, ID> {
 /// The tuners of each id, by the checksum of the list each runs.
 type TunersById<AK, ID> = HashMap<ID, HashMap<u64, Arc<Tuner<AK>>>>;
 
-/// Which tuner a device's executes reach: one per hardware and candidate list.
+/// Which tuner a device's executes reach.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TunerIdentity {
     pub hardware: HardwareIdentity,

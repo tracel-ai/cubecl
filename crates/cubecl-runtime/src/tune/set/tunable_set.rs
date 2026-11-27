@@ -118,8 +118,9 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
         self
     }
 
-    /// The set with the short circuit, which ends a batch at its first candidate under the
-    /// bounds' time limit, turned on where `enabled`.
+    /// The set with the short circuit, which natively ends a batch at its first candidate under
+    /// the bounds' time limit, as its groups' patience allows, turned on where `enabled`. Wasm has
+    /// no short circuit.
     pub fn with_short_circuit(mut self, enabled: bool) -> Self {
         self.short_circuit = enabled;
         self

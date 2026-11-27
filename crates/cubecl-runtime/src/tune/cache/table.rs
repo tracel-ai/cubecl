@@ -12,7 +12,8 @@ use crate::namespace_version::NamespaceVersion;
 #[cfg(persistence)]
 use crate::tune::AutotuneResult;
 
-/// The version of how tables are named and what their rows hold, bumped when either changes.
+/// The layout version of the tables: how they are named and what their rows hold, bumped when
+/// either changes.
 ///
 /// Version 2 stores `decided_index` and `threshold_fraction` where version 1 stored
 /// `fastest_index` and `threshold`: a table of version 1 is dropped rather than misread.
@@ -46,16 +47,9 @@ pub struct PersistentCacheValue {
     pub decided_index: usize,
     /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
     pub results: Vec<AutotuneResult>,
-    /// Optional input size bounds for which the autotune result applies.
-    ///
-    /// Defaulted, so entries written before this field existed still decode. Without it every
-    /// cached key on every existing installation would fail to read and re-tune from scratch.
-    #[serde(default)]
+    /// The bounds the tune was measured against, where the set has a bounds generator.
     pub bounds: Option<crate::tune::Bounds>,
-    /// Optional execution time limit for the autotune process.
-    ///
-    /// Defaulted for the same reason as [`bounds`](Self::bounds).
-    #[serde(default)]
+    /// The time limit the bounds set, if any.
     pub limit: Option<core::time::Duration>,
 }
 

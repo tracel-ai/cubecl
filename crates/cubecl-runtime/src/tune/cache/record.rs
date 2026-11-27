@@ -27,7 +27,8 @@ pub struct TuneRecord<K> {
     pub decided_index: usize,
     /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
     /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
-    /// skipped or that a short circuit left unreached costs zero.
+    /// skipped or that a short circuit left unreached costs zero. A skipped candidate the batch
+    /// measures after all, once every measured one failed, has a second trial for that run.
     pub trials: Vec<Trial>,
     /// The candidate that met the time limit and ended the tune before the
     /// rest of the plan ran.

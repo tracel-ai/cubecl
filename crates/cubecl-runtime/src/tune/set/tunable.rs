@@ -17,6 +17,11 @@ use crate::tune::{AutotuneError, TuneInputs};
 ///
 /// - Its function launches the same kernels for equal inputs: a tune measures it on generated
 ///   inputs and keeps the answer for every call of the key.
+///
+/// # Guarantees
+///
+/// - An error its function returns reaches the tune as [`AutotuneError::Rejected`]: the candidate
+///   does not serve the call, and is never decided for it.
 pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     function: TuneFn<F, Output>,
     /// The groups it joined, in the order it joined them (Arrival Usage).
@@ -32,11 +37,6 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
     ///
     /// A tunable in no [group](Tunable::group) states no priority, so it trails the grouped
     /// candidates of its round and a short circuit among them leaves it unmeasured.
-    ///
-    /// # Guarantees
-    ///
-    /// - An error `func` returns reaches the tune as [`AutotuneError::Rejected`]: the candidate
-    ///   does not serve the call, and is never decided for it.
     pub fn new<Func, Err>(name: &str, func: Func) -> Self
     where
         Err: Into<String> + 'static,
@@ -75,9 +75,7 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     /// one level as the round and leaves the levels under it as fallbacks. Within an
     /// [ordered](TuneGroup::ordered) group it orders one round that holds every member.
     ///
-    /// # Assumptions
-    ///
-    /// - `priority` answers from the key alone, as [`TuneGroup`]'s does.
+    /// `priority` answers from the key alone, as [`TuneGroup`] assumes.
     ///
     /// # Guarantees
     ///

@@ -30,7 +30,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidateOrderer<K, F,
     }
 
     /// Add `tunable` after the others, forgetting every run order planned without it, and answer
-    /// the [hash](names_hash) of the names of the candidates the planner now holds.
+    /// the [hash](names_hash) of the names of the candidates the orderer now holds.
     pub fn add(&mut self, tunable: Tunable<K, F, Out, Id>) -> StableHash {
         self.tunables.push(tunable);
         self.run_orders.lock().clear();
@@ -103,14 +103,14 @@ mod tests {
             counted.fetch_add(1, Ordering::Relaxed);
             1
         });
-        let mut planner = CandidateOrderer::<String, (), usize, ()>::new();
-        planner.add(tunable("first", 0).group(&group, |_| 1));
-        planner.add(tunable("second", 1).group(&group, |_| 2));
+        let mut orderer = CandidateOrderer::<String, (), usize, ()>::new();
+        orderer.add(tunable("first", 0).group(&group, |_| 1));
+        orderer.add(tunable("second", 1).group(&group, |_| 2));
         let key = String::from("key");
 
-        let first = planner.order_candidates(&key);
+        let first = orderer.order_candidates(&key);
         let planned = asked.load(Ordering::Relaxed);
-        let again = planner.order_candidates(&key);
+        let again = orderer.order_candidates(&key);
 
         assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
         assert_eq!(asked.load(Ordering::Relaxed), planned);
@@ -119,15 +119,15 @@ mod tests {
     #[test]
     fn a_candidate_added_after_planning_is_planned_in() {
         let group = TuneGroup::<String>::new("group", |_| 1);
-        let mut planner = CandidateOrderer::<String, (), usize, ()>::new();
-        planner.add(tunable("first", 0));
-        planner.add(tunable("second", 1));
+        let mut orderer = CandidateOrderer::<String, (), usize, ()>::new();
+        orderer.add(tunable("first", 0));
+        orderer.add(tunable("second", 1));
         let key = String::from("key");
-        assert_eq!(&*planner.order_candidates(&key), &[0, 1]);
+        assert_eq!(&*orderer.order_candidates(&key), &[0, 1]);
 
-        planner.add(tunable("added", 2).group(&group, |_| 1));
+        orderer.add(tunable("added", 2).group(&group, |_| 1));
 
-        assert_eq!(planner.order_candidates(&key)[0], 2);
+        assert_eq!(orderer.order_candidates(&key)[0], 2);
     }
 
     #[test]

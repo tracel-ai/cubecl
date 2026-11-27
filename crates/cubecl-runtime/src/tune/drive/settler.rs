@@ -89,17 +89,15 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
     }
 
     /// Stop the tune of `key` with nothing decided, `tune_logger` reporting the cross-checks it
-    /// collected: answered pending, so the caller runs the candidates in plan order. The key's
-    /// mark drops, so the next call tunes it, and its registration settles abandoned.
+    /// collected: answered pending, with the tune's [unmarker](PendingUnmarker) and registration
+    /// dropped.
     pub fn stop_undecided(self, key: &K, tune_logger: &TuneLogger) -> TuneAnswer {
         tune_logger.report_undecided(key);
         TuneAnswer::Pending
     }
 
+    /// [Stop the tune undecided](Self::stop_undecided) on the lost card `service`, tracked lost.
     #[cfg(not(target_family = "wasm"))]
-    /// [Stop the tune undecided](Self::stop_undecided) on the lost card `service`, which answers
-    /// pending for every key of this candidate list from now on: the key is left to another card
-    /// of the same hardware, which may be healthy.
     pub fn stop_on_lost_card(
         self,
         service: ServiceId,
