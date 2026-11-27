@@ -13,7 +13,7 @@ use super::fragment::{
 use crate::{prelude::*, shared::plane::bitcast};
 use cubecl_core::ir::{
     ElemType,
-    amd::{AmdMfma, MFMA_LANE_GROUPS},
+    amd::{AmdMfma, MFMA_LANE_GROUP_COUNT},
     features::MmaConfig,
     types::MatrixShape,
 };
@@ -167,7 +167,7 @@ pub fn emit_mfma(
 ) -> Option<Value> {
     let instruction_k = form.instruction_k(generation);
     let steps = instruction_steps(shape, instruction_k)?;
-    let slice_width = instruction_k / MFMA_LANE_GROUPS;
+    let slice_width = instruction_k / MFMA_LANE_GROUP_COUNT;
     let cd_ty = c_val.get_type(ctx);
     let carriage = form.carriage();
 

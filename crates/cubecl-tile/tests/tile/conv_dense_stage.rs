@@ -16,6 +16,12 @@ const CO: Dimension = Dimension(1);
 const RH: Dimension = Dimension(2);
 const CI: Dimension = Dimension(3);
 
+// A folded 2-D convolution's output positions, its output columns (`OH` its rows), and its
+// second tap.
+const P: Dimension = Dimension(4);
+const OW: Dimension = Dimension(5);
+const RW: Dimension = Dimension(6);
+
 const CO_EXTENT: usize = 16;
 const RH_EXTENT: usize = 4;
 
@@ -147,6 +153,7 @@ impl Case {
         let storage = StageStorage::Tiled {
             block: launcher.partitioning().leaf().extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         };
 
         // Small integers, exact in `f16` and in the `f32` sums.
@@ -304,4 +311,194 @@ fn conv_dense_stage_cmma_fragment_grid_taps_2() {
 #[test]
 fn conv_dense_stage_cmma_fragment_grid_taps_4() {
     Case { taps: 4, ..GRID }.check(Unit::Cmma);
+}
+
+/// A 2-D convolution whose output positions are one dimension, `P = oh * ow` (`Projection::folded`
+/// on the input and the output), the input's rows and columns each read off one digit of it,
+/// zero outside the input:
+/// `in[(p / ow) * sh + rh * dh - ph, (p % ow) * sw + rw * dw - pw]`.
+struct Folded {
+    out: [usize; 2],
+    stride: [usize; 2],
+    dilation: [usize; 2],
+    padding: [usize; 2],
+    /// Row blocks the plane level lays side by side, which cuts `P` a second time.
+    planes: usize,
+}
+
+impl Folded {
+    const TAPS: usize = 3;
+
+    fn input(&self) -> [usize; 2] {
+        [0, 1].map(|a| {
+            (self.out[a] - 1) * self.stride[a] + (Self::TAPS - 1) * self.dilation[a] + 1
+                - 2 * self.padding[a]
+        })
+    }
+
+    /// The input cell output position `p` reads at taps `(rh, rw)`, `None` in the padding.
+    fn source(&self, p: usize, taps: [usize; 2]) -> Option<[usize; 2]> {
+        let at = [p / self.out[1], p % self.out[1]];
+        let input = self.input();
+        let mut cell = [0; 2];
+        for a in 0..2 {
+            let x = (at[a] * self.stride[a] + taps[a] * self.dilation[a]) as isize
+                - self.padding[a] as isize;
+            if x < 0 || x as usize >= input[a] {
+                return None;
+            }
+            cell[a] = x as usize;
+        }
+        Some(cell)
+    }
+
+    fn check(&self, unit: Unit) {
+        let client = cubecl::test_device().client();
+        let Some((m, n, k)) = instruction_shape(unit, &client) else {
+            return;
+        };
+        let positions = self.out[0] * self.out[1];
+        let (co, rh, ci) = (CO_EXTENT, Self::TAPS, 2 * k);
+        let launcher = implied(
+            &client,
+            Partitioning::new(
+                Space::new(&[(P, positions), (CO, co), (RH, rh), (RW, rh), (CI, ci)]),
+                {
+                    let levels = Levels::leaf(&[(P, m), (CO, n), (RH, 1), (RW, 1), (CI, k)]);
+                    let levels = match self.planes {
+                        1 => levels,
+                        planes => levels.planes(&[(P, planes)]),
+                    };
+                    levels.walk_every(&[RH, RW, CI]).cubes(&[P, CO]).build()
+                },
+            ),
+            Form::Static,
+        );
+        let storage = StageStorage::Tiled {
+            block: launcher.partitioning().leaf().extents(),
+            chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
+        };
+
+        let [ih, iw] = self.input();
+        let in_data: Vec<f32> = (0..ih * iw * ci).map(|i| (i % 7) as f32 - 1.0).collect();
+        let w_data: Vec<f32> = (0..rh * rh * ci * co)
+            .map(|i| (i % 5) as f32 - 1.0)
+            .collect();
+        let (f16_ty, f32_ty) = (f16::elem_type_native(), f32::elem_type_native());
+        let (in_handle, _) = TestInput::builder(client.clone(), shape![ih, iw, ci])
+            .dtype(f16_ty)
+            .custom(in_data.clone())
+            .generate_with_f32_host_data();
+        let (w_handle, _) = TestInput::builder(client.clone(), shape![rh, rh, ci, co])
+            .dtype(f16_ty)
+            .custom(w_data.clone())
+            .generate_with_f32_host_data();
+        let [oh, ow] = self.out;
+        let out_handle = TestInput::builder(client.clone(), shape![oh, ow, co])
+            .dtype(f32_ty)
+            .uniform(4242, 10., 100.)
+            .generate_without_host_data();
+
+        let fold = [(OH, oh), (OW, ow)];
+        let rows = PhysicalAxisMap::affine(&[(OH, self.stride[0]), (RH, self.dilation[0])])
+            .shifted(-(self.padding[0] as isize));
+        let columns = PhysicalAxisMap::affine(&[(OW, self.stride[1]), (RW, self.dilation[1])])
+            .shifted(-(self.padding[1] as isize));
+        let in_spec = TileSpec::new(
+            Projection::new(
+                &[OH, OW, RH, RW, CI],
+                &[rows, columns, PhysicalAxisMap::of(CI)],
+            )
+            .folded(P, &fold),
+        )
+        .boundary(BoundaryPolicy::Every(Boundary::Zero));
+        let out_spec = TileSpec::new(Projection::direct(&[OH, OW, CO]).folded(P, &fold))
+            .boundary(BoundaryPolicy::Every(Boundary::Zero));
+
+        conv_dense_stage_kernel::launch(
+            &client,
+            launcher.cube_count(),
+            launcher.cube_dim(),
+            TileTensorLaunch::new(in_handle.binding().into_tensor_arg(), f16_ty, 1, in_spec),
+            TileTensorLaunch::new(
+                w_handle.binding().into_tensor_arg(),
+                f16_ty,
+                1,
+                TileSpec::direct(&[RH, RW, CI, CO]),
+            ),
+            TileTensorLaunch::new(
+                out_handle.clone().binding().into_tensor_arg(),
+                f32_ty,
+                1,
+                out_spec,
+            ),
+            launcher.partitioning_arg(),
+            launcher.partitioning().level(0),
+            launcher.partitioning().level(1),
+            storage,
+            self.planes,
+            f32_ty,
+        );
+
+        let got = HostData::from_tensor_handle(&client, out_handle, HostDataType::F32);
+        for p in 0..positions {
+            for c in 0..co {
+                let mut want = 0.0f32;
+                for r in 0..rh {
+                    for s in 0..rh {
+                        let Some([h, w]) = self.source(p, [r, s]) else {
+                            continue;
+                        };
+                        for i in 0..ci {
+                            want += in_data[(h * iw + w) * ci + i]
+                                * w_data[((r * rh + s) * ci + i) * co + c];
+                        }
+                    }
+                }
+                assert_eq!(
+                    got.get_f32(&[p / ow, p % ow, c]),
+                    want,
+                    "wrong at ({p}, {c})"
+                );
+            }
+        }
+    }
+}
+
+/// An 8 by 8 map padded to its own size: whole row tiles, each spanning several image rows.
+const FOLDED_SAME: Folded = Folded {
+    out: [8, 8],
+    stride: [1, 1],
+    dilation: [1, 1],
+    padding: [1, 1],
+    planes: 1,
+};
+
+#[test]
+fn conv_dense_stage_cmma_folded() {
+    FOLDED_SAME.check(Unit::Cmma);
+}
+
+/// Every pair unequal, so the rows and columns cannot be confused; a 5 by 9 map overhangs too.
+#[test]
+fn conv_dense_stage_cmma_folded_asymmetric() {
+    Folded {
+        out: [5, 9],
+        stride: [1, 2],
+        dilation: [2, 1],
+        padding: [2, 0],
+        planes: 1,
+    }
+    .check(Unit::Cmma);
+}
+
+/// The plane level cuts `P` again under the cube's cut, so the window's start along it adds up.
+#[test]
+fn conv_dense_stage_cmma_folded_planes() {
+    Folded {
+        planes: 2,
+        ..FOLDED_SAME
+    }
+    .check(Unit::Cmma);
 }

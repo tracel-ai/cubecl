@@ -477,11 +477,13 @@ impl FactorExpand {
     }
 
     /// This factor's stage as `spec` shapes the values': the scales staged beside them, laid out
-    /// plain whatever the values' storage, since no instruction fragment-loads them.
+    /// plain whatever the values' storage and contraction, since no instruction fragment-loads
+    /// them.
     pub(crate) fn staged(&self, scope: &Scope, spec: &StageSpec) -> FactorExpand {
         let spec = StageSpec {
-            storage: StageStorage::Strided,
+            storage: StageStorage::STRIDED,
             width: None,
+            contracted: None,
             ..spec.clone()
         };
         FactorExpand {

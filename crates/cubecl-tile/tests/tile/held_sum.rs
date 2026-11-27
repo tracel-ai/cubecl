@@ -54,7 +54,7 @@ fn staged_in_lines<L: Size>(plane: &Region, rhs: &Tile) -> Tile {
     let mut stage = Tile::scratch_in_lines::<half::f16>(
         &plane.walk(),
         comptime!(vec![N, K]),
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         L::value().comptime(),
     );
     let window = rhs.at(plane);

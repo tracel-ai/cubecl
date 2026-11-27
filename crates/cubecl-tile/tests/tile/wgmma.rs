@@ -124,6 +124,7 @@ fn storage() -> StageStorage {
     StageStorage::Tiled {
         block: vec![(M, gm), (N, gn), (K, STEP * STEPS)],
         chunks: RowChunks::Swizzled,
+        order: StageOrder::AsSource,
     }
 }
 

@@ -529,17 +529,15 @@ impl Runtime for CudaRuntime {
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
-                const_plane_size: 32,
+                const_plane_lane_count: 32,
                 register_layout_a: MatrixLayout::RowMajor,
                 register_layout_b: MatrixLayout::ColMajor,
                 register_layout_acc: MatrixLayout::RowMajor,
-                register_duplication_a: 1,
-                register_duplication_b: 1,
-                register_duplication_acc: 1,
                 contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
                 element_positions: OperandFact::new(|ctx, _, matrix| {
                     Some(SmArch::element_positions(ctx, &matrix.deref(ctx)))
                 }),
+                ..MmaProperties::default()
             },
         }
     }

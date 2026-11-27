@@ -1,11 +1,11 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, byte_permutes_kernel, cdna_manual_product_kernel,
-    cdna_quantized_product_kernel, cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel,
-    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
+    cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
+    fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -13,7 +13,10 @@ use crate::{
     amdgpu::codegen::{Assembly, compile_to_object},
 };
 use cubecl_core::Compiler;
-use cubecl_core::ir::{AddressType, amd::GfxArch};
+use cubecl_core::ir::{
+    AddressType, FragmentPositions, MmaProperties, TargetProperties,
+    amd::{AmdMatrixCore, AmdMfma, AmdWmma, GfxArch},
+};
 use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
@@ -178,6 +181,23 @@ fn int8_tiles_carry_each_operands_sign() {
 
 /// A tile 32 deep is two 16-deep instructions: neither generation has a 32-deep form for these
 /// operands.
+/// A manual 16-bit sum multiplies on the WMMA that accumulates in its own type: on RDNA3, which
+/// holds each sum in the low half of a 32-bit register, as on RDNA4, which packs them.
+#[test]
+fn a_manual_half_precision_sum_multiplies_in_its_own_type() {
+    use half::{bf16, f16};
+    for (arch, core) in [
+        ("gfx1151", AmdMatrixCore::Wmma(AmdWmma::Rdna3)),
+        ("gfx1201", AmdMatrixCore::Wmma(AmdWmma::Rdna4)),
+    ] {
+        let shape = (16, 16, 16);
+        let asm = asm_of(manual_product_kernel::<f16, f16, f16>(core, shape), arch);
+        assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+        let asm = asm_of(manual_product_kernel::<bf16, bf16, bf16>(core, shape), arch);
+        assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
+    }
+}
+
 #[test]
 fn a_tile_two_instructions_deep_issues_two() {
     use cubecl_core::e4m3;
@@ -230,11 +250,49 @@ fn int8_tiles_multiply_on_mfma() {
     assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
 }
 
+/// The target properties of `core` with its fragments' positions stated, as the HIP runtime
+/// states them for its LLVM backend.
+fn stating_positions(core: AmdMatrixCore) -> TargetProperties {
+    TargetProperties {
+        mma: MmaProperties {
+            fragment_positions: FragmentPositions::AsElementPositions,
+            ..core.mma_properties()
+        },
+    }
+}
+
+/// A sum copied out of its fragment into registers compiles on RDNA3, RDNA4 and MI300, the
+/// product still one matrix instruction and no register spilled to scratch: an `f32` sum on
+/// each, and RDNA3's 16-bit sum, which its accumulator holds padded.
+#[test]
+fn a_fragment_copies_into_registers_on_every_matrix_core() {
+    let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+    let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+    let parts = [
+        ("gfx1151", rdna3, 32, "v_wmma_f32_16x16x16_f16"),
+        ("gfx1201", rdna4, 32, "v_wmma_f32_16x16x16_f16"),
+        (MI300, CDNA3, MI300_PLANE_DIM, "v_mfma_f32_16x16x16_f16"),
+    ];
+    for (arch, core, plane_dim, product) in parts {
+        let kernel = fragment_registers_kernel::<f32>(stating_positions(core), plane_dim);
+        let asm = asm_of(kernel, arch);
+        assert!(asm.contains(product), "{arch}:\n{asm}");
+        assert!(!asm.contains("scratch_"), "{arch}:\n{asm}");
+    }
+    let kernel = fragment_registers_kernel::<half::f16>(stating_positions(rdna3), 32);
+    let asm = asm_of(kernel, "gfx1151");
+    assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{asm}");
+    assert!(!asm.contains("scratch_"), "{asm}");
+}
+
 /// The architecture the MI300 tests compile for.
 const MI300: &str = "gfx942";
 
 /// The lanes of one MI300 plane.
 const MI300_PLANE_DIM: u32 = 64;
+
+/// MI300's matrix cores.
+const CDNA3: AmdMatrixCore = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
 
 /// Keeps `asm` as `<what>.s` in `CUBECL_OFFLINE_ASM_DIR`, where it is set, for reading.
 fn keep_asm(asm: &str, what: &str) {
@@ -353,9 +411,12 @@ fn every_mi300_form_compiles_for_a_wave64_plane() {
             MI300,
         );
         bf16_mfmas.check(&asm, &format!("cmma_bf16_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<f16, f16, f32>(shape), MI300);
+        let asm = asm_of(manual_product_kernel::<f16, f16, f32>(CDNA3, shape), MI300);
         f16_mfmas.check(&asm, &format!("manual_f16_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<bf16, bf16, f32>(shape), MI300);
+        let asm = asm_of(
+            manual_product_kernel::<bf16, bf16, f32>(CDNA3, shape),
+            MI300,
+        );
         bf16_mfmas.check(&asm, &format!("manual_bf16_k{k}"));
     }
     for (k, instructions) in [(32, 1), (64, 2)] {
@@ -369,7 +430,7 @@ fn every_mi300_form_compiles_for_a_wave64_plane() {
             MI300,
         );
         mfmas.check(&asm, &format!("cmma_i8_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<i8, i8, i32>(shape), MI300);
+        let asm = asm_of(manual_product_kernel::<i8, i8, i32>(CDNA3, shape), MI300);
         mfmas.check(&asm, &format!("manual_i8_k{k}"));
     }
 }

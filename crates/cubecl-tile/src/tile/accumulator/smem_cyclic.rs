@@ -62,12 +62,14 @@ impl Tile {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
-        let values = Shared::<[A]>::new_slice(comptime!(form.cells() * width));
-        // The previous open from this call site may still be read; let it finish first.
+        // The previous open from this call site may still be read; let it finish first. Met
+        // before the declaration, the barrier lets the accumulator take the bytes of shared memory
+        // freed before it, which the compiler reuses only past a barrier ahead of the first use.
         sync_cube();
+        let values = Shared::<[A]>::new_slice(comptime!(form.cells() * width));
 
         let units = self.units();
         let source = Memory::smem_backed::<Served>(
@@ -104,7 +106,7 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
         let units = self.like.units();

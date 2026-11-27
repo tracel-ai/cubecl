@@ -134,7 +134,7 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-a",
         }),
         PersistentCacheValue {
-            fastest_index: 1,
+            decided_index: 1,
             results: vec![
                 measured("tiled", 1, 10),
                 measured("naive", 0, 40),
@@ -160,7 +160,7 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-a",
         }),
         PersistentCacheValue {
-            fastest_index: 1,
+            decided_index: 1,
             results: vec![measured("tiled", 1, 20), measured("naive", 0, 22)],
             bounds: None,
             limit: None,
@@ -173,7 +173,7 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-b",
         }),
         PersistentCacheValue {
-            fastest_index: 0,
+            decided_index: 0,
             results: vec![measured("row", 0, 5)],
             bounds: None,
             limit: None,
@@ -215,7 +215,7 @@ fn fixture(dir: &Path) -> PathBuf {
                 },
                 checksum: "list-a".to_string(),
             },
-            winner: 1,
+            decided_index: 1,
             trials: vec![
                 trial("tiled", 100),
                 trial("naive", 300),
@@ -848,7 +848,7 @@ fn a_tune_of_an_unlisted_session_joins_its_key() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 1,
+                decided_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(40),
@@ -982,7 +982,7 @@ fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 0,
+                decided_index: 0,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(1),
@@ -1019,7 +1019,7 @@ fn a_key_tuned_twice_joins_its_latest_tune() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 1,
+                decided_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(900),
@@ -1132,7 +1132,7 @@ fn rebuilt(dir: &Path) -> PathBuf {
         GEMM,
         &key(128),
         &cbor(&PersistentCacheValue {
-            fastest_index: 0,
+            decided_index: 0,
             results: vec![measured("naive", 0, 20), measured("tiled", 1, 21)],
             bounds: None,
             limit: None,
@@ -1144,7 +1144,7 @@ fn rebuilt(dir: &Path) -> PathBuf {
         GEMM,
         &key(256),
         &cbor(&PersistentCacheValue {
-            fastest_index: 1,
+            decided_index: 1,
             results: vec![measured("tiled", 1, 30)],
             bounds: None,
             limit: None,
@@ -1209,7 +1209,7 @@ fn a_diff_tells_apart_keys_of_two_adapters() {
                 checksum: "list-a",
             }),
             &cbor(&PersistentCacheValue {
-                fastest_index: 0,
+                decided_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,
@@ -1252,7 +1252,7 @@ fn a_diff_reads_a_keys_newest_version() {
                 checksum: "list-a",
             }),
             &cbor(&PersistentCacheValue {
-                fastest_index: 0,
+                decided_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,

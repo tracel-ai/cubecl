@@ -722,6 +722,84 @@ pub fn test_downcast<R: Runtime>(client: Client, cube_dimensions: CubeDim) {
     assert_equals_approx::<f32>(&client, out, &test_simple_1_expected(), 1e-3);
 }
 
+/// The side of the square tile [`kernel_fragment_registers`] holds, and the depth of its
+/// contraction.
+const FRAGMENT_TILE: usize = 16;
+
+/// A `16 × 16` accumulator of `CD` loaded row-major from `input`, then each cell its lane's
+/// registers hold written back where [`cmma::MmaDefinition::position_of_nth`] places it.
+///
+/// - `input`: the tile, row-major, `FRAGMENT_TILE` values a row.
+/// - `out`: the tile as the lanes' registers place it, row-major, `FRAGMENT_TILE` values a row.
+#[cube(launch)]
+pub fn kernel_fragment_registers<CD: Float>(input: &[CD], out: &mut [CD]) {
+    let acc = cmma::Matrix::<CD>::from_slice(
+        cmma::MatrixIdent::Accumulator,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        FRAGMENT_TILE,
+        cmma::MatrixLayout::RowMajor,
+        input,
+        FRAGMENT_TILE as u32,
+    );
+    let def = cmma::MmaDefinition::<f16, f16, CD>::new(FRAGMENT_TILE, FRAGMENT_TILE, FRAGMENT_TILE);
+    let width = def.vector_size(MatrixIdent::Accumulator);
+    let count = def.vectors_per_lane(MatrixIdent::Accumulator);
+    let size!(NV) = width;
+    let registers = acc.to_registers::<NV>();
+    #[unroll]
+    for i in 0..count {
+        #[unroll]
+        for e in 0..width {
+            let nth = comptime!((i * width + e) as u32);
+            let (row, col) = def.position_of_nth(UNIT_POS_PLANE, nth, MatrixIdent::Accumulator);
+            out[(row * FRAGMENT_TILE as u32 + col) as usize] = registers[i].extract(e);
+        }
+    }
+}
+
+/// A fragment's registers hold its cells where the target's element positions place them
+/// ([`cmma::Matrix::to_registers`]): every lane's every cell of a `CD` accumulator lands back on
+/// the cell it was loaded from, RDNA3's padded 16-bit sums included. Skipped where the compiler
+/// hides its fragments' positions.
+pub fn test_fragment_registers_hold_their_positions<R: Runtime, CD: Float + CubeElement>(
+    client: Client,
+    cube_dimensions: CubeDim,
+) {
+    let stated = client.target_properties().mma.fragment_positions
+        == cubecl_ir::FragmentPositions::AsElementPositions;
+    let offered = client.features().matmul.cmma.contains(&MmaConfig {
+        a_type: f16::cube_type(),
+        b_type: f16::cube_type(),
+        cd_type: CD::cube_type(),
+        m: FRAGMENT_TILE as u32,
+        k: FRAGMENT_TILE as u32,
+        n: FRAGMENT_TILE as u32,
+    });
+    if !stated || !offered {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let cells = FRAGMENT_TILE * FRAGMENT_TILE;
+    let input: Vec<CD> = (0..cells as i64).map(CD::from_int).collect();
+    let input_handle = client.create_from_slice(CD::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<CD>() * cells);
+
+    kernel_fragment_registers::launch::<CD>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dimensions,
+        unsafe { BufferArg::from_raw_parts(input_handle, cells) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), cells) },
+    );
+
+    let actual = client.read_one_unchecked(out);
+    let actual = CD::from_bytes(&actual);
+    assert_eq!(actual.len(), input.len(), "the whole tile should read back");
+    assert_eq!(actual, &input[..]);
+}
+
 #[cube(launch)]
 pub fn kernel_unsupported_fragment(out: &mut [f32]) {
     let acc = cmma::Matrix::<f32>::from_value(
@@ -1412,7 +1490,12 @@ pub fn test_cmma_manual<
     let actual = CD::from_bytes(&actual);
 
     // The reference multiplies the operands as the device holds them, so fp8 rounding is part of
-    // the expected value. Only the f32 accumulation order may differ.
+    // the expected value. Only the accumulation may differ: its order for a 32-bit sum, and a
+    // rounding at each of the `k` additions, half an ulp each, for a 16-bit one.
+    let tolerance = match size_of::<CD>() {
+        2 => k as f64 * 2f64.powi(-11),
+        _ => 1e-5,
+    };
     let lhs_values: Vec<f64> = lhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     let rhs_values: Vec<f64> = rhs_host.iter().map(|v| v.to_f64().unwrap()).collect();
     assert_eq!(actual.len(), m * n, "the kernel wrote no tile");
@@ -1423,7 +1506,7 @@ pub fn test_cmma_manual<
         let magnitude: f64 = products.map(f64::abs).sum();
         let actual_val = actual_val.to_f64().unwrap();
         let difference = (expected_val - actual_val).abs();
-        if difference > magnitude * 1e-5 {
+        if difference > magnitude * tolerance {
             panic!(
                 "Expected != actual at position {position}: (expected: {expected_val}, actual: {actual_val}, difference: {difference})"
             )
@@ -1590,11 +1673,11 @@ pub fn test_cmma_manual_positions_on_the_host<
 
     let shape = cmma::MatrixShape::from((m, n, k));
     let mma = &client.target_properties().mma;
-    let lanes = mma.const_plane_size as usize;
+    let lanes = mma.const_plane_lane_count as usize;
     for (ident, duplication) in [
-        (MatrixIdent::A, mma.register_duplication_a),
-        (MatrixIdent::B, mma.register_duplication_b),
-        (MatrixIdent::Accumulator, mma.register_duplication_acc),
+        (MatrixIdent::A, mma.register_copy_count_a),
+        (MatrixIdent::B, mma.register_copy_count_b),
+        (MatrixIdent::Accumulator, mma.register_copy_count_acc),
     ] {
         let held = shape.num_elems(ident) * duplication;
         let out = client.create_from_slice(u32::as_bytes(&vec![0; held]));
@@ -3144,6 +3227,26 @@ macro_rules! testgen_cmma {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_fragment_registers_hold_their_positions_f32() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_fragment_registers_hold_their_positions::<
+                TestRuntime,
+                f32,
+            >(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_fragment_registers_hold_their_positions_f16() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_fragment_registers_hold_their_positions::<
+                TestRuntime,
+                half::f16,
+            >(client, cube_dimensions);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_downcast() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -3333,6 +3436,7 @@ macro_rules! testgen_cmma {
             // HIP
             test::<f16, f16, f32>(16, 16, 16);
             test::<f16, f16, f32>(16, 16, 32);
+            test::<f16, f16, f16>(16, 16, 16);
             test::<i8, i8, i32>(16, 16, 16);
             test::<i8, u8, i32>(16, 16, 16);
             test::<u8, i8, i32>(16, 16, 32);

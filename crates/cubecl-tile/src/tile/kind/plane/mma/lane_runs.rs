@@ -120,13 +120,13 @@ impl TryFrom<&TargetProperties> for LaneMap {
     /// A target laying its registers out otherwise, which lane runs do not read.
     fn try_from(target: &TargetProperties) -> Result<Self, Self::Error> {
         let mma = &target.mma;
-        let laid_out = mma.const_plane_size as usize == Self::PLANE_UNITS
+        let laid_out = mma.const_plane_lane_count as usize == Self::PLANE_UNITS
             && mma.register_size_bits == 32
             && mma.register_layout_a == MatrixLayout::RowMajor
             && mma.register_layout_b == MatrixLayout::ColMajor;
         let refused = "the target lays out no 16-bit instruction lane runs read: NVIDIA's \
                        m16n8k16 or RDNA3's 16x16";
-        match (mma.register_duplication_a, mma.register_duplication_b) {
+        match (mma.register_copy_count_a, mma.register_copy_count_b) {
             _ if !laid_out => Err(refused),
             (1, 1) => Ok(Self::NVIDIA_M16N8K16),
             (2, 2) => Ok(Self::RDNA3_16X16),

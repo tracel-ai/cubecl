@@ -15,8 +15,9 @@ use cubecl_core::{
     MemoryConfiguration,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties, PciVendor,
-        PhysicalDevice, TargetProperties, VectorSize,
+        DeviceIdentity, DeviceProperties, FragmentPositions, HardwareProperties,
+        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
+        VectorSize,
         amd::{AmdMatrixCore, GfxArch},
         features::Plane,
     },
@@ -233,7 +234,7 @@ impl DeviceService for HipServer {
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
-            target_properties(matrix_core),
+            target_properties_for(matrix_core, backend),
             logger,
             policy,
         );
@@ -331,12 +332,29 @@ impl Runtime for HipRuntime {
     }
 }
 
-/// The target properties of a device whose matrix core is `core`: its manual MMA's register
-/// layout. A part without one is laid out as RDNA3, whose plane width it shares.
+/// The target properties of a device whose matrix core is `core`, for the backend this build
+/// compiles with ([`HipBackend::default`]).
 fn target_properties(core: Option<AmdMatrixCore>) -> TargetProperties {
+    target_properties_for(core, HipBackend::default())
+}
+
+/// The target properties of a device whose matrix core is `core`, compiled by `backend`: its
+/// manual MMA's register layout, and whether the backend's fragment API states which lane holds
+/// which cell. The LLVM lowering lays a fragment out as the manual MMA does, so it states it;
+/// rocWMMA keeps it to itself. A part without a matrix core is laid out as RDNA3, whose plane
+/// width it shares.
+fn target_properties_for(core: Option<AmdMatrixCore>, backend: HipBackend) -> TargetProperties {
     let core = core.unwrap_or(AmdMatrixCore::Wmma(AmdWmma::Rdna3));
+    let mma = core.mma_properties();
+    let fragment_positions = match backend {
+        HipBackend::Llvm => FragmentPositions::AsElementPositions,
+        HipBackend::Cpp => FragmentPositions::Hidden,
+    };
     TargetProperties {
-        mma: core.mma_properties(),
+        mma: MmaProperties {
+            fragment_positions,
+            ..mma
+        },
     }
 }
 
@@ -494,6 +512,37 @@ impl DeviceProbe {
             integrated: props.integrated != 0,
             host_memory_import: props.canMapHostMemory != 0 && props.hostRegisterSupported != 0,
             physical,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The LLVM backend states which lane holds which cell of a fragment, on every matrix core;
+    /// HIP C++ keeps them hidden, as rocWMMA does.
+    #[test]
+    fn positions_are_stated_only_by_hip_llvm() {
+        let cores = [
+            None,
+            Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3)),
+            Some(AmdMatrixCore::Wmma(AmdWmma::Rdna4)),
+            Some(AmdMatrixCore::Mfma(cubecl_core::ir::amd::AmdMfma::Cdna3)),
+        ];
+        for core in cores {
+            let llvm = target_properties_for(core, HipBackend::Llvm).mma;
+            assert_eq!(
+                llvm.fragment_positions,
+                FragmentPositions::AsElementPositions,
+                "{core:?}"
+            );
+            let cpp = target_properties_for(core, HipBackend::Cpp).mma;
+            assert_eq!(
+                cpp.fragment_positions,
+                FragmentPositions::Hidden,
+                "{core:?}"
+            );
         }
     }
 }

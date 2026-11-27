@@ -31,6 +31,8 @@ const RH: Dimension = Dimension(2);
 const CI: Dimension = Dimension(3);
 const OW: Dimension = Dimension(4);
 const RW: Dimension = Dimension(5);
+/// A folded 2-D convolution's output positions, `oh * ow` as one dimension.
+const P: Dimension = Dimension(6);
 
 /// The software instruction the leaves here run under unless a test states another: a 16-cell
 /// budget, no edge split, no unit fan-out.
@@ -83,7 +85,7 @@ fn conv_kernel_smem(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let mut out_region = out.at(region).accumulating(config, Semiring::SumProd);
         slot.consume(|input, weight| {
@@ -112,7 +114,7 @@ fn conv_kernel_smem_padded(
     let mut stages = Stages::smem_single_at(
         &walk,
         &input,
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         comptime!(Some(width)),
         depth,
         None,
@@ -169,7 +171,7 @@ fn conv_kernel_two_levels_smem(
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
     let walk = space.over(&outer);
-    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &input, &weight, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let out_outer = out.at(region);
         slot.consume(|input, weight| {
@@ -1568,6 +1570,196 @@ fn conv2d_single_tile() {
     .check(3, 3, 2);
 }
 
+// ---- folded 2-D ------------------------------------------------------------
+
+/// [`Conv2d`] with its output positions folded into one dimension, `P = oh * ow`
+/// (`Projection::folded`), gathered straight out of gmem.
+impl Conv2d {
+    fn fold(&self) -> [(Dimension, usize); 2] {
+        [(OH, self.oh), (OW, self.ow)]
+    }
+
+    /// The input `[h, w, ci]` read one cell before each output position, folded into `P`: a
+    /// padding of one, masked to zero, that a run along `P` crosses at every image row.
+    fn folded_input(&self) -> TileSpec {
+        TileSpec::new(
+            Projection::new(
+                &[OH, OW, RH, RW, CI],
+                &[
+                    PhysicalAxisMap::affine(&[(OH, self.sh), (RH, self.dh)]).shifted(-1),
+                    PhysicalAxisMap::affine(&[(OW, self.sw), (RW, self.dw)]).shifted(-1),
+                    PhysicalAxisMap::of(CI),
+                ],
+            )
+            .folded(P, &self.fold()),
+        )
+        .boundary(BoundaryPolicy::Every(Boundary::Zero))
+    }
+
+    /// The input cell output position `p` reads at taps `(rh, rw)`, `None` in the padding.
+    fn folded_source(&self, p: usize, rh: usize, rw: usize) -> Option<usize> {
+        let h = ((p / self.ow) * self.sh + rh * self.dh).checked_sub(1)?;
+        let w = ((p % self.ow) * self.sw + rw * self.dw).checked_sub(1)?;
+        (h < self.in_h() && w < self.in_w()).then(|| (h * self.in_w() + w) * self.ci)
+    }
+
+    /// `P` cut at `tile_p` under the leaf, then one walk per count above it, each a second descent
+    /// along `P`, under the software leaf's edge split, which proves a box in bounds by its corners
+    /// where it can.
+    fn check_folded(&self, tile_p: usize, tile_co: usize, p_counts: &[usize]) {
+        let positions = self.oh * self.ow;
+        let leaf = Levels::leaf(&[
+            (P, tile_p),
+            (CO, tile_co),
+            (RH, self.rh),
+            (RW, self.rw),
+            (CI, self.ci),
+        ]);
+        let tiling = p_counts.iter().fold(leaf, |tiling, &count| {
+            tiling.walk(&[(P, count), (CO, 1), (RH, 1), (RW, 1), (CI, 1)])
+        });
+        let launcher = implied(
+            &cubecl::test_device().client(),
+            Partitioning::new(
+                Space::new(&[
+                    (P, positions),
+                    (CO, self.co),
+                    (RH, self.rh),
+                    (RW, self.rw),
+                    (CI, self.ci),
+                ]),
+                tiling.walk_every(&[P, CO, RH, RW, CI]).build(),
+            ),
+            Form::Static,
+        );
+        let out_spec = TileSpec::new(Projection::direct(&[OH, OW, CO]).folded(P, &self.fold()))
+            .boundary(BoundaryPolicy::Every(Boundary::Zero));
+
+        let (got, input, weight) = run(
+            shape![self.in_h(), self.in_w(), self.ci],
+            shape![self.rh, self.rw, self.ci, self.co],
+            shape![self.oh, self.ow, self.co],
+            self.folded_input(),
+            &[RH, RW, CI, CO],
+            out_spec,
+            launcher,
+            1,
+            SoftwareMatmul::new(16).split_edge(),
+            Stage::InPlace,
+        );
+
+        for p in 0..positions {
+            let (oh, ow) = (p / self.ow, p % self.ow);
+            for c in 0..self.co {
+                let mut want = 0.0f32;
+                for rh in 0..self.rh {
+                    for rw in 0..self.rw {
+                        let Some(at) = self.folded_source(p, rh, rw) else {
+                            continue;
+                        };
+                        for i in 0..self.ci {
+                            want += input[at + i]
+                                * weight[((rh * self.rw + rw) * self.ci + i) * self.co + c];
+                        }
+                    }
+                }
+                assert_eq!(
+                    got.get_f32(&[oh, ow, c]),
+                    want,
+                    "folded conv2d tile {tile_p} counts {p_counts:?}: wrong at ({oh}, {ow}, {c})"
+                );
+            }
+        }
+    }
+
+    /// The weight gradient's shape, `P` contracted whole in one leaf that steps along it:
+    /// `dw[rh, rw, ci, co] = Σ_p in[h(p, rh), w(p, rw), ci] · grad[p, co]`. [`conv_kernel`] writes
+    /// each region's sum rather than adding it, so a walked contraction is not checked here.
+    fn check_folded_contracted(&self) {
+        let positions = self.oh * self.ow;
+        let launcher = implied(
+            &cubecl::test_device().client(),
+            Partitioning::new(
+                Space::new(&[
+                    (RH, self.rh),
+                    (RW, self.rw),
+                    (CI, self.ci),
+                    (CO, self.co),
+                    (P, positions),
+                ]),
+                Levels::leaf(&[
+                    (RH, self.rh),
+                    (RW, self.rw),
+                    (CI, self.ci),
+                    (CO, self.co),
+                    (P, positions),
+                ])
+                .walk_every(&[RH, RW, CI, CO, P])
+                .build(),
+            ),
+            Form::Static,
+        );
+
+        let (got, input, gradient) = run(
+            shape![self.in_h(), self.in_w(), self.ci],
+            shape![positions, self.co],
+            shape![self.rh, self.rw, self.ci, self.co],
+            self.folded_input(),
+            &[P, CO],
+            TileSpec::direct(&[RH, RW, CI, CO]),
+            launcher,
+            1,
+            SoftwareMatmul::new(16),
+            Stage::InPlace,
+        );
+
+        for rh in 0..self.rh {
+            for rw in 0..self.rw {
+                for i in 0..self.ci {
+                    for c in 0..self.co {
+                        let mut want = 0.0f32;
+                        for p in 0..positions {
+                            if let Some(at) = self.folded_source(p, rh, rw) {
+                                want += input[at + i] * gradient[p * self.co + c];
+                            }
+                        }
+                        assert_eq!(
+                            got.get_f32(&[rh, rw, i, c]),
+                            want,
+                            "folded weight gradient: wrong at ({rh}, {rw}, {i}, {c})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 5 by 7 positions in tiles of 8, each spanning image rows, the last overhanging the map.
+const FOLDED: Conv2d = Conv2d {
+    oh: 5,
+    ow: 7,
+    co: 4,
+    rh: 3,
+    rw: 2,
+    ci: 2,
+    sh: 2,
+    sw: 1,
+    dh: 1,
+    dw: 2,
+};
+
+/// A second cut along `P`, so the tile's start along it adds up over two descents.
+#[test]
+fn conv2d_folded_two_levels() {
+    FOLDED.check_folded(4, 2, &[2]);
+}
+
+#[test]
+fn conv2d_folded_contracted() {
+    FOLDED.check_folded_contracted();
+}
+
 // ---- staged ----------------------------------------------------------------
 
 // The same convolutions with the input staged in shared memory. A gathered operand's region is
@@ -2222,7 +2414,7 @@ fn conv_kernel_input_staged(
     let input = input.tile(&space);
     let weight = weight.tile(&space);
     let out = out.tile_mut(&space);
-    let mut stage = input.stage(level.clone(), StageStorage::Strided);
+    let mut stage = input.stage(level.clone(), StageStorage::STRIDED);
     for region in space.over(&level) {
         stage.copy_from(&input.at(&region));
         sync_cube();

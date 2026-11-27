@@ -16,7 +16,7 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::launch::Delivery;
-use cubecl_tile::stage::{Prefetch, RowChunks};
+use cubecl_tile::stage::{Prefetch, RowChunks, StagedOperands};
 use cubecl_tile::*;
 
 use super::{Form, implied};
@@ -136,7 +136,8 @@ fn walk_stages(
     #[comptime] depth: usize,
     #[comptime] schedule: Prefetch,
 ) {
-    let mut stages = Stages::smem(&walk, a, b, storage, depth, None);
+    let staged = comptime!(StagedOperands::Both);
+    let mut stages = Stages::smem_factors(&walk, a, b, staged, K, storage, depth, None);
     stages.walk(walk, schedule, |slot, region| {
         let acc_o = acc.at(region);
         slot.consume(|a_s, b_s| {
@@ -354,6 +355,7 @@ fn check(case: Case) {
             StageStorage::Tiled {
                 block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
                 chunks,
+                order: StageOrder::AsSource,
             },
             Delivery::default(),
             client.properties(),

@@ -414,6 +414,12 @@ impl Tile {
         })
     }
 
+    /// The order this tile's window lays its dimensions down in: its Space's, as the source holds
+    /// them, for every tile.
+    pub(crate) fn stage_order(&self) -> comptime_type!(StageOrder) {
+        comptime!(StageOrder::AsSource)
+    }
+
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.
     pub fn is_shared(&self) -> comptime_type!(bool) {
         match &self.kind {
@@ -855,6 +861,7 @@ impl Tile {
             comptime!(None),
             comptime!(StageOwner::CUBE),
             comptime!(None),
+            comptime!(None),
         )
     }
 
@@ -879,6 +886,7 @@ impl Tile {
                 depth: walk.depth(),
                 storage,
                 width: None,
+                contracted: None,
                 decoded,
                 owner,
             }),
@@ -946,7 +954,7 @@ impl Tile {
         Memory::smem_owned::<Served>(
             &self.place.space,
             1usize,
-            comptime!(StageStorage::Strided),
+            comptime!(StageStorage::STRIDED),
             units,
             comptime!(Delivery::TMA_STAGE_ALIGNMENT),
             comptime!(StageOwner::CUBE),
@@ -1087,9 +1095,9 @@ impl Tile {
                     d.load_window::<S>(src, DeepLoad::Steps, row)
                 }
                 (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, &held),
-                (TileKind::Memory(d), TileKind::TmaGmem(s)) => d.load_box::<S>(s),
+                (TileKind::Memory(d), TileKind::TmaGmem(s)) => load_box::<S>(d, s),
                 (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<S>(s),
-                (TileKind::Memory(d), TileKind::Memory(s)) => d.load_from::<S>(s, &space),
+                (TileKind::Memory(d), TileKind::Memory(s)) => load_from::<S>(d, s, &space),
                 (TileKind::Memory(d), TileKind::Procedural(s)) => d.fill_procedural::<S>(s, &space),
                 (TileKind::PlaneTile(_), TileKind::PlaneTile(_)) => {
                     panic!("Tile::copy_from: plane tile to plane tile cast not wired")
@@ -1150,9 +1158,11 @@ impl Tile {
         }
     }
 
-    /// Add `src`'s spilled cells into this memory window.
+    /// Add `src`'s spilled cells into this memory window, its box listed in `src`'s order as
+    /// [`copy_cast_from`](Tile::copy_cast_from) lists it, so the spilled rows land on the
+    /// accumulator's rows whatever order the window lists its dimensions in.
     pub(crate) fn add_from_scratch<S: Numeric, R: Numeric>(&mut self, src: &Tile) {
-        let space = comptime!(self.place.space.clone());
+        let space = comptime!(self.place.space.in_order_of(&src.place.space));
         match (&mut self.kind, &src.kind) {
             (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.add_from_scratch::<R, S>(d, &space),
             (TileKind::Memory(d), TileKind::PlanePartition(s)) => {
@@ -2059,7 +2069,7 @@ mod tests {
 
     /// A tile of shared memory over `space`, which varies along each of its dimensions.
     fn shared(scope: &Scope, space: &[(Dimension, usize)]) -> TileExpand {
-        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::Strided)
+        Tile::__expand_shared::<f32>(scope, Space::new(space), StageStorage::STRIDED)
     }
 
     #[test]

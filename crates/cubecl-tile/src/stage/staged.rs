@@ -45,7 +45,7 @@ impl Memory {
         let mut dst = self.flat_mut::<T, Const<1>>();
         let total = dst.shape();
         for line in Walk::copy(&fill, total) {
-            let i = line.coord(Level::COPIED);
+            let i = line.copied_line();
             let pos = shape.unravel(i.cast::<u32>());
             // TODO: masked cells use Procedural's zero fallback, not the reduction's identity.
             dst.write(i, Vector::cast_from(src.read_masked::<T>(&pos, space)));
@@ -56,7 +56,9 @@ impl Memory {
     /// served `width` wide where stated, for `owner`: the cube, or each plane a copy of its own,
     /// which only a plain stage of served values is. A reader that names the element it decodes
     /// into, `decoded`, is staged values where it could be staged words
-    /// ([`stage_element_for`](Tile::stage_element_for)).
+    /// ([`stage_element_for`](Tile::stage_element_for)). A plain operand staged as it lies is laid
+    /// out in the order the fragments reading it take, `contracted` the Dimension its caller
+    /// states a contraction sums it along ([`StageStorage::ordered_for_fragments`]).
     pub(crate) fn stage<S: Numeric>(
         operand: &Tile,
         #[comptime] level: &Level,
@@ -64,6 +66,7 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         match storage.clone() {
             // The plane holds the units at the depth of one region of `level`.
@@ -80,7 +83,9 @@ impl Memory {
                     element: elem_type_of::<S>(),
                 }
             }
-            _ => Memory::stage_memory::<S>(operand, level, storage, width, owner, decoded),
+            _ => Memory::stage_memory::<S>(
+                operand, level, storage, width, owner, decoded, contracted,
+            ),
         }
     }
 
@@ -92,10 +97,15 @@ impl Memory {
         #[comptime] width: Option<usize>,
         #[comptime] owner: StageOwner,
         #[comptime] decoded: Option<ElemType>,
+        #[comptime] contracted: Option<Dimension>,
     ) -> Tile {
         let element = operand.stage_element_for(decoded);
         let decodes = comptime!(element == StageElement::Decoded);
         let packing = operand.packing();
+        let space = comptime!(level.child(&operand.place.space));
+        let factor = Memory::factor_stage::<S>(operand, &space, width, element, contracted);
+        let target = comptime::target_properties().comptime();
+        let storage = comptime!(storage.ordered_for_fragments(&factor, &target.mma));
         let stage = Memory::stage_memory_as_served::<S>(
             operand, level, storage, width, owner, element, decodes,
         );
@@ -104,6 +114,39 @@ impl Memory {
             Packing::Words { .. } => stage.served_as(packing),
             Packing::Plain | Packing::Packed { .. } => stage,
         }
+    }
+
+    /// The facts of `operand`'s stage over `space` that the order its fragments read it in is
+    /// decided by, holding `element` and served `width` wide where stated, `contracted` the
+    /// Dimension its caller states a contraction sums it along.
+    fn factor_stage<S: Numeric>(
+        operand: &Tile,
+        #[comptime] space: &Space,
+        #[comptime] width: Option<usize>,
+        #[comptime] element: StageElement,
+        #[comptime] contracted: Option<Dimension>,
+    ) -> comptime_type!(FactorStage) {
+        let packing = operand.packing();
+        let quantized = operand.quantized();
+        let memory = operand.is_memory();
+        let projection = operand.projection();
+        let delivery = operand.delivery();
+        let source_width = operand.vector_size();
+        let elem = elem_type_of::<S>();
+        comptime!(FactorStage {
+            space: space.clone(),
+            contracted,
+            elem_bits: elem.size_bits(),
+            vector_size: source_width,
+            delivery,
+            source: StageSource {
+                served: element == StageElement::Served,
+                plain: packing == Packing::Plain && !quantized,
+                own_width: width.is_none(),
+                memory,
+                direct: projection.is_direct(),
+            },
+        })
     }
 
     /// [`stage_memory`](Memory::stage_memory) before a stage of words is read as words.
@@ -220,5 +263,56 @@ impl Memory {
                 owner,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_scope::test_scope;
+    use crate::*;
+
+    use super::StageElement;
+
+    const M: Dimension = Dimension(0);
+    const K: Dimension = Dimension(1);
+
+    /// The facts the Lowering decides the order of a plain `[m, k]` `f32` operand's stage by,
+    /// its caller stating `contracted` and the stage served `width` wide where stated.
+    fn factor_stage(contracted: Option<Dimension>, width: Option<usize>) -> FactorStage {
+        let scope = test_scope();
+        let space = Space::new(&[(M, 16), (K, 16)]);
+        let operand = Tile::__expand_shared::<f32>(&scope, space.clone(), StageStorage::STRIDED);
+        Memory::__expand_factor_stage::<f32>(
+            &scope,
+            &operand,
+            &space,
+            width,
+            StageElement::Served,
+            contracted,
+        )
+    }
+
+    /// A matmul's caller states the Dimension its contraction sums the operand along.
+    #[test]
+    fn a_factor_stage_holds_the_contraction_its_caller_states() {
+        assert_eq!(factor_stage(Some(K), None).contracted, Some(K));
+    }
+
+    /// An attention's caller states no contraction for its keys and values.
+    #[test]
+    fn a_factor_stage_holds_no_contraction_where_its_caller_states_none() {
+        assert_eq!(factor_stage(None, None).contracted, None);
+    }
+
+    /// A plain operand of memory, served at its own width, is copied as it lies.
+    #[test]
+    fn a_plain_operand_at_its_own_width_is_copied_as_it_lies() {
+        assert!(factor_stage(Some(K), None).source.copied_as_it_lies());
+    }
+
+    /// A stage served at a width of its own is not copied as it lies.
+    #[test]
+    fn a_stage_at_a_width_of_its_own_is_not_copied_as_it_lies() {
+        assert!(!factor_stage(Some(K), Some(4)).source.copied_as_it_lies());
     }
 }

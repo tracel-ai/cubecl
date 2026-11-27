@@ -8,5 +8,6 @@ pub(crate) mod scaled;
 pub(crate) mod scanned;
 pub(crate) mod straight;
 
+pub(crate) use base::fill_from;
 pub(crate) use padded::Padding;
 pub(crate) use prefetch::MOST_FETCHED_REGISTERS;

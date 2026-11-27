@@ -80,13 +80,20 @@ impl TileTensorLaunch {
     ///
     /// # Panics
     ///
-    /// As [`tensor_map_folded`](Self::tensor_map_folded).
+    /// As [`tensor_map_folded`](Self::tensor_map_folded), and for a folded projection
+    /// ([`Projection::folded`]), whose windows are not boxes.
     pub fn tensor_map_with_coordinates_through(
         tensor_map: TensorMapArg<Tiled>,
         projection: Projection,
         extents: &[u32],
         coordinates: TmaCoordinates,
     ) -> Self {
+        assert!(
+            projection.digit_dimensions().is_empty(),
+            "TileTensorLaunch::tensor_map_with_coordinates_through: a folded operand's window \
+             covers every value of each digit, not the cells a tile reads, so it lands as no \
+             descriptor box"
+        );
         Self::with_coordinates(tensor_map, TileSpec::new(projection), extents, coordinates)
     }
 

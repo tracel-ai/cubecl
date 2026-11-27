@@ -132,7 +132,7 @@ fn separable_kernel_staged<E: Float>(
     let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let mut stages =
-        Stages::smem_single_at(&walk, &input, StageStorage::Strided, width, 1usize, None);
+        Stages::smem_single_at(&walk, &input, StageStorage::STRIDED, width, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
@@ -616,7 +616,7 @@ fn resample_kernel_masked_staged<E: Float>(
 
     let output = output.tile_mut(&space);
     let walk = space.over(&level);
-    let mut stages = Stages::smem_single(&walk, &input, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem_single(&walk, &input, StageStorage::STRIDED, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)
@@ -1121,7 +1121,7 @@ fn separable_scaled_kernel<E: Float>(
     let output = output.tile_mut(&space);
     let walk = space.over(&level);
     let decoded = input.mul(&scale);
-    let mut stages = Stages::smem_single(&walk, &decoded, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem_single(&walk, &decoded, StageStorage::STRIDED, 1usize, None);
     stages.pipelined(walk, |slot, region| {
         let mut out = output
             .at(region)

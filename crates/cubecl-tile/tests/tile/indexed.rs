@@ -15,7 +15,10 @@ use cubecl::{
     zspace::Shape,
 };
 use cubecl_tile::kind::Boundary;
-use cubecl_tile::launch::Decline;
+use cubecl_tile::kind::Write;
+use cubecl_tile::launch::{
+    Buffered, Decline, Destination, DestinationLaunch, ServedDestination, ServedDestinationExpand,
+};
 use cubecl_tile::layout::StorageLevels;
 use cubecl_tile::*;
 
@@ -158,7 +161,7 @@ fn indexed_staged_matmul_kernel(
     let out = out.tile_mut(&space);
 
     let tiles = space.over(&rows);
-    let mut stages = Stages::smem_single(&tiles, &w, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem_single(&tiles, &w, StageStorage::STRIDED, 1usize, None);
     stages.pipelined(tiles, |slot, tile| {
         let mut o = out
             .at(tile)
@@ -678,7 +681,7 @@ fn indexed_staged_ragged_sum_kernel<E: Numeric>(
         let mut total = out.at(&g);
         total.init::<E>(Monoid::identity::<E>(comptime!(Monoid::Sum)));
         let blocks = g.walk_within(&rows);
-        let mut stages = Stages::smem_single(&blocks, &rows, StageStorage::Strided, depth, None);
+        let mut stages = Stages::smem_single(&blocks, &rows, StageStorage::STRIDED, depth, None);
         stages.pipelined(blocks, |slot, blk| {
             let mut cell = total.at(blk);
             slot.consume(|rows_s| {
@@ -813,6 +816,86 @@ fn assert_ragged(got: &HostData, ends: &[u32], what: &str) {
                 *cell,
                 "{what}: group {g} feature {d} under ends {ends:?}"
             );
+        }
+    }
+}
+
+/// Fills every row of each group's run with one.
+#[cube(launch)]
+fn fill_runs_kernel<E: Float, V: Size, O: Destination>(
+    out: &mut O::Arg<E>,
+    space: Partitioning,
+    #[comptime] group: Level,
+    #[comptime] block: Level,
+    #[define(E)] _dtype: ElemType,
+) {
+    let dest = O::serve::<E, V>(out, &space);
+    let out = dest.tile();
+    for g in space.over(&group) {
+        let rows = out.at(&g);
+        for blk in rows.over(&block) {
+            let mut cell = rows.at(&blk);
+            cell.init::<E>(E::new(1.0));
+        }
+    }
+    dest.finish();
+}
+
+/// An output [`Bound`] carrying `Run(P)` keyed by the group dimension, served through
+/// [`Buffered`], is written over each group's rows alone: runs of 2, 0, 5 and 3 rows leave the
+/// six rows past the last end as they were.
+#[test]
+fn an_output_carrying_its_table_is_written_over_each_groups_run() {
+    let client = cubecl::test_device().client();
+    let f32_ty = f32::elem_type_native();
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(G, GROUPS), (P, PACKED), (D, FEATURES)]),
+            Levels::leaf(&[(G, 1), (P, BLOCK)])
+                .walk_every(&[P])
+                .walk_every(&[G])
+                .build(),
+        ),
+        Form::DynamicAlong(&[P]),
+    );
+    let ends = [2u32, 2, 7, 10];
+    let out = TestInput::builder(client.clone(), Shape::new([PACKED, FEATURES]))
+        .dtype(f32_ty)
+        .custom(vec![-1.0; PACKED * FEATURES])
+        .generate_without_host_data();
+    let bound = launcher
+        .arg(out.clone().binding(), f32_ty)
+        .dimensions(&[P, D])
+        .vectorize(1)
+        .build()
+        .unwrap()
+        .indexed(
+            table(&client, &ends, Shape::new([ends.len()]), &[G]),
+            Indexing::Run(P),
+        )
+        .unwrap();
+    let (group, block) = (
+        launcher.partitioning().level(0),
+        launcher.partitioning().level(1),
+    );
+    fill_runs_kernel::launch::<Buffered>(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        1,
+        Buffered::arg((bound, Write::Replace)),
+        launcher.partitioning_arg(),
+        group,
+        block,
+        f32_ty,
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    for p in 0..PACKED {
+        for d in 0..FEATURES {
+            let want = if p < 10 { 1.0 } else { -1.0 };
+            assert_eq!(got.get_f32(&[p, d]), want, "row {p} feature {d}");
         }
     }
 }

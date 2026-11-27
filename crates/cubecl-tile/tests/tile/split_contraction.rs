@@ -799,7 +799,7 @@ fn atomic_split_cmma<E: Numeric>(
             &walk,
             &a_cube,
             &b_cube,
-            comptime!(StageStorage::Strided),
+            comptime!(StageStorage::STRIDED),
             1usize,
             None,
         );

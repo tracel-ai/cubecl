@@ -49,10 +49,21 @@ where
             scope,
             walk,
             self,
-            |scope, stages, slot, region| stages.fill_streamed(scope, slot, region),
+            |scope, stages, slot, region, reach| match reach {
+                Reach::Walked => stages.fill_streamed(scope, slot, region),
+                Reach::InsideRuns => stages.fill_inside_run(scope, slot, region),
+            },
             compute,
         )
     }
+}
+
+/// Which sources a schedule's fill reads: the stages' own, or the ones a walk proves its region
+/// inside the runs of ([`StagesFill::fill_inside_run`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reach {
+    Walked,
+    InsideRuns,
 }
 
 /// Where a walk's next stage waits while the previous one is contracted.
@@ -68,17 +79,26 @@ pub enum Prefetch {
     /// scales kept beside their values, filler planes, a source an engine moves, a depth past 2, a
     /// fill that converts, rewidens, gathers or packs its source or masks its stage, a
     /// decoding fill whose scales are not held as words, a stage whose per-unit share is unknown,
-    /// and loads past [`fits`](Prefetch::fits).
+    /// and loads past [`fits_registers`](Prefetch::fits_registers).
     InRegisters,
 }
 
 impl Prefetch {
     /// Loads one of `units` units takes of a stage of `elements` values read `width` at a time.
+    ///
+    /// # Assumptions
+    ///
+    /// - `units` is a known count, above zero.
+    ///
+    /// # Panics
+    ///
+    /// - Where `units` is zero, which deals the lines to no known count of units.
     pub fn turns(elements: usize, units: usize, width: usize) -> usize {
         Level::copied_by_cube(units)
             .copy_turns(elements.div_ceil(width))
             .expect(
-                "Prefetch::turns: a register prefetch deals its lines to a known count of units",
+                "Prefetch::turns: a register prefetch should deal its lines to a known count of \
+                 units",
             )
     }
 
@@ -97,7 +117,16 @@ impl Prefetch {
 
     /// Whether a register prefetch holding `registers` 32-bit registers a unit, over both
     /// operands, is accepted.
-    pub fn fits(registers: usize) -> bool {
+    ///
+    /// # Assumptions
+    ///
+    /// - `registers` counts the lines a unit fetches, not the addresses it keeps across the
+    ///   contraction.
+    ///
+    /// # Guarantees
+    ///
+    /// - Accepts at most a quarter of the 256 registers a unit addresses.
+    pub fn fits_registers(registers: usize) -> bool {
         registers <= MOST_FETCHED_REGISTERS
     }
 }
@@ -123,9 +152,41 @@ impl StagesExpand<OperandPair> {
         F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
     {
         match prefetch {
-            Prefetch::InSlots => self.__expand_pipelined_method(scope, walk, compute),
+            Prefetch::InSlots => self.pipelined_through_registers(scope, walk, compute),
             Prefetch::InRegisters => self.__expand_prefetched_method(scope, walk, compute),
         }
+    }
+
+    /// [`pipelined`](Stages::pipelined), each slot filled through registers where every unit can
+    /// hold its share of both operands' fill ([`Stages::fills_through_registers`]): all of a
+    /// unit's loads of a slot issue before its first store.
+    fn pipelined_through_registers<F>(&mut self, scope: &Scope, walk: WalkExpand, compute: F)
+    where
+        F: FnMut(&Scope, &mut SlotExpand<OperandPair>, &RegionExpand),
+    {
+        if !self.__expand_fills_through_registers_method(scope) {
+            return self.__expand_pipelined_method(scope, walk, compute);
+        }
+        define_scalar!(Lhs);
+        define_scalar!(Rhs);
+        let (lhs_element, rhs_element) = self.__expand_fetched_elements_method(scope);
+        let _lhs = scope.define_type::<Lhs>(lhs_element);
+        let _rhs = scope.define_type::<Rhs>(rhs_element);
+        shared::run(
+            scope,
+            walk,
+            self,
+            |scope, stages, slot, region, reach| {
+                let sources = match reach {
+                    Reach::Walked => stages.sources.clone(),
+                    Reach::InsideRuns => stages.sources.__expand_inside_runs_method(scope),
+                };
+                stages.__expand_fill_through_registers_method::<Lhs, Rhs>(
+                    scope, slot, &sources, region,
+                );
+            },
+            compute,
+        )
     }
 }
 
@@ -421,7 +482,7 @@ mod shared {
         mut compute: F,
     ) where
         StagesExpand<T>: StagesFill,
-        Fill: FnMut(&Scope, &mut StagesExpand<T>, usize, &RegionExpand),
+        Fill: FnMut(&Scope, &mut StagesExpand<T>, usize, &RegionExpand, Reach),
         F: FnMut(&Scope, &mut SlotExpand<T>, &RegionExpand),
     {
         let depth = stages.depth;
@@ -440,7 +501,7 @@ mod shared {
             let cond = index.__expand_lt_method(scope, &total);
             if_expand(scope, cond, |scope| {
                 let region = walk.__expand_region_method(scope, slot.into_expand(scope));
-                fill(scope, stages, slot, &region);
+                fill(scope, stages, slot, &region, Reach::Walked);
             });
         }
 
@@ -449,20 +510,21 @@ mod shared {
             .__expand_divided_by_method(scope, depth.into_expand(scope));
         // Over a run ([`Walk::run`]) the steady laps leave its last region to the last laps and fill
         // unchecked.
-        let steady = match walk.run {
-            None => steady_ahead_laps(scope, &walk, stages, total, 0, &mut fill, &mut compute),
-            Some(_) => steady_ahead_laps(
-                scope,
-                &walk,
-                stages,
-                total,
-                1,
-                &mut |scope, stages: &mut StagesExpand<T>, slot, region: &RegionExpand| {
-                    stages.fill_inside_run(scope, slot, region)
-                },
-                &mut compute,
-            ),
+        let (held_back, reach) = match walk.run {
+            None => (0, Reach::Walked),
+            Some(_) => (1, Reach::InsideRuns),
         };
+        let steady = steady_ahead_laps(
+            scope,
+            &walk,
+            stages,
+            total,
+            held_back,
+            &mut |scope, stages: &mut StagesExpand<T>, slot, region: &RegionExpand| {
+                fill(scope, stages, slot, region, reach)
+            },
+            &mut compute,
+        );
         let mut body = |scope: &Scope, lap: NativeExpand<usize>| {
             for j in 0..depth {
                 let region_idx = lap
@@ -470,7 +532,7 @@ mod shared {
                     .__expand_plus_method(scope, j.into_expand(scope));
                 if depth == 1 {
                     let region = walk.__expand_region_method(scope, region_idx);
-                    fill(scope, stages, FIRST_SLOT, &region);
+                    fill(scope, stages, FIRST_SLOT, &region, Reach::Walked);
                     stages.publish(scope, FIRST_SLOT);
                     let slot = stages.placed_slot(scope, FIRST_SLOT, &region);
                     compute(scope, slot, &region);
@@ -482,7 +544,13 @@ mod shared {
                     // Compute is emitted once, after the fill branch, keeping its accumulator live.
                     if_else_expand(scope, prefetching, |scope| {
                         let prefetch = walk.__expand_region_method(scope, ahead);
-                        fill(scope, stages, (j + depth - 1) % depth, &prefetch);
+                        fill(
+                            scope,
+                            stages,
+                            (j + depth - 1) % depth,
+                            &prefetch,
+                            Reach::Walked,
+                        );
                     })
                     .or_else(scope, |scope| {
                         // Draining: no fill follows, so this consume publishes.
@@ -551,5 +619,38 @@ mod shared {
             &mut steady_body,
         );
         steady
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit of 128 takes two turns over 1024 values read 4 at a time.
+    #[test]
+    fn a_unit_takes_its_share_of_the_lines() {
+        assert_eq!(Prefetch::turns(1024, 128, 4), 2);
+    }
+
+    /// A count of units the walk does not know deals no turns.
+    #[test]
+    #[should_panic(expected = "known count of units")]
+    fn turns_need_a_known_count_of_units() {
+        Prefetch::turns(1024, 0, 4);
+    }
+
+    /// A straight fill holds its loads whole; a decoding fill holds their words and a scale word
+    /// per landed line.
+    #[test]
+    fn a_fill_holds_its_loads_in_registers() {
+        assert_eq!(Prefetch::straight_registers(2, 8, 16), 8);
+        assert_eq!(Prefetch::decoded_registers(2, 8, 4, 4), 2 * (1 + 2));
+    }
+
+    /// A prefetch is accepted up to its register budget, and refused past it.
+    #[test]
+    fn a_prefetch_fits_up_to_its_budget() {
+        assert!(Prefetch::fits_registers(MOST_FETCHED_REGISTERS));
+        assert!(!Prefetch::fits_registers(MOST_FETCHED_REGISTERS + 1));
     }
 }
