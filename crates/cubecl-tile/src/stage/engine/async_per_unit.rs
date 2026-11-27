@@ -18,7 +18,7 @@ use cubecl::{
     prelude::*,
 };
 
-use cubecl_std::tensor::layout::{CoordsDyn, Layout, LayoutExpand};
+use cubecl_std::tensor::layout::CoordsDyn;
 
 use crate::*;
 
@@ -74,7 +74,7 @@ fn copy_line_async<I2: Numeric, W: Size>(
     i: usize,
 ) {
     let coords = layout.row_major_coords(i);
-    let offset = layout.to_source_pos(coords.clone());
+    let offset = layout.coordinate_offset(coords.clone());
     let run = s.item_run(coords);
     let width = W::value();
     let dst = &mut d[offset..offset + 1];
