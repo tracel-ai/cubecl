@@ -59,6 +59,7 @@ pub mod topology;
 pub mod traits;
 pub mod unary;
 pub mod unroll;
+pub mod upload;
 pub mod vector;
 pub mod wgmma;
 
@@ -170,6 +171,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_bf16!();
         cubecl_core::testgen_file!();
+        cubecl_core::testgen_upload!();
         cubecl_core::testgen_read_lazy!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();

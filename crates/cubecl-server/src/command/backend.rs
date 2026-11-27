@@ -137,6 +137,13 @@ pub trait Driver: Sized {
     /// an environment switch — can leave a launch without its kernel.
     type Loaded;
 
+    /// Whether a large copy from pageable host memory is faster bounced
+    /// through pinned chunks than handed to the driver as it is.
+    ///
+    /// `false` by default, for a driver that reads host memory directly or
+    /// stages pageable copies at full bandwidth itself.
+    const CHUNKS_LARGE_UPLOADS: bool = false;
+
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
     ///
