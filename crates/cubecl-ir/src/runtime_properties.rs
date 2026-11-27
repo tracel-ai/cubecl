@@ -46,6 +46,18 @@ pub struct MmaProperties {
     /// matrix instruction
     #[cfg_attr(feature = "serde", serde(skip))]
     pub element_positions: OperandFact<Option<ElementPositions>>,
+    pub fragment_positions: FragmentPositions,
+}
+
+/// Whether a compiler states which lane holds which cell of a fragment of the fragment API.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
+pub enum FragmentPositions {
+    /// The compiler hides which lane holds a cell, as `wmma`, rocWMMA, SPIR-V and Metal do.
+    #[default]
+    Hidden,
+    /// A fragment's registers hold their cells where the manual MMA's element positions say.
+    AsElementPositions,
 }
 
 /// What a target says of each operand of its manual matrix instructions, by the operand's role and
@@ -124,6 +136,52 @@ impl MmaProperties {
         shape: MatrixShape,
         elem: ElemType,
     ) -> VectorSize {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.contiguous_elements.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// Where the elements a lane holds of operand `ident`, of `elem`, in a contraction of `shape`
+    /// lie in it, for code that picks a definition ahead.
+    ///
+    /// # Assumptions
+    ///
+    /// - The target's positions depend on neither the operand's layout nor its scope.
+    ///
+    /// # Guarantees
+    ///
+    /// - The answer is the positions a kernel reads off its own `MmaDefinition` of that operand,
+    ///   `None` where the target has no manual matrix instruction for it.
+    pub fn element_positions_of(
+        &self,
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+    ) -> Option<ElementPositions> {
+        Self::with_matrix(ident, shape, elem, |ctx, matrix| {
+            self.element_positions.apply(ctx, ident, matrix)
+        })
+    }
+
+    /// The elements a lane holds of operand `ident` of `elems` elements, each held by its
+    /// operand's register copy count of lanes.
+    pub fn elems_per_lane(&self, ident: MatrixIdent, elems: usize) -> usize {
+        let copies = match ident {
+            MatrixIdent::A => self.register_copy_count_a,
+            MatrixIdent::B => self.register_copy_count_b,
+            MatrixIdent::Accumulator => self.register_copy_count_acc,
+        };
+        elems * copies / self.const_plane_lane_count as usize
+    }
+
+    /// `fact` of operand `ident`, of `elem`, in a contraction of `shape`, asked in a context of
+    /// its own.
+    fn with_matrix<T>(
+        ident: MatrixIdent,
+        shape: MatrixShape,
+        elem: ElemType,
+        fact: impl FnOnce(&Context, TypedHandle<MatrixType>) -> T,
+    ) -> T {
         let ctx = Context::default();
         let matrix = MatrixType::get(
             &ctx,
@@ -133,7 +191,7 @@ impl MmaProperties {
             MatrixLayout::ColMajor,
             MatrixScope::Plane,
         );
-        self.contiguous_elements.apply(&ctx, ident, matrix)
+        fact(&ctx, matrix)
     }
 }
 
@@ -150,6 +208,7 @@ impl Default for MmaProperties {
             register_copy_count_acc: 1,
             contiguous_elements: Default::default(),
             element_positions: Default::default(),
+            fragment_positions: FragmentPositions::default(),
         }
     }
 }
