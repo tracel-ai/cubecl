@@ -41,6 +41,11 @@ pub struct Handle {
     /// The address kernels on other devices bind this memory at, once the
     /// owning client [shared](crate::client::Client::share_with_peers) it.
     pub peer: Option<PeerMemory>,
+    /// Shared by this handle and its clones, and by nothing else: the
+    /// runtime's own references go through `memory` or a binding, so what
+    /// [`can_mut`](Self::can_mut) counts does not depend on how far the
+    /// device thread has got.
+    holders: Arc<()>,
 }
 
 /// Memory one device lets kernels on the other devices of its runtime bind.
@@ -158,12 +163,15 @@ impl Clone for Handle {
             stream: self.stream,
             size: self.size,
             peer: self.peer.clone(),
+            holders: self.holders.clone(),
         }
     }
 }
 
 impl Handle {
-    /// Creates a new handle of the given size.
+    /// Creates a new handle of the given size, with holders of its own:
+    /// handles already over `id` do not count toward its
+    /// [`can_mut`](Self::can_mut), nor it toward theirs.
     pub fn from_memory(
         id: ManagedMemoryHandle,
         service: ServiceId,
@@ -178,6 +186,7 @@ impl Handle {
             stream,
             size,
             peer: None,
+            holders: Arc::new(()),
         }
     }
     /// Creates a new handle of the given size.
@@ -190,11 +199,12 @@ impl Handle {
             stream,
             size,
             peer: None,
+            holders: Arc::new(()),
         }
     }
     /// Checks whether the handle can be mutated in-place without affecting other computation.
     pub fn can_mut(&self) -> bool {
-        self.memory.can_mut()
+        Arc::strong_count(&self.holders) == 1
     }
 
     /// Returns the [`BufferBinding`] corresponding to the current handle.
@@ -464,5 +474,52 @@ impl BufferBinding {
     /// Get the total size of the handle, in bytes.
     pub fn size(&self) -> u64 {
         self.size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_common::device::DeviceId;
+
+    fn handle() -> Handle {
+        Handle::new(
+            ServiceId::of::<()>(DeviceId::new(0, 0)),
+            StreamId { value: 0 },
+            8,
+        )
+    }
+
+    #[test]
+    fn runtime_references_do_not_count_toward_can_mut() {
+        let handle = handle();
+        // What an allocation queued on the device thread and its pool hold.
+        let _held = (
+            handle.memory.clone(),
+            handle.memory.clone(),
+            handle.clone().binding(),
+        );
+        assert!(handle.can_mut());
+    }
+
+    #[test]
+    fn a_clone_counts_toward_can_mut_while_it_lives() {
+        let handle = handle();
+        let clone = handle.clone();
+        assert!(!handle.can_mut() && !clone.can_mut());
+        drop(clone);
+        assert!(handle.can_mut());
+    }
+
+    #[test]
+    fn from_memory_does_not_share_holders() {
+        let handle = handle();
+        let other = Handle::from_memory(
+            handle.memory.clone(),
+            handle.service,
+            handle.stream,
+            handle.size,
+        );
+        assert!(handle.can_mut() && other.can_mut());
     }
 }
