@@ -176,7 +176,7 @@ impl Tile {
             comptime!(OpenedBy::RescaledAccumulator),
         );
         let instruction = sum.sum_instruction();
-        let bounced = comptime!(instruction.hides_cell_positions());
+        let bounced = comptime!(instruction.takes_scratch());
         sum.with_scratch(comptime!(if bounced { scratch } else { Scratch::None }))
     }
 
@@ -752,7 +752,7 @@ impl Tile {
         match &self.kind {
             // The fragment's own edges: the placement's space spans every plane's grid.
             TileKind::PlanePartition(p) => {
-                let cmma = p.hides_cell_positions();
+                let cmma = p.takes_scratch();
                 if comptime!(cmma) {
                     casts_in_place::<A, Out>(comptime!(p.rows), comptime!(p.cols))
                 } else {
@@ -789,7 +789,7 @@ impl Tile {
     fn scratch_unopened(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::PlanePartition(p) => {
-                let cmma = p.hides_cell_positions();
+                let cmma = p.takes_scratch();
                 comptime!(cmma && p.held == Scratch::None)
             }
             TileKind::Memory(_)
@@ -852,12 +852,12 @@ impl Tile {
         dest.fragments_bounce(in_place)
     }
 
-    /// Whether this plane-resident sum hides which unit holds which of its cells
-    /// ([`Instruction::hides_cell_positions`]); a memory tile hides nothing.
-    fn hides_cell_positions(&self) -> comptime_type!(bool) {
+    /// Whether this plane-resident sum is backed by a scratch ([`Instruction::takes_scratch`]); a
+    /// memory tile is not.
+    fn takes_scratch(&self) -> comptime_type!(bool) {
         match &self.kind {
-            TileKind::PlanePartition(p) => p.hides_cell_positions(),
-            TileKind::PlaneTile(t) => t.hides_cell_positions(),
+            TileKind::PlanePartition(p) => p.takes_scratch(),
+            TileKind::PlaneTile(t) => t.takes_scratch(),
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
@@ -874,8 +874,8 @@ impl Tile {
         #[comptime] chunks: usize,
     ) {
         let bounces = self.bounces_into::<A, Out>(dest);
-        let hides = self.hides_cell_positions();
-        let one_tile = comptime!(DrainPass::for_one_tile(hides && bounces));
+        let scratch_backed = self.takes_scratch();
+        let one_tile = comptime!(DrainPass::for_one_tile(scratch_backed && bounces));
         match &self.kind {
             TileKind::PlanePartition(p) => drain_planned::<A, Out>(
                 self,

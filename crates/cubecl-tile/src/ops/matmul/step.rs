@@ -27,8 +27,8 @@ pub struct ProductStep {
 ///
 /// # Guarantees
 ///
-/// - A cell is bounced only where the instruction computing the Step hides which unit holds a
-///   cell of its sum ([`Instruction::hides_cell_positions`]).
+/// - A cell is bounced only where the instruction computing the Step is [`Instruction::Cmma`],
+///   whose sum a scratch backs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct StepCost {
     /// The cell a drained sum is spilled through shared memory in, one call's output; `None`
@@ -168,15 +168,11 @@ impl StepCost {
 }
 
 impl StepCost {
-    /// The cost of a Step computed by `call`: an instruction that hides which unit holds a cell
-    /// ([`Instruction::hides_cell_positions`]) bounces its sum through shared memory a call's
-    /// cell at a time.
+    /// The cost of a Step computed by `call`: an instruction that backs its sum with a scratch
+    /// ([`Instruction::takes_scratch`]) bounces it through shared memory a call's cell at a time.
     fn of(call: ShapedInstruction) -> Self {
         Self {
-            bounced_cell: call
-                .instruction
-                .hides_cell_positions()
-                .then_some(call.cell()),
+            bounced_cell: call.instruction.takes_scratch().then_some(call.cell()),
         }
     }
 }
