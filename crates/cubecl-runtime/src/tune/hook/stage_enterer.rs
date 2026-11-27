@@ -34,8 +34,6 @@ pub trait StageEnterer<K, I: TuneInputs>: Send + Sync + 'static {
     fn enter<'a>(&self, stage: TuneStage, key: &K, inputs: &I::At<'a>) -> Box<dyn Any>;
 }
 
-/// `Fn(TuneStage, &K, &A) -> G` acts as a [`StageEnterer`] when `A` is an owned type, `G` being the
-/// guard dropped as the stage ends.
 impl<K, Func, A, G> StageEnterer<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,

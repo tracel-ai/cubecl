@@ -171,8 +171,8 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     }
 
     /// The candidates of `key` in the order an untuned key runs them.
-    pub(crate) fn run_order(&self, key: &K) -> Arc<[usize]> {
-        self.candidates.run_order(key)
+    pub(crate) fn plan_run_order(&self, key: &K) -> Arc<[usize]> {
+        self.candidates.plan_run_order(key)
     }
 
     /// The function of the candidate at `index`, an index the tuner answered for this set.

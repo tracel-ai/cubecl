@@ -5,7 +5,7 @@ use core::hash::Hash;
 use cubecl_environment::sync::{Mutex, RwLock};
 
 use crate::client::Client;
-use crate::tune::cache::tracker::TuneCacheResult;
+use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::execute::set_initializer::SetInitializer;
 use crate::tune::execute::tuner_opener::TunerOpener;
 use crate::tune::{
@@ -61,7 +61,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
             .lock()
             .opened(id, operations.checksum())?
             .clone();
-        let TuneCacheResult::Hit { fastest_index } = tuner.fastest(key) else {
+        let TuneAnswer::Hit { fastest_index } = tuner.fastest(key) else {
             return None;
         };
         Some(operations.identity_at(fastest_index).clone())
@@ -98,7 +98,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         // the tuner cache if the environment switched, so a miss here falls through to `tune`,
         // which reads the store.
         tuner.reset_if_environment_switched();
-        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+        if let TuneAnswer::Hit { fastest_index } = tuner.fastest(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
             check_candidates(&operations, &inputs, client, false);
@@ -107,15 +107,15 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
 
         let checks = |collect| check_candidates(&operations, &inputs, client, collect);
         match tuner.tune::<I, Out, Id>(&key, &inputs, &operations, client, checks) {
-            TuneCacheResult::Hit { fastest_index } => {
+            TuneAnswer::Hit { fastest_index } => {
                 execute_elected(&operations, &key, fastest_index, inputs)
             }
-            TuneCacheResult::Miss => unreachable!("a tune should never answer a miss"),
+            TuneAnswer::Miss => unreachable!("a tune should never answer a miss"),
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
             // queued under a `CompileOnly` override, where an operation only queues its kernels:
             // the candidates run in the plan's order, the one the measurement follows, so the
             // best ranked candidate that launches runs rather than the first declared.
-            TuneCacheResult::Pending | TuneCacheResult::Compiled => {
+            TuneAnswer::Pending | TuneAnswer::Compiled => {
                 run_in_plan_order(&operations, &key, inputs)
             }
         }
@@ -180,7 +180,7 @@ fn run_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
 where
     <I as TuneInputs>::At<'a>: Clone,
 {
-    execute_in_plan_order(operations, &operations.run_order(key), inputs).unwrap_or_else(
+    execute_in_plan_order(operations, &operations.plan_run_order(key), inputs).unwrap_or_else(
         |failures| panic!("No autotune candidate for {key} launches.\n{failures:?}"),
     )
 }
@@ -239,7 +239,7 @@ fn execute_elected<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
     let spare = spare.unwrap_or_else(|| {
         panic!("The candidate elected for {key} should serve every call of it.\n{rejection}")
     });
-    let order = operations.run_order(key);
+    let order = operations.plan_run_order(key);
     let others = order.iter().copied().filter(|&index| index != elected);
     first_served(others, |index| {
         operations.function_at(index).execute(spare.clone())
@@ -288,7 +288,12 @@ mod tests {
             .with(answers("planned_first", 1).group(&group, |_| 1));
 
         assert_eq!(
-            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
+            execute_in_plan_order(
+                &operations,
+                &operations.plan_run_order(&FakeAutotuneKey),
+                ()
+            )
+            .ok(),
             Some(1)
         );
     }
@@ -302,7 +307,12 @@ mod tests {
             .with(answers("planned_second", 2).group(&group, |_| 1));
 
         assert_eq!(
-            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
+            execute_in_plan_order(
+                &operations,
+                &operations.plan_run_order(&FakeAutotuneKey),
+                ()
+            )
+            .ok(),
             Some(2)
         );
     }
@@ -315,7 +325,12 @@ mod tests {
             .with(answers("left_out", 1).group(&never, |_| 1));
 
         assert_eq!(
-            execute_in_plan_order(&operations, &operations.run_order(&FakeAutotuneKey), ()).ok(),
+            execute_in_plan_order(
+                &operations,
+                &operations.plan_run_order(&FakeAutotuneKey),
+                ()
+            )
+            .ok(),
             Some(1)
         );
     }
@@ -324,7 +339,8 @@ mod tests {
     fn a_pending_fallback_nothing_launches_hands_back_every_failure() {
         let nothing = set().with(fails("fails"));
 
-        let failures = execute_in_plan_order(&nothing, &nothing.run_order(&FakeAutotuneKey), ());
+        let failures =
+            execute_in_plan_order(&nothing, &nothing.plan_run_order(&FakeAutotuneKey), ());
 
         assert!(failures.is_err_and(|failures| failures.len() == 1));
     }

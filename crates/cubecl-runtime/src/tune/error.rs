@@ -74,7 +74,9 @@ pub enum AutotuneError {
     },
     /// The candidate was never measured: the tune ended before it, or its groups' patience
     /// skipped it.
-    #[display("{name}: The autotune is skipped manually.")]
+    #[display(
+        "{name}: Not measured: the tune ended before it, or its groups' patience skipped it."
+    )]
     Skip {
         /// The candidate's name.
         name: String,

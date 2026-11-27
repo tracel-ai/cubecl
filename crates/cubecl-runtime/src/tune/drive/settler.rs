@@ -7,7 +7,7 @@ use cubecl_environment::sync::Mutex;
 use crate::config::Logger;
 use crate::execution::{TuneOutcome, TuneRegistration};
 #[cfg(not(target_family = "wasm"))]
-use crate::tune::cache::tracker::TuneCacheResult;
+use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::cache::tracker::TuneTracker;
 use crate::tune::cache::tune_logger::TuneLogger;
 use crate::tune::drive::pending_unmarker::PendingUnmarker;
@@ -78,7 +78,7 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
                 results,
                 fastest_index,
                 unmeasured,
-                logger.context(),
+                logger.as_context(),
             );
             if stored && let Some(settled) = settled.as_ref() {
                 settled.record(crate::execution::TunePick::Persisted);
@@ -94,8 +94,8 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
     /// candidate that serves the problem and meets the loss in its own reads. The card is answered
     /// so for every key of this candidate list from now on, and the key is left to another card
     /// of the same hardware, which may be healthy.
-    pub fn stop_on_lost_card(self, service: ServiceId) -> TuneCacheResult {
+    pub fn stop_on_lost_card(self, service: ServiceId) -> TuneAnswer {
         self.cache.lock().track_lost(service);
-        TuneCacheResult::Pending
+        TuneAnswer::Pending
     }
 }

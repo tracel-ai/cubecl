@@ -30,8 +30,6 @@ pub trait InputGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> I::At<'a>;
 }
 
-/// `Fn(&K, &A) -> A` acts as an [`InputGenerator`] when `A` is an owned type. For
-/// multi-input kernels, `A` is a tuple that the closure destructures internally.
 impl<K, Func, A> InputGenerator<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,

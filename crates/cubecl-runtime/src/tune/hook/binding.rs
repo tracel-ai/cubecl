@@ -32,8 +32,7 @@ pub fn bind_evictor<'i, K: Clone + Send + 'static, I: TuneInputs>(
 /// A [`StageEnterer`] bound to one key and the reference inputs of one tune: what the tuner enters
 /// at each stage.
 ///
-/// `FnMut` for the reason [`BoundEvictor`] is: it holds the inputs,
-/// which are only `Send`, and is lent out exclusively to the device thread the stage runs on.
+/// `FnMut` for the reason [`BoundEvictor`] is.
 pub type BoundStageEnterer<'i> = dyn FnMut(TuneStage) -> Box<dyn Any> + Send + 'i;
 
 /// `enterer`, when a set registered one, bound to `key` and the reference `inputs`.
@@ -127,5 +126,10 @@ mod tests {
         bound(TuneStage::Measuring);
 
         assert_eq!(*seen.lock(), [("key".to_string(), "inputs".to_string())]);
+    }
+
+    #[test]
+    fn a_set_without_an_enterer_binds_none() {
+        assert!(bind_stage_enterer::<u8, u8>(None, &1, &2).is_none());
     }
 }

@@ -7,14 +7,13 @@ use crate::client::Client;
 use crate::config::RuntimeConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::ServerError;
-use crate::tune::cache::tracker::TuneCacheResult;
+use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::drive::candidate_sampler::CandidateSampler;
 use crate::tune::drive::committer::{
     LaunchedBench, QueuedBench, ResolvedBench, TuneCommitter, unmeasured_pick,
 };
 use crate::tune::drive::tune_benchmark::tune_benchmark;
 use crate::tune::hook::binding::{BoundEvictor, BoundStageEnterer};
-#[cfg(not(target_family = "wasm"))]
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::set::tune_fn::TuneFn;
@@ -88,7 +87,7 @@ where
 
     /// Tune the key on `client`'s device, as the configuration asks: adaptively, natively, unless
     /// it turned that off, and with a fixed sample count otherwise.
-    pub fn drive(self, client: &Client) -> TuneCacheResult {
+    pub fn drive(self, client: &Client) -> TuneAnswer {
         #[cfg(not(target_family = "wasm"))]
         if crate::config::CubeClRuntimeConfig::get()
             .autotune
@@ -110,7 +109,7 @@ where
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
     /// driver has to resolve samples between rounds, which it cannot do on the browser event loop.
     #[cfg(not(target_family = "wasm"))]
-    fn drive_adaptive(mut self, client: &Client) -> TuneCacheResult {
+    fn drive_adaptive(mut self, client: &Client) -> TuneAnswer {
         let config = crate::config::CubeClRuntimeConfig::get();
         let mut scheduler = crate::tune::adaptive::scheduler::Scheduler::new(
             crate::tune::adaptive::scheduler::ScheduleOptions {
@@ -147,7 +146,7 @@ where
     /// candidate, resolving each batch's samples before the next. This is the strategy the
     /// configuration may ask for natively.
     #[cfg(not(target_family = "wasm"))]
-    fn drive_fixed(mut self, client: &Client) -> TuneCacheResult {
+    fn drive_fixed(mut self, client: &Client) -> TuneAnswer {
         let sampler = CandidateSampler::new(client, self.access);
         loop {
             let batch = self.plan.plan_next();
@@ -164,17 +163,14 @@ where
     /// on wasm, where nothing can be awaited inline: the first batch that queued a sample is
     /// resolved on the browser event loop, and the later ones are never reached.
     #[cfg(target_family = "wasm")]
-    fn drive_fixed(mut self, client: &Client) -> TuneCacheResult {
+    fn drive_fixed(mut self, client: &Client) -> TuneAnswer {
         let sampler = CandidateSampler::new(client, self.access);
         loop {
             let batch = self.plan.plan_next();
             if batch.is_empty() {
                 return self.exhausted(client);
             }
-            let launched: Vec<LaunchedBench> = batch
-                .indices()
-                .map(|index| self.launch(index, sampler))
-                .collect();
+            let launched = self.launch_batch(&batch, sampler);
             if launched.iter().any(LaunchedBench::is_queued) {
                 return self.committer.commit(launched, None);
             }
@@ -197,10 +193,7 @@ where
     /// Launch every candidate of `batch`, then resolve their samples together.
     #[cfg(not(target_family = "wasm"))]
     fn bench_all(&mut self, batch: &Batch, sampler: CandidateSampler<'_>) -> bool {
-        let launched: Vec<LaunchedBench> = batch
-            .indices()
-            .map(|index| self.launch(index, sampler))
-            .collect();
+        let launched = self.launch_batch(batch, sampler);
         let resolved = cubecl_environment::future::block_on(
             crate::tune::drive::committer::resolve_benches(launched),
         );
@@ -246,6 +239,14 @@ where
             .any(|index| self.committer.results()[index].outcome.is_ok())
     }
 
+    /// Launch every candidate of `batch`, in order.
+    fn launch_batch(&mut self, batch: &Batch, sampler: CandidateSampler<'_>) -> Vec<LaunchedBench> {
+        batch
+            .indices()
+            .map(|index| self.launch(index, sampler))
+            .collect()
+    }
+
     /// Launch the candidate at `index`: its samples queued, or the error that stopped it.
     fn launch(&mut self, index: usize, sampler: CandidateSampler<'_>) -> LaunchedBench {
         let operation = self.autotunables[index];
@@ -276,7 +277,7 @@ where
 
     /// End a tune whose every batch ran without a candidate measured: stop it on a lost card, or
     /// decide a candidate that executed unmeasured.
-    fn exhausted(self, client: &Client) -> TuneCacheResult {
+    fn exhausted(self, client: &Client) -> TuneAnswer {
         #[cfg(not(target_family = "wasm"))]
         if let Some(lost) = lost_device(client) {
             log::error!(

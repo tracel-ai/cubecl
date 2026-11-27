@@ -16,8 +16,6 @@ pub trait BoundsGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds;
 }
 
-/// `Fn(&K, &A) -> Bounds` acts as a [`BoundsGenerator`] when `A` is an owned type. For
-/// multi-input kernels, `A` is a tuple that the closure destructures internally.
 impl<K, Func, A> BoundsGenerator<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,

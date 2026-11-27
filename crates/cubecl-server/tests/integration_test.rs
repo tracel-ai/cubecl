@@ -2011,6 +2011,7 @@ impl ProcessTuner {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn autotune_resets_when_the_environment_switches() {
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
     cubecl_environment::environment::set_root(first.path());
@@ -2034,10 +2035,20 @@ fn autotune_resets_when_the_environment_switches() {
     assert!(tuner.settled(&set, &handles).is_none());
     assert!(tuner.tune(&set, &client, &handles).is_some());
 
-    // Switching back reads `first`'s persisted result.
+    // Switching back reads `first`'s persisted result, with no third tune.
     cubecl_environment::environment::set_root(first.path());
     assert!(tuner.settled(&set, &handles).is_none());
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
     assert!(tuner.tune(&set, &client, &handles).is_some());
+    core::mem::drop(counted);
+
+    let autotune = collector.statistics().autotune;
+    assert_eq!(
+        (autotune.measured_count, autotune.loaded_count),
+        (0, 1),
+        "the switch back reads the stored answer"
+    );
 }
 
 /// Roots the environment at `root` for the rest of the test.

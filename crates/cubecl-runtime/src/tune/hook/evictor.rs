@@ -42,8 +42,6 @@ pub trait Evictor<K, I: TuneInputs>: Send + Sync + 'static {
     fn evict<'a>(&self, key: &K, inputs: &I::At<'a>) -> Result<(), AutotuneError>;
 }
 
-/// `Fn(&K, &A) -> Result<(), E>` acts as an [`Evictor`] when `A` is an owned type. For
-/// multi-input kernels, `A` is a tuple that the closure destructures internally.
 impl<K, Func, A, Err> Evictor<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,
@@ -53,6 +51,7 @@ where
 {
     #[inline]
     fn evict<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Result<(), AutotuneError> {
+        // An eviction belongs to no candidate: its error names the evictor, and is only logged.
         (self)(key, inputs).map_err(|err| AutotuneError::Unknown {
             name: "eviction".to_string(),
             err: err.into(),

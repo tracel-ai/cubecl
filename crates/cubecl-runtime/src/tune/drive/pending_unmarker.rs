@@ -50,3 +50,53 @@ impl<K: AutotuneKeyable> Drop for PendingUnmarker<K> {
         cache.untrack_pending(&self.key);
     }
 }
+
+#[cfg(all(test, persistence))]
+mod tests {
+    use super::*;
+    use crate::tune::cache::tracker::{TuneAnswer, TuneTable};
+    use alloc::string::{String, ToString};
+
+    fn tracker(generation: u32) -> TuneTracker<String> {
+        let mut tracker = TuneTracker::with_store(
+            None,
+            TuneTable {
+                namespace: "pending-unmarker".into(),
+                generation,
+            },
+        );
+        tracker.track_pending("key".to_string());
+        tracker
+    }
+
+    fn tracked() -> Arc<Mutex<TuneTracker<String>>> {
+        Arc::new(Mutex::new(tracker(0)))
+    }
+
+    #[test]
+    fn a_dropped_unmarker_leaves_the_key_to_the_next_caller() {
+        let cache = tracked();
+        let unmarker = PendingUnmarker::new(cache.clone(), &cache.lock(), "key".to_string());
+
+        unmarker.unmark();
+
+        assert!(matches!(
+            cache.lock().fastest(&"key".to_string()),
+            TuneAnswer::Miss
+        ));
+    }
+
+    #[test]
+    fn an_unmarker_of_an_earlier_generation_leaves_the_key() {
+        // Marked under generation 1, while the tracker was reset to generation 0 since.
+        let cache = tracked();
+        let unmarker = PendingUnmarker::new(cache.clone(), &tracker(1), "key".to_string());
+
+        unmarker.unmark();
+
+        assert!(matches!(
+            cache.lock().fastest(&"key".to_string()),
+            TuneAnswer::Pending
+        ));
+    }
+}

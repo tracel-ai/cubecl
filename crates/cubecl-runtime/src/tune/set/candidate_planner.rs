@@ -54,7 +54,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidatePlanner<K, F,
 
     /// The candidates of `key` in the order an untuned key runs them: its plan's
     /// [order](TunePlanner::order).
-    pub fn run_order(&self, key: &K) -> Arc<[usize]> {
+    pub fn plan_run_order(&self, key: &K) -> Arc<[usize]> {
         if let Some(order) = self.run_orders.lock().get(key) {
             return order.clone();
         }
@@ -106,9 +106,9 @@ mod tests {
         planner.add(tunable("second", 1).group(&group, |_| 2));
         let key = String::from("key");
 
-        let first = planner.run_order(&key);
+        let first = planner.plan_run_order(&key);
         let planned = asked.load(Ordering::Relaxed);
-        let again = planner.run_order(&key);
+        let again = planner.plan_run_order(&key);
 
         assert_eq!((&*first, &*again), (&[1, 0][..], &[1, 0][..]));
         assert_eq!(asked.load(Ordering::Relaxed), planned);
@@ -121,11 +121,11 @@ mod tests {
         planner.add(tunable("first", 0));
         planner.add(tunable("second", 1));
         let key = String::from("key");
-        assert_eq!(&*planner.run_order(&key), &[0, 1]);
+        assert_eq!(&*planner.plan_run_order(&key), &[0, 1]);
 
         planner.add(tunable("added", 2).group(&group, |_| 1));
 
-        assert_eq!(planner.run_order(&key)[0], 2);
+        assert_eq!(planner.plan_run_order(&key)[0], 2);
     }
 
     #[test]

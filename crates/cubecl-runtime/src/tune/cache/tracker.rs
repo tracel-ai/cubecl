@@ -199,7 +199,7 @@ pub struct TuneTable {
 
 /// What a tuner answers for a key.
 #[derive(Debug)]
-pub enum TuneCacheResult {
+pub enum TuneAnswer {
     /// The key is settled.
     Hit {
         /// The index of the fastest operation to execute.
@@ -290,49 +290,44 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         }
     }
 
-    /// What memory holds for `key`: [`Miss`](TuneCacheResult::Miss) for a key only gathered, and,
+    /// What memory holds for `key`: [`Miss`](TuneAnswer::Miss) for a key only gathered, and,
     /// where tunes persist, for every key once the environment has switched away from the one the
     /// answers were built under. The reset that switch owes is left to the next lookup that tunes.
-    pub fn fastest(&self, key: &K) -> TuneCacheResult {
+    pub fn fastest(&self, key: &K) -> TuneAnswer {
         #[cfg(persistence)]
         if self.environment_switched() {
-            return TuneCacheResult::Miss;
+            return TuneAnswer::Miss;
         }
 
         match self.answers.get(key) {
-            Some(CacheEntry::Done { fastest_index }) => TuneCacheResult::Hit {
+            Some(CacheEntry::Done { fastest_index }) => TuneAnswer::Hit {
                 fastest_index: *fastest_index,
             },
-            Some(CacheEntry::Pending) => TuneCacheResult::Pending,
+            Some(CacheEntry::Pending) => TuneAnswer::Pending,
             // Nothing was decided: a tune of the key is still owed.
-            Some(CacheEntry::Compiled { .. }) | None => TuneCacheResult::Miss,
+            Some(CacheEntry::Compiled { .. }) | None => TuneAnswer::Miss,
         }
     }
 
     /// What `key` answers on `service` without a tune, if anything: its pick or its tune in
-    /// flight, [`Compiled`](TuneCacheResult::Compiled) where `compiling` and `service` already
-    /// queued its kernels, and [`Pending`](TuneCacheResult::Pending) on a lost card, where every
+    /// flight, [`Compiled`](TuneAnswer::Compiled) where `compiling` and `service` already
+    /// queued its kernels, and [`Pending`](TuneAnswer::Pending) on a lost card, where every
     /// candidate would meet the loss and the key is left to a healthy card.
-    pub fn answer(&self, key: &K, service: ServiceId, compiling: bool) -> Option<TuneCacheResult> {
+    pub fn answer(&self, key: &K, service: ServiceId, compiling: bool) -> Option<TuneAnswer> {
         // A key a `CompileOnly` override already queued the candidates of on this card answers at
         // once: a walk reaches the same key at every layer, and a miss would checksum the set and
         // read the store again each time for a tune that will not run.
         if compiling && self.is_compiled(key, service) {
-            return Some(TuneCacheResult::Compiled);
+            return Some(TuneAnswer::Compiled);
         }
         let known = self.fastest(key);
-        if matches!(
-            known,
-            TuneCacheResult::Hit { .. } | TuneCacheResult::Pending
-        ) {
+        if matches!(known, TuneAnswer::Hit { .. } | TuneAnswer::Pending) {
             return Some(known);
         }
-        self.lost
-            .contains(&service)
-            .then_some(TuneCacheResult::Pending)
+        self.lost.contains(&service).then_some(TuneAnswer::Pending)
     }
 
-    /// Track `key` as being tuned, so concurrent callers see [`TuneCacheResult::Pending`] instead
+    /// Track `key` as being tuned, so concurrent callers see [`TuneAnswer::Pending`] instead
     /// of starting a second job for the same key. Returns where the key's tune was registered, if
     /// the override that gathered it registered it.
     pub fn track_pending(&mut self, key: K) -> Option<TuneRegistration> {
@@ -376,14 +371,27 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     }
 
     /// Track `fastest_index` as the pick of `key`, in memory, and answer it.
-    pub fn track_answer(&mut self, key: K, fastest_index: usize) -> TuneCacheResult {
+    pub fn track_answer(&mut self, key: K, fastest_index: usize) -> TuneAnswer {
         self.answers.insert(key, CacheEntry::Done { fastest_index });
-        TuneCacheResult::Hit { fastest_index }
+        TuneAnswer::Hit { fastest_index }
     }
 }
 
 #[cfg(persistence)]
 impl<K: AutotuneKeyable> TuneTracker<K> {
+    /// A tracker over `persistent_cache`, its answers built for `table`.
+    pub fn with_store(
+        persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+        table: TuneTable,
+    ) -> Self {
+        Self {
+            answers: HashMap::new(),
+            lost: HashSet::new(),
+            persistent_cache,
+            table,
+        }
+    }
+
     /// Drops tuning state belonging to a previous environment, so a switch reads the new
     /// environment's store and tunes rather than serving the old environment's picks. One relaxed
     /// atomic load when nothing switched.
@@ -411,9 +419,9 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// and answer it. A miss costs one read of the store, under the tuner mutex, and a key read
     /// counts as loaded. A stored index outside the `len` candidates of the set is a miss: it was
     /// written by another build, or edited.
-    pub fn track_stored(&mut self, key: &K, checksum: &str, len: usize) -> TuneCacheResult {
+    pub fn track_stored(&mut self, key: &K, checksum: &str, len: usize) -> TuneAnswer {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return TuneCacheResult::Miss;
+            return TuneAnswer::Miss;
         };
         let stored = PersistentCacheKey {
             key: key.clone(),
@@ -423,7 +431,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             .remove(&stored)
             .filter(|value| value.decided_index < len)
         else {
-            return TuneCacheResult::Miss;
+            return TuneAnswer::Miss;
         };
         let gathered = self
             .answers
@@ -463,18 +471,6 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 
 #[cfg(persistence)]
 impl<K: AutotuneKeyable> TuneTracker<K> {
-    fn with_store(
-        persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
-        table: TuneTable,
-    ) -> Self {
-        Self {
-            answers: HashMap::new(),
-            lost: HashSet::new(),
-            persistent_cache,
-            table,
-        }
-    }
-
     /// Whether the environment switched since the answers were built. Never with persistence
     /// disabled: the tuning state is then process-local and unbound, like a store without a
     /// storage, and survives switches.
@@ -545,7 +541,7 @@ mod small_tests {
     fn an_untracked_key_is_a_miss_with_no_answer() {
         let tracker = tracker();
 
-        assert!(matches!(tracker.fastest(&key()), TuneCacheResult::Miss));
+        assert!(matches!(tracker.fastest(&key()), TuneAnswer::Miss));
         assert!(tracker.answer(&key(), service(0), false).is_none());
     }
 
@@ -556,7 +552,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.answer(&key(), service(0), false),
-            Some(TuneCacheResult::Hit { fastest_index: 3 })
+            Some(TuneAnswer::Hit { fastest_index: 3 })
         ));
     }
 
@@ -567,8 +563,8 @@ mod small_tests {
         let pending = tracker.answer(&key(), service(0), false);
         tracker.untrack_pending(&key());
 
-        assert!(matches!(pending, Some(TuneCacheResult::Pending)));
-        assert!(matches!(tracker.fastest(&key()), TuneCacheResult::Miss));
+        assert!(matches!(pending, Some(TuneAnswer::Pending)));
+        assert!(matches!(tracker.fastest(&key()), TuneAnswer::Miss));
     }
 
     #[test]
@@ -579,7 +575,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.fastest(&key()),
-            TuneCacheResult::Hit { fastest_index: 1 }
+            TuneAnswer::Hit { fastest_index: 1 }
         ));
     }
 
@@ -590,9 +586,23 @@ mod small_tests {
 
         assert!(matches!(
             tracker.answer(&key(), service(0), true),
-            Some(TuneCacheResult::Compiled)
+            Some(TuneAnswer::Compiled)
         ));
+    }
+
+    #[test]
+    fn a_compiled_key_is_owed_a_tune_on_another_card() {
+        let mut tracker = tracker();
+        tracker.track_compiled(key(), service(0), || None);
+
         assert!(tracker.answer(&key(), service(1), true).is_none());
+    }
+
+    #[test]
+    fn a_compiled_key_is_owed_a_tune_outside_a_compile_pass() {
+        let mut tracker = tracker();
+        tracker.track_compiled(key(), service(0), || None);
+
         assert!(tracker.answer(&key(), service(0), false).is_none());
     }
 
@@ -615,8 +625,15 @@ mod small_tests {
 
         assert!(matches!(
             tracker.answer(&key(), service(0), false),
-            Some(TuneCacheResult::Pending)
+            Some(TuneAnswer::Pending)
         ));
+    }
+
+    #[test]
+    fn a_healthy_card_is_owed_a_tune_beside_a_lost_one() {
+        let mut tracker = tracker();
+        tracker.track_lost(service(0));
+
         assert!(tracker.answer(&key(), service(1), false).is_none());
     }
 
@@ -631,7 +648,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.fastest(&key()),
-            TuneCacheResult::Hit { fastest_index: 2 }
+            TuneAnswer::Hit { fastest_index: 2 }
         ));
     }
 
@@ -648,7 +665,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.track_stored(&key(), "checksum", 1),
-            TuneCacheResult::Miss
+            TuneAnswer::Miss
         ));
         assert!(!tracker.store_answer(key(), "checksum".into(), value));
     }

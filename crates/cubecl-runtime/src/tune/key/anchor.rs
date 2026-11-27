@@ -51,12 +51,8 @@ impl Anchor {
     }
 }
 
-/// Autotune levels, cached once read:
-///
-/// '0' => Minimal autotune: scaled anchor of '1.25'.
-/// '1' => Medium autotune: normal anchor.
-/// '2' => More autotune: scaled anchor of '0.75'.
-/// '3' => Autotune everything without anchor.
+/// The code of the autotune level the configuration held when first read, [`UNREAD_LEVEL`]
+/// before: one of [`level_code`]'s.
 static AUTOTUNE_LEVEL: AtomicI32 = AtomicI32::new(UNREAD_LEVEL);
 
 /// What [`AUTOTUNE_LEVEL`] holds before the configuration is read.
@@ -88,7 +84,7 @@ fn level_code(level: &AutotuneLevel) -> i32 {
     }
 }
 
-/// `base`, 2 by default, scaled by the level coded `level`, or `None` where it rounds nothing.
+/// The base the level coded `level` scales, or `None` where it rounds nothing.
 fn scaled_base(base: Option<usize>, level: i32) -> Option<f64> {
     let factor = match level {
         3 => return None,
@@ -103,7 +99,7 @@ fn scaled_base(base: Option<usize>, level: i32) -> Option<f64> {
     ))
 }
 
-/// `value` rounded up to a power of `base`, capped at `max` then floored at `min`.
+/// [`Anchor::anchor_value`], over a base already scaled.
 ///
 /// The exponent is counted rather than taken from a logarithm: `ln(2^29) / ln(2)` is a hair over
 /// 29, and its ceiling would round an exact power up to the next one.

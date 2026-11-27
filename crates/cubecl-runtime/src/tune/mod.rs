@@ -7,16 +7,16 @@
 //! #[derive(AutotuneKeyable)]
 //! struct KernelKey { size: u32 }
 //!
-//! fn run_kernel_tuned(lhs: Tensor, rhs: Tensor) -> Tensor {
-//!     static TUNER: LocalTuner<String, KernelKey> = local_tuner!();
+//! fn run_kernel_tuned(device_id: DeviceId, lhs: Tensor, rhs: Tensor) -> Tensor {
+//!     static TUNER: LocalTuner<KernelKey, DeviceId> = local_tuner!();
 //!
-//!     let tunables = TUNER.init(|| {
+//!     let tunables = TUNER.init(&device_id, || {
 //!         TunableSet::new(KernelKey::new, |_key, (lhs, rhs)| (lhs.clone(), rhs.clone()))
 //!             .with(Tunable::new("k1", |(lhs, rhs)| kernel_1(lhs, rhs)))
 //!             .with(Tunable::new("k2", |(lhs, rhs)| kernel_2(lhs, rhs)))
 //!     });
 //!
-//!     TUNER.execute(&device_id, &lhs.client, tunables, (lhs, rhs));
+//!     TUNER.execute(&device_id, &lhs.client, tunables, (lhs, rhs))
 //! }
 //! ```
 //!

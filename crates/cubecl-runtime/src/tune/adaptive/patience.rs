@@ -90,7 +90,7 @@ impl GroupTracker {
     }
 
     /// Count one measured member by its best time.
-    fn track(&mut self, time: Duration) {
+    pub fn track(&mut self, time: Duration) {
         self.measured_count += 1;
 
         match self.leader.map(|leader| TimeChange::of(time, leader)) {
@@ -154,11 +154,15 @@ mod tests {
     }
 
     #[test]
-    fn a_neutral_time_is_a_miss_and_keeps_the_leader() {
+    fn a_neutral_time_is_a_miss() {
         // 99 is within the threshold of 100 and misses, and 97 improves on 100 and resets the
-        // misses. 990 and 985 both miss against 1000, which a leader moved to 990 would not
-        // have counted.
+        // misses.
         assert_eq!(stops_after(patience(1, 2), &[100, 99, 97, 96]), None);
+    }
+
+    #[test]
+    fn a_neutral_time_keeps_the_leader() {
+        // 990 and 985 both miss against 1000, which a leader moved to 990 would not have counted.
         assert_eq!(stops_after(patience(1, 2), &[1000, 990, 985]), Some(3));
     }
 
@@ -236,5 +240,13 @@ mod tests {
         assert!(!tracker.skips_slot(6));
         assert!(!tracker.skips_slot(7));
         assert!(!tracker.skips_slot(8));
+    }
+
+    #[test]
+    fn a_slot_no_patient_group_brought_in_is_never_skipped() {
+        let mut tracker = PatienceTracker::new(&batch(&[&[GroupId(0)]], &[]));
+        tracker.track(0, Duration::from_micros(100));
+
+        assert!(!tracker.skips_slot(0));
     }
 }

@@ -66,7 +66,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TunerOpener<AK, ID> {
             .get_or_insert_with(HashMap::new)
             .entry(identity)
             .or_insert_with_key(|identity| {
-                Arc::new(Tuner::new(&table_name(name), &identity.hardware))
+                Arc::new(Tuner::new(&table_name_of_path(name), &identity.hardware))
             })
             .clone();
         self.by_id
@@ -93,9 +93,9 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TunerOpener<AK, ID> {
     }
 }
 
-/// The table name of a local tuner named after the module path `name`.
-fn table_name(name: &str) -> String {
-    name.replace(MODULE_PATH_SEPARATOR, TABLE_NAME_SEPARATOR)
+/// The table name of a local tuner named after `module_path`.
+fn table_name_of_path(module_path: &str) -> String {
+    module_path.replace(MODULE_PATH_SEPARATOR, TABLE_NAME_SEPARATOR)
 }
 
 #[cfg(test)]
@@ -104,7 +104,10 @@ mod tests {
 
     #[test]
     fn a_module_path_names_a_table_without_its_separators() {
-        assert_eq!(table_name("crate::kernel-matmul"), "crate-kernel-matmul");
+        assert_eq!(
+            table_name_of_path("crate::kernel-matmul"),
+            "crate-kernel-matmul"
+        );
     }
 
     #[test]

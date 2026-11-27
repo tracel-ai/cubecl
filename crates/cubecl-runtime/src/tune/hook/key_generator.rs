@@ -16,7 +16,6 @@ pub trait KeyGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     fn generate(&self, inputs: &I::At<'_>) -> K;
 }
 
-/// Any `for<'a> Fn(&I::At<'a>) -> K` is a [`KeyGenerator`].
 impl<K, I, Func> KeyGenerator<K, I> for Func
 where
     I: TuneInputs,

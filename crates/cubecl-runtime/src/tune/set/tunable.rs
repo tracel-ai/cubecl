@@ -29,15 +29,10 @@ pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
 }
 
 impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
-    /// A tunable named `name`, running `func`.
-    ///
     /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out in the `where`-clause rather than
     /// hidden behind a helper trait, so that closure inference sees it: otherwise `move |input| …`
     /// picks one concrete lifetime and fails with `implementation of FnOnce is not general enough`
     /// wherever `F::At<'a>` depends on `'a`.
-    ///
-    /// For multi-input kernels, destructure a tuple:
-    /// `Tunable::new("name", |(lhs, rhs, out)| body)`.
     ///
     /// A tunable in no [group](Tunable::group) states no priority, so it trails the grouped
     /// candidates of its round and a short circuit among them leaves it unmeasured.
@@ -79,7 +74,7 @@ impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
 
     /// Add this tunable to `group` with the given intra-group priority.
     ///
-    /// Groups run in order of their own priority. Within a cutoff group the member priority picks
+    /// Within a cutoff group the member priority picks
     /// one level as the round and leaves the levels under it as fallbacks. Within an
     /// [ordered](TuneGroup::ordered) group it orders one round that holds every member.
     ///

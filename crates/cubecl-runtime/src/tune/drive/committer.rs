@@ -7,7 +7,7 @@ use cubecl_common::profile::ProfileDuration;
 #[cfg(not(target_family = "wasm"))]
 use cubecl_common::device::ServiceId;
 
-use crate::tune::cache::tracker::{TuneCacheResult, best_scored};
+use crate::tune::cache::tracker::{TuneAnswer, best_scored};
 use crate::tune::cache::tune_logger::TuneLogger;
 use crate::tune::drive::sample_time::measured;
 use crate::tune::drive::settler::TuneSettler;
@@ -95,39 +95,39 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         &mut self.results
     }
 
-    /// Log the step of `bench`, and keep its result.
+    /// [`record_bench`] into the committer's logger and results.
     pub fn record_bench(&mut self, bench: ResolvedBench) {
         record_bench(&mut self.logger, &mut self.results, bench);
     }
 
     #[cfg(not(target_family = "wasm"))]
-    /// Log that the candidate `name` ran for `duration`.
+    /// [`TuneLogger::log_step`].
     pub fn log_step(&mut self, name: String, duration: Duration) {
         self.logger.log_step(name, duration);
     }
 
     #[cfg(not(target_family = "wasm"))]
-    /// Log that the candidate `name` ended the tune under the time limit.
+    /// [`TuneLogger::log_short_circuit`].
     pub fn log_short_circuit(&mut self, name: String) {
         self.logger.log_short_circuit(name);
     }
 
     #[cfg(not(target_family = "wasm"))]
     /// Stop the tune on the lost card `service`, leaving the key to another card.
-    pub fn stop_on_lost_card(self, service: ServiceId) -> TuneCacheResult {
+    pub fn stop_on_lost_card(self, service: ServiceId) -> TuneAnswer {
         self.settler.stop_on_lost_card(service)
     }
 
     /// Commit the tune, `pending` the benches of its last batch still queued and `decided` the
     /// winner its strategy picked, if it picked one: inline natively, on the browser event loop on
-    /// wasm, where it answers [`Pending`](TuneCacheResult::Pending) until then.
-    pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneCacheResult {
+    /// wasm, where it answers [`Pending`](TuneAnswer::Pending) until then.
+    pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneAnswer {
         #[cfg(target_family = "wasm")]
         {
             wasm_bindgen_futures::spawn_local(async move {
                 self.commit_resolved(pending, decided).await;
             });
-            TuneCacheResult::Pending
+            TuneAnswer::Pending
         }
 
         #[cfg(not(target_family = "wasm"))]
@@ -142,7 +142,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
         mut self,
         pending: Vec<LaunchedBench>,
         decided: Option<usize>,
-    ) -> TuneCacheResult {
+    ) -> TuneAnswer {
         let resolved = resolve_benches(pending).await;
         record_benches(&mut self.logger, &mut self.results, resolved);
 
@@ -160,7 +160,7 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
             &self.logger,
         );
 
-        TuneCacheResult::Hit {
+        TuneAnswer::Hit {
             fastest_index: decided_index,
         }
     }

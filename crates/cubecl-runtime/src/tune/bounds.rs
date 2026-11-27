@@ -156,13 +156,18 @@ mod tests {
 
     #[test]
     fn time_limit_is_none_when_the_peak_is_not_a_rate() {
-        // A zero/NaN/inf throughput or a zero threshold would divide by zero or blow up,
-        // so the bound disables the short-circuit instead of producing a garbage limit.
-        assert_eq!(bound(8, 0.0, 0.5).time_limit(), None);
-        assert_eq!(bound(8, f64::NAN, 0.5).time_limit(), None);
-        assert_eq!(bound(8, f64::INFINITY, 0.5).time_limit(), None);
-        assert_eq!(bound(8, -4.0, 0.5).time_limit(), None);
-        assert_eq!(bound(8, 4.0, 0.0).time_limit(), None);
+        // A zero/NaN/inf throughput would divide by zero or blow up, so the bound disables the
+        // short-circuit instead of producing a garbage limit.
+        for peak in [0.0, f64::NAN, f64::INFINITY, -4.0] {
+            assert_eq!(bound(8, peak, 0.5).time_limit(), None, "at {peak}");
+        }
+    }
+
+    #[test]
+    fn an_unbounded_threshold_gives_no_time_limit() {
+        // What lets `Full` be handed to a bound like any other threshold.
+        let unbounded = bound(8, 4.0, Thresholds::UNBOUNDED.compute_fraction);
+        assert_eq!(unbounded.time_limit(), None);
     }
 
     #[test]
@@ -186,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn vec_time_limit_skips_non_normal_bounds_and_is_none_when_empty() {
+    fn the_slowest_limit_skips_a_bound_that_gives_none() {
         // A non-normal bound is filtered out rather than poisoning the reduction.
         let limit = without_overhead(vec![bound(8, 0.0, 1.0), bound(8, 4.0, 1.0)]).time_limit();
         assert_eq!(limit, Some(Duration::from_secs(2)));
@@ -206,18 +211,14 @@ mod tests {
         let threshold = |level| Thresholds::for_level(&level).compute_fraction;
         assert!(threshold(AutotuneLevel::Minimal) < threshold(AutotuneLevel::Balanced));
         assert!(threshold(AutotuneLevel::Balanced) < threshold(AutotuneLevel::Extensive));
-        assert_eq!(
-            Thresholds::for_level(&AutotuneLevel::Full),
-            Thresholds::UNBOUNDED,
-            "full measures everything"
-        );
     }
 
     #[test]
-    fn an_unbounded_threshold_gives_no_time_limit() {
-        // What lets `Full` be handed to a bound like any other threshold.
-        let unbounded = bound(8, 4.0, Thresholds::UNBOUNDED.compute_fraction);
-        assert_eq!(unbounded.time_limit(), None);
+    fn the_full_level_sets_no_limit() {
+        assert_eq!(
+            Thresholds::for_level(&AutotuneLevel::Full),
+            Thresholds::UNBOUNDED
+        );
     }
 
     #[test]

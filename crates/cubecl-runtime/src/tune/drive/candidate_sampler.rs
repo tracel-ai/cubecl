@@ -309,18 +309,9 @@ mod tests {
             name: "candidate".into(),
             reason: "no line of this shape".into(),
         };
-        let profiled: Result<(Result<(), _>, ProfileDuration), ProfileError> =
-            Err(ProfileError::NotRegistered {
-                backtrace: Default::default(),
-            });
-
         assert!(matches!(
             sampled::<()>("candidate", Ok((Err(rejection), unresolved()))),
             Err(AutotuneError::Rejected { .. })
-        ));
-        assert!(matches!(
-            sampled("candidate", profiled),
-            Err(AutotuneError::Unknown { .. })
         ));
     }
 

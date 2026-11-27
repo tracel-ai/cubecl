@@ -21,9 +21,9 @@ pub enum AutotuneLogEvent {
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneLogContext {
-    /// Calculated bounds for autotuning.
+    /// What the tune was measured against, when its set has a bounds generator.
     pub bounds: Option<crate::tune::Bounds>,
-    /// The time limit to exceed for early short-circuiting.
+    /// The time limit a candidate's median has to be under to short circuit the tune.
     pub limit: Option<Duration>,
     /// The tuning events, in the order they happened (Arrival Usage).
     pub events: Vec<AutotuneLogEvent>,
@@ -64,7 +64,7 @@ pub struct AutotuneDecision<'a, K: Clone> {
     pub decided_time: Option<Duration>,
     /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
     pub results: Cow<'a, [AutotuneResult]>,
-    /// Logging context with bounds, limit, and events.
+    /// What the tune logged, when something read it.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
     /// Check results if autotune-checks is enabled else None, the reference candidate last
     /// (Arrival Usage).

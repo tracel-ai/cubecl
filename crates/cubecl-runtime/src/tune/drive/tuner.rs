@@ -11,7 +11,7 @@ use crate::config::autotune::AutotuneLogLevel;
 use crate::config::{CubeClRuntimeConfig, RuntimeConfig};
 use crate::device::HardwareIdentity;
 use crate::execution::{ProcessMode, TuneRegistration};
-use crate::tune::cache::tracker::{TuneCacheResult, TuneTracker};
+use crate::tune::cache::tracker::{TuneAnswer, TuneTracker};
 use crate::tune::cache::tune_logger::TuneLogger;
 use crate::tune::drive::candidate_sampler::CandidateSampler;
 use crate::tune::drive::committer::TuneCommitter;
@@ -62,7 +62,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// What memory holds for `key`: a fast-path probe that never reads the persistent cache, so
     /// a miss here falls through to [`tune`](Self::tune), which reads the store and resolves the
     /// real state.
-    pub fn fastest(&self, key: &K) -> TuneCacheResult {
+    pub fn fastest(&self, key: &K) -> TuneAnswer {
         self.cache.lock().fastest(key)
     }
 
@@ -78,9 +78,9 @@ impl<K: AutotuneKeyable> Tuner<K> {
     ///
     /// # Guarantees
     ///
-    /// - Never answers [`Miss`](TuneCacheResult::Miss).
+    /// - Never answers [`Miss`](TuneAnswer::Miss).
     /// - One tune of a key runs at a time within an environment: a concurrent call answers
-    ///   [`Pending`](TuneCacheResult::Pending). A switch drops the mark, so a tune may run once
+    ///   [`Pending`](TuneAnswer::Pending). A switch drops the mark, so a tune may run once
     ///   more for the new environment while the old one's finishes.
     /// - A tune that unwinds, or stops on a lost card, leaves the key to the next call.
     /// - An answer picked with nothing measured is kept in memory, never in the store.
@@ -91,7 +91,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         tunables: &TunableSet<K, F, Out, Id>,
         client: &Client,
         checks: impl FnOnce(bool) -> Option<Vec<CheckResult>>,
-    ) -> TuneCacheResult
+    ) -> TuneAnswer
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
@@ -131,7 +131,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         tunables: &TunableSet<K, F, Out, Id>,
         client: &Client,
         compiling: bool,
-    ) -> Result<Opened<K>, TuneCacheResult> {
+    ) -> Result<Opened<K>, TuneAnswer> {
         // Scoped: the rest of the tune re-locks `self.cache`, and the mutex is non-reentrant.
         let mut cache = self.cache.lock();
         #[cfg(persistence)]
@@ -144,7 +144,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
             return Err(cache.track_answer(key.clone(), 0));
         }
         #[cfg(persistence)]
-        if let hit @ TuneCacheResult::Hit { .. } = self.track_stored(&mut cache, key, tunables) {
+        if let hit @ TuneAnswer::Hit { .. } = self.track_stored(&mut cache, key, tunables) {
             return Err(hit);
         }
         // Its tune is registered with the open override only when no other key's candidates
@@ -169,7 +169,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         cache: &mut TuneTracker<K>,
         key: &K,
         tunables: &TunableSet<K, F, Out, Id>,
-    ) -> TuneCacheResult {
+    ) -> TuneAnswer {
         let checksum = tunables.compute_checksum();
         let stored = cache.track_stored(key, &checksum, tunables.len());
         let mut log = self.logger.lock();
@@ -230,7 +230,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         logger.log_bounds(bounds.clone(), limit);
         let options = DriveOptions {
             limit,
-            track_steps: logger.context().is_some(),
+            track_steps: logger.as_context().is_some(),
         };
 
         let (unmarker, registration) = settling;
@@ -257,7 +257,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
 
     /// Runs the top of the plan once each, on the inputs a tune generates, so their launches
     /// queue their kernels under a `CompileOnly` override, and answers
-    /// [`Compiled`](TuneCacheResult::Compiled): the key is left untuned.
+    /// [`Compiled`](TuneAnswer::Compiled): the key is left untuned.
     ///
     /// Runs [`TunePlanner::plan_top`](crate::tune::plan::planner::TunePlanner::plan_top) with the
     /// configured compilation parallelism; the tune compiles the rest at their turn. The pass
@@ -269,7 +269,7 @@ impl<K: AutotuneKeyable> Tuner<K> {
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out, Id>,
         client: &Client,
-    ) -> TuneCacheResult
+    ) -> TuneAnswer
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
@@ -295,16 +295,16 @@ impl<K: AutotuneKeyable> Tuner<K> {
             );
         }
         core::mem::drop(gathering);
-        TuneCacheResult::Compiled
+        TuneAnswer::Compiled
     }
 }
 
 /// `answer`, a key answered without a tune, its candidates cross-checked uncollected: nothing
 /// reports them.
 fn answered(
-    answer: TuneCacheResult,
+    answer: TuneAnswer,
     checks: impl FnOnce(bool) -> Option<Vec<CheckResult>>,
-) -> TuneCacheResult {
+) -> TuneAnswer {
     checks(false);
     answer
 }

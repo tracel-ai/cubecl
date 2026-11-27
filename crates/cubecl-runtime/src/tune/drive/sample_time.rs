@@ -19,6 +19,10 @@ mod tests {
     fn a_zero_sample_is_no_time() {
         let now = Instant::now();
         assert_eq!(measured(Some(ProfileTicks::from_start_end(now, now))), None);
+    }
+
+    #[test]
+    fn an_unmeasured_sample_is_no_time() {
         assert_eq!(measured(None), None);
     }
 

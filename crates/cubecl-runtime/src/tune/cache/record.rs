@@ -227,25 +227,37 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_trials_are_the_steps_in_order_and_the_last_short_circuit_stops() {
+    fn short_circuited() -> AutotuneLogContext {
         let step = |name: &str, micros| {
             AutotuneLogEvent::TuningStep(name.to_string(), Duration::from_micros(micros))
         };
-        let context = AutotuneLogContext {
+        AutotuneLogContext {
             events: vec![
                 step("first", 1),
                 step("second", 2),
                 AutotuneLogEvent::ShortCircuit("second".to_string()),
             ],
             ..Default::default()
-        };
+        }
+    }
 
-        let (ran, short_circuit) = trials(Some(&context));
+    #[test]
+    fn the_trials_are_the_steps_in_order() {
+        let (ran, _) = trials(Some(&short_circuited()));
 
         let names: Vec<_> = ran.iter().map(|trial| trial.name.as_str()).collect();
         assert_eq!(names, ["first", "second"]);
+    }
+
+    #[test]
+    fn the_short_circuit_names_the_candidate_that_stopped_the_tune() {
+        let (_, short_circuit) = trials(Some(&short_circuited()));
+
         assert_eq!(short_circuit.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn a_tune_that_logged_nothing_has_no_trial() {
         assert_eq!(trials(None), (Vec::new(), None));
     }
 

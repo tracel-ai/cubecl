@@ -651,10 +651,10 @@ mod tests {
         // Regression test: a tunable that lives in multiple groups was already emitted via its
         // higher-priority group, so when its lower-priority group's batch fires the only index
         // is one already present in `returned`. The plan must NOT return an empty batch here
-        // (that signals "no more work" to the caller and aborts with NoValidKernelFound); it
+        // (that signals "no more work" to the caller and aborts with an exhausted plan); it
         // must recurse to the next intra-priority and surface the remaining tunable.
         //
-        // Cross-group dedup in group_plan_next compares (index, Arc<String> group_name), so a
+        // Cross-group dedup in strike compares (index, group id), so a
         // tunable appearing in both group_hi and group_lo isn't auto-removed from group_lo
         // when popped from group_hi — the `returned` + `all_skip` path is the only guard.
         let group_hi = TuneGroup::<FakeAutotuneKey>::new("hi", |_| 2);

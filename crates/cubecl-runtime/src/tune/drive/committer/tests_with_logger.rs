@@ -23,7 +23,7 @@ fn a_recorded_bench_logs_its_step_and_keeps_its_result() {
     ));
     assert_eq!(
         logger
-            .context()
+            .as_context()
             .expect("a recorded tune should keep its context")
             .events
             .len(),

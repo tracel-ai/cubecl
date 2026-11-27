@@ -19,7 +19,7 @@
 ///   takes one.
 /// - Owned inputs, through the blanket implementation, always have a spare: a clone.
 pub trait TuneInputs: Send + Sync + 'static {
-    /// The concrete input type at lifetime `'a`.
+    /// What a candidate is called with.
     type At<'a>: Clone + Send;
 
     /// A copy of a call's inputs, to run another candidate on when the elected one rejects

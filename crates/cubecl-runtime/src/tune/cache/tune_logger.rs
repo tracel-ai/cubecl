@@ -31,7 +31,7 @@ impl TuneLogger {
     }
 
     /// The context logged so far, when something reads it.
-    pub fn context(&self) -> Option<&AutotuneLogContext> {
+    pub fn as_context(&self) -> Option<&AutotuneLogContext> {
         self.context.as_ref()
     }
 
@@ -165,7 +165,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         }
     }
 
-    fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
+    pub fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let top_times = self
             .results
             .iter()
@@ -183,7 +183,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         ));
     }
 
-    fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
+    pub fn report_full(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let context = self.log_context.map(full_context).unwrap_or_default();
         logger.log_autotune(&format!(
             "Fastest result {}-{}.\nContext:\n{context}",
@@ -252,7 +252,7 @@ mod tests {
         logger.log_step("k0".to_string(), Duration::from_micros(1));
         logger.log_bounds(None, Some(Duration::from_micros(1)));
 
-        assert!(logger.context().is_none());
+        assert!(logger.as_context().is_none());
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         logger.log_short_circuit("k0".to_string());
 
         let events = &logger
-            .context()
+            .as_context()
             .expect("a read logger should keep its context")
             .events;
         assert!(matches!(
@@ -281,7 +281,7 @@ mod tests {
         logger.log_bounds(None, Some(Duration::from_micros(5)));
 
         let context = logger
-            .context()
+            .as_context()
             .expect("a read logger should keep its context");
         assert_eq!(context.limit, Some(Duration::from_micros(5)));
         assert_eq!(context.events.len(), 1);
@@ -318,6 +318,22 @@ mod tests {
         };
 
         assert!(full_context(&context).starts_with("Calculated bounds:"));
+    }
+
+    #[test]
+    fn a_full_context_without_bounds_or_events_is_empty() {
         assert_eq!(full_context(&AutotuneLogContext::default()), "");
+    }
+
+    #[cfg(feature = "autotune-checks")]
+    #[test]
+    fn checks_nothing_reads_are_not_kept() {
+        let mut logger = TuneLogger { context: None };
+        logger.log_checks(vec![crate::tune::CheckResult {
+            name: "k0".into(),
+            passed: true,
+        }]);
+
+        assert!(logger.as_context().is_none());
     }
 }

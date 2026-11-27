@@ -54,7 +54,6 @@ pub mod device;
 #[cfg(persistence)]
 mod namespace_version;
 
-/// Picking the fastest of several candidate kernels per problem, and keeping the pick.
 pub mod tune;
 
 /// Memory management value types: reports, configuration and the managed

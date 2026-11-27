@@ -23,14 +23,14 @@ fn an_answer_to_an_older_list_is_never_served() {
 
     assert!(matches!(
         cache.track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneCacheResult::Miss
+        TuneAnswer::Miss
     ));
 
     plant(table, KEY, CURRENT, 2);
     let mut cache = cache_over(table);
     assert!(matches!(
         cache.track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneCacheResult::Hit { fastest_index: 2 }
+        TuneAnswer::Hit { fastest_index: 2 }
     ));
 }
 

@@ -190,12 +190,14 @@ mod tests {
                 )
         };
         let tuner = LocalTuner::<FakeAutotuneKey, u8>::new("test");
-        let before = tuner.init(&0, build.clone()).run_order(&FakeAutotuneKey);
+        let before = tuner
+            .init(&0, build.clone())
+            .plan_run_order(&FakeAutotuneKey);
 
         second_leads.store(true, Ordering::Relaxed);
         tuner.clear();
 
-        let after = tuner.init(&0, build).run_order(&FakeAutotuneKey);
+        let after = tuner.init(&0, build).plan_run_order(&FakeAutotuneKey);
         assert_eq!((&*before, &*after), (&[0, 1][..], &[1, 0][..]));
     }
 }

@@ -39,7 +39,7 @@ impl SampleKeeper {
         self.summary = SampleSummary {
             count: self.durations.len(),
             best,
-            converged: self.stalled_count >= CONVERGENCE_ROUND_COUNT,
+            converged: self.stalled_count >= CONVERGENCE_SAMPLE_COUNT,
         };
     }
 
@@ -132,7 +132,7 @@ const DISCARD_AFTER_SAMPLE_COUNT: usize = 3;
 /// noise.
 const IMPROVEMENT_THRESHOLD_FRACTION: f64 = 0.02;
 /// Consecutive non-improving samples before a candidate is considered converged.
-const CONVERGENCE_ROUND_COUNT: u8 = 2;
+const CONVERGENCE_SAMPLE_COUNT: u8 = 2;
 
 #[cfg(test)]
 mod tests {
@@ -225,18 +225,19 @@ mod tests {
 
     #[test]
     fn a_time_within_the_threshold_is_neutral() {
-        let baseline = Duration::from_micros(100);
-        assert_eq!(
-            TimeChange::of(Duration::from_micros(99), baseline),
-            TimeChange::Neutral
-        );
-        assert_eq!(
-            TimeChange::of(Duration::from_micros(90), baseline),
-            TimeChange::Improvement
-        );
-        assert_eq!(
-            TimeChange::of(Duration::from_micros(110), baseline),
-            TimeChange::Regression
-        );
+        let change = TimeChange::of(Duration::from_micros(99), Duration::from_micros(100));
+        assert_eq!(change, TimeChange::Neutral);
+    }
+
+    #[test]
+    fn a_time_faster_past_the_threshold_is_an_improvement() {
+        let change = TimeChange::of(Duration::from_micros(90), Duration::from_micros(100));
+        assert_eq!(change, TimeChange::Improvement);
+    }
+
+    #[test]
+    fn a_time_slower_past_the_threshold_is_a_regression() {
+        let change = TimeChange::of(Duration::from_micros(110), Duration::from_micros(100));
+        assert_eq!(change, TimeChange::Regression);
     }
 }
