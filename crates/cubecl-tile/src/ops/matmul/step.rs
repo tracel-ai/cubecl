@@ -4,11 +4,12 @@
 
 use core::cmp::Reverse;
 
+use cubecl::cmma::MatrixLayout;
 use cubecl::ir::features::MmaConfig;
 use cubecl::ir::{DeviceProperties, ElemType, FloatKind, TargetProperties};
 
 use super::instruction::{FragmentSource, Instruction, OpenedBy, ShapedInstruction};
-use crate::launch::Delivery;
+use crate::launch::{Delivery, VectorRequirement};
 use crate::{ComputeScope, Scratch, StageStorage};
 
 /// The Step of a product a Scope holds: `m × n × k` of fragments loaded from `lhs` and `rhs`,
@@ -25,15 +26,25 @@ pub struct ProductStep {
 
 /// What computing a [`ProductStep`] spends that a host sizes a launch by.
 ///
+/// # Assumptions
+///
+/// - A drained sum's destination is bound at a width its
+///   [`line_requirement`](StepCost::line_requirement) admits.
+///
 /// # Guarantees
 ///
-/// - A cell is bounced only where the instruction computing the Step is [`Instruction::Cmma`],
-///   whose sum a scratch backs.
+/// - A drained sum's cell is bounced only where the instruction computing the Step hides which
+///   unit holds a cell of its sum on the target ([`Instruction::hides_cell_positions`]), and a
+///   rescaled sum's only where the instruction is [`Instruction::Cmma`], whose sum a scratch
+///   backs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct StepCost {
     /// The cell a drained sum is spilled through shared memory in, one call's output; `None`
     /// where each unit holds its own cells and writes them where they go.
     pub bounced_cell: Option<[usize; 2]>,
+    /// The widest line along the sum's rows (`m`) and along its columns (`n`) that its units
+    /// write out of their registers where nothing bounces ([`Instruction::widest_line`]).
+    pub widest_line: [usize; 2],
 }
 
 impl ProductStep {
@@ -73,7 +84,7 @@ impl ProductStep {
     /// it on `device` compiling for `target`, which a host Declines.
     pub fn cost(&self, device: &DeviceProperties, target: &TargetProperties) -> Option<StepCost> {
         self.call(device, target, OpenedBy::Accumulator)
-            .map(StepCost::of)
+            .map(|call| StepCost::drained(call, target, self.sum))
     }
 
     /// What this Step spends where its sum's rows are scaled between its products
@@ -85,7 +96,7 @@ impl ProductStep {
         target: &TargetProperties,
     ) -> Option<StepCost> {
         self.call(device, target, OpenedBy::RescaledAccumulator)
-            .map(StepCost::of)
+            .map(StepCost::rescaled)
     }
 
     /// What computing `next` spends where it reads this Step's sum as its `A` where the sum lies,
@@ -105,7 +116,7 @@ impl ProductStep {
         };
         ProductStep { lhs: held, ..*next }
             .call(device, target, OpenedBy::Accumulator)
-            .map(StepCost::of)
+            .map(|call| StepCost::drained(call, target, next.sum))
     }
 
     /// How a stage its operands are staged through lays its cells out, asked for as `stated` and
@@ -165,14 +176,51 @@ impl StepCost {
             Scratch::WholeGrid => out[0] * out[1],
         }
     }
+
+    /// What the drained sum asks of `operand`, its destination, whose lines run along the sum's
+    /// rows where `layout` is row-major and along its columns where it is col-major: a width
+    /// dividing the bounced cell's side where a cell bounces, which its scratch is read back in,
+    /// and the [`widest_line`](StepCost::widest_line) along that side where nothing bounces. One
+    /// value a line for an [`Undefined`](MatrixLayout::Undefined) layout, which names no side.
+    ///
+    /// # Guarantees
+    ///
+    /// - Where nothing bounces, every width the requirement admits is one the units write out of
+    ///   their registers ([`CellLines::widest`](crate::CellLines::widest)).
+    pub fn line_requirement<O>(&self, operand: O, layout: MatrixLayout) -> VectorRequirement<O> {
+        let lines = self.bounced_cell.unwrap_or(self.widest_line);
+        let elements = match layout {
+            MatrixLayout::RowMajor => lines[1],
+            MatrixLayout::ColMajor => lines[0],
+            MatrixLayout::Undefined => 1,
+        };
+        VectorRequirement::Access { operand, elements }
+    }
 }
 
 impl StepCost {
-    /// The cost of a Step computed by `call`: an instruction that backs its sum with a scratch
-    /// ([`Instruction::takes_scratch`]) bounces it through shared memory a call's cell at a time.
-    fn of(call: ShapedInstruction) -> Self {
+    /// The cost of a Step computed by `call` on `target` whose sum, held in `sum`, is drained: an
+    /// instruction that hides which unit holds a cell there
+    /// ([`Instruction::hides_cell_positions`]) bounces its sum through shared memory a call's
+    /// cell at a time, and any other writes lines out of its registers
+    /// ([`Instruction::widest_line`]).
+    fn drained(call: ShapedInstruction, target: &TargetProperties, sum: ElemType) -> Self {
+        Self {
+            bounced_cell: call
+                .instruction
+                .hides_cell_positions(target)
+                .then_some(call.cell()),
+            widest_line: call.instruction.widest_line(target, call.cell(), sum),
+        }
+    }
+
+    /// The cost of a Step computed by `call` whose sum's rows are scaled between its products: an
+    /// instruction that backs its sum with a scratch ([`Instruction::takes_scratch`]) scales it
+    /// through it, a call's cell at a time, wherever its cells' positions are stated.
+    fn rescaled(call: ShapedInstruction) -> Self {
         Self {
             bounced_cell: call.instruction.takes_scratch().then_some(call.cell()),
+            widest_line: [1, 1],
         }
     }
 }
@@ -265,13 +313,15 @@ mod tests {
         assert_eq!(
             step([8, 8, 8]).cost(&metal(), &target),
             Some(StepCost {
-                bounced_cell: Some([8, 8])
+                bounced_cell: Some([8, 8]),
+                widest_line: [1, 1],
             })
         );
         assert_eq!(
             step([16, 16, 16]).cost(&cuda(), &target),
             Some(StepCost {
-                bounced_cell: Some([16, 16])
+                bounced_cell: Some([16, 16]),
+                widest_line: [1, 1],
             })
         );
     }
@@ -284,7 +334,10 @@ mod tests {
         mma_only.features.matmul.mma.insert(shape(16, 8, 16));
         assert_eq!(
             step([16, 16, 16]).cost(&mma_only, &sum_is_next_a()),
-            Some(StepCost { bounced_cell: None })
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
         );
     }
 
@@ -303,7 +356,10 @@ mod tests {
         let narrow = step([16, 8, 16]);
         assert_eq!(
             narrow.kept_for(&narrow, &cuda(), &sum_is_next_a()),
-            Some(StepCost { bounced_cell: None })
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
         );
         let wide = step([16, 16, 16]);
         assert_eq!(wide.kept_for(&wide, &cuda(), &sum_is_next_a()), None);
@@ -416,12 +472,88 @@ mod tests {
     fn scratch_takes_a_cell_or_the_whole_output() {
         let bounced = StepCost {
             bounced_cell: Some([16, 8]),
+            widest_line: [1, 1],
         };
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::None), 0);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::OneTile), 128);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::WholeGrid), 1024);
-        let written = StepCost { bounced_cell: None };
+        let written = StepCost {
+            bounced_cell: None,
+            widest_line: [1, 1],
+        };
         assert_eq!(written.scratch_cells([32, 32], Scratch::WholeGrid), 0);
+    }
+
+    /// RDNA3's target, its fragments' positions stated as its LLVM compiler states them.
+    fn rdna3_stated() -> TargetProperties {
+        use cubecl::ir::FragmentPositions;
+        use cubecl_ir::amd::{AmdMatrixCore, AmdWmma};
+        let mut mma = AmdMatrixCore::Wmma(AmdWmma::Rdna3).mma_properties();
+        mma.fragment_positions = FragmentPositions::AsElementPositions;
+        TargetProperties { mma }
+    }
+
+    /// A device offering the `16 × 16 × 16` fragment alone.
+    fn rdna() -> DeviceProperties {
+        let mut rdna = plain();
+        rdna.features.matmul.cmma.insert(shape(16, 16, 16));
+        rdna
+    }
+
+    /// On a target that states its fragments' positions, a drained cmma sum bounces nothing and
+    /// writes the lines its lanes hold, while a rescaled one still scales through its scratch.
+    #[test]
+    fn a_stated_fragment_is_drained_from_registers_but_rescaled_through_its_scratch() {
+        let target = rdna3_stated();
+        let sum = step([16, 16, 16]);
+        assert_eq!(
+            sum.cost(&rdna(), &target),
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 8],
+            })
+        );
+        assert_eq!(
+            sum.rescaled_cost(&rdna(), &target),
+            Some(StepCost {
+                bounced_cell: Some([16, 16]),
+                widest_line: [1, 1],
+            })
+        );
+    }
+
+    /// A sum written out of registers asks for lines dividing its widest along the side the
+    /// destination's lines run along, and one value a line for a layout that names no side.
+    #[test]
+    fn line_requirement_follows_the_destination_layout() {
+        let written = StepCost {
+            bounced_cell: None,
+            widest_line: [2, 8],
+        };
+        let requirement = |layout| written.line_requirement(0usize, layout);
+        let access = |elements| VectorRequirement::Access {
+            operand: 0usize,
+            elements,
+        };
+        assert_eq!(requirement(MatrixLayout::RowMajor), access(8));
+        assert_eq!(requirement(MatrixLayout::ColMajor), access(2));
+        assert_eq!(requirement(MatrixLayout::Undefined), access(1));
+    }
+
+    /// A bounced sum is read back out of its scratch in lines that divide its cell's side.
+    #[test]
+    fn a_bounced_sum_asks_for_lines_dividing_its_cell() {
+        let bounced = StepCost {
+            bounced_cell: Some([16, 8]),
+            widest_line: [1, 1],
+        };
+        assert_eq!(
+            bounced.line_requirement(0usize, MatrixLayout::RowMajor),
+            VectorRequirement::Access {
+                operand: 0usize,
+                elements: 8
+            }
+        );
     }
 
     #[test]
