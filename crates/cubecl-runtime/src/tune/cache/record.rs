@@ -22,8 +22,8 @@ pub struct TuneRecord<K> {
     /// The table's entry the answer is stored under: the key, and the
     /// checksum of the candidate list it was tuned under.
     pub entry: PersistentCacheKey<K>,
-    /// Stored under its earlier name, which environments already saved hold.
-    #[serde(rename = "winner")]
+    /// Read under its earlier name too, which environments already saved hold.
+    #[serde(alias = "winner")]
     pub decided_index: usize,
     /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
     /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
@@ -216,6 +216,37 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
     use alloc::vec;
+
+    /// A record saved before the decided candidate had its name still reads.
+    #[test]
+    fn a_record_saved_under_the_earlier_name_reads() {
+        let record = TuneRecord {
+            table: "table".to_string(),
+            entry: PersistentCacheKey {
+                key: "key".to_string(),
+                checksum: "checksum".to_string(),
+            },
+            decided_index: 2,
+            trials: Vec::new(),
+            short_circuit: None,
+            wall: Duration::ZERO,
+            launches_discarded: false,
+            stored: true,
+            plan: Vec::new(),
+        };
+        let mut value = serde_json::to_value(&record).unwrap();
+        let fields = value
+            .as_object_mut()
+            .expect("a record should serialize as a map");
+        let decided = fields
+            .remove("decided_index")
+            .expect("a record should name its decided candidate");
+        fields.insert("winner".to_string(), decided);
+
+        let read: TuneRecord<String> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(read.decided_index, 2);
+    }
 
     #[test]
     fn a_closed_recorder_never_lists_the_plan() {

@@ -48,7 +48,7 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
 
 impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     /// A tunable identified by `identity`, and named by it: the value
-    /// [`LocalTuner::fastest_identity`](crate::tune::LocalTuner::fastest_identity) hands back once the
+    /// [`LocalTuner::decided_identity`](crate::tune::LocalTuner::decided_identity) hands back once the
     /// tunable is decided for a key.
     ///
     /// For a caller that builds something else from the decided candidate — a variant of the same

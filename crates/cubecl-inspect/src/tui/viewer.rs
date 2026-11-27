@@ -55,7 +55,7 @@ struct Pages {
 struct Page(ratatui::text::Text<'static>);
 
 /// One autotune key's row: its id, set apart, then its tune's wall, its
-/// tuner padded to the widest, and its winner; under them, the key itself,
+/// tuner padded to the widest, and its decided candidate; under them, the key itself,
 /// which is what tells two rows of one tuner apart.
 struct KeyRow {
     id: String,
@@ -141,7 +141,7 @@ impl KeyRow {
                     "  {:>9}  {:<tuners$}  {}",
                     Maybe(key.wall().map(Wall)).to_string(),
                     key.table.tuner,
-                    key.winner_name()
+                    key.decided_name()
                 ),
                 key: KeyText(&key.key).to_string(),
             })

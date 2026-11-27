@@ -16,7 +16,7 @@ impl fmt::Display for Text<'_, AutotuneReport> {
         let mut table = Table::new(&[
             ("id", Align::Left),
             ("tuner", Align::Left),
-            ("winner", Align::Left),
+            ("decided", Align::Left),
             ("wall", Align::Right),
             ("compiling", Align::Right),
             ("wasted", Align::Right),
@@ -30,7 +30,7 @@ impl fmt::Display for Text<'_, AutotuneReport> {
             table.row(vec![
                 key.id.to_string(),
                 key.table.tuner.clone(),
-                key.winner_name(),
+                key.decided_name(),
                 Maybe(key.wall().map(Wall)).to_string(),
                 Maybe(key.tune.as_ref().map(|tune| Wall(tune.compiling))).to_string(),
                 Maybe(key.wasted().map(Wall)).to_string(),
@@ -79,7 +79,7 @@ impl fmt::Display for Header<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let key = self.0;
         let fields = Fields::new(&[
-            "id", "tuner", "key", "checksum", "winner", "tuned", "roofline", "limit",
+            "id", "tuner", "key", "checksum", "decided", "tuned", "roofline", "limit",
         ]);
         fields.line(f, "id", key.id)?;
         fields.line(
@@ -97,11 +97,11 @@ impl fmt::Display for Header<'_> {
         fields.line(f, "checksum", &key.checksum)?;
         fields.line(
             f,
-            "winner",
+            "decided",
             format_args!(
                 "{} (#{}), margin {}",
-                key.winner_name(),
-                key.winner,
+                key.decided_name(),
+                key.decided,
                 Ratio(key.margin())
             ),
         )?;
@@ -129,7 +129,7 @@ impl fmt::Display for Header<'_> {
                 f,
                 "roofline",
                 format_args!(
-                    "{}, the winner at {} of it",
+                    "{}, the decided candidate at {} of it",
                     Micros(roofline),
                     Percent(key.efficiency())
                 ),
@@ -164,14 +164,14 @@ impl fmt::Display for PlanOrder<'_> {
             ("wall", Align::Right),
             ("outcome", Align::Left),
             ("median", Align::Right),
-            ("vs winner", Align::Right),
+            ("vs decided", Align::Right),
         ])
         .paint(&["wall", "median"], Role::Measure);
         for planned in key.plan() {
             let cells = ResultCells {
                 key,
                 result: key.result(&planned.name),
-                winner: planned.index == key.winner,
+                decided: planned.index == key.decided,
             };
             let (ran, wall, status, role) = match key.fate(planned) {
                 Fate::Ran { order } => (
@@ -237,7 +237,7 @@ impl fmt::Display for RunOrder<'_> {
             ("wall", Align::Right),
             ("outcome", Align::Left),
             ("median", Align::Right),
-            ("vs winner", Align::Right),
+            ("vs decided", Align::Right),
         ])
         .paint(&["wall", "median"], Role::Measure);
         for (order, trial) in trace.trials.iter().enumerate() {
@@ -245,7 +245,7 @@ impl fmt::Display for RunOrder<'_> {
             let cells = ResultCells {
                 key,
                 result,
-                winner: result.is_some_and(|result| result.index == Some(key.winner)),
+                decided: result.is_some_and(|result| result.index == Some(key.decided)),
             };
             table.row_in(
                 cells.role(),
@@ -302,7 +302,7 @@ impl fmt::Display for Ranking<'_> {
             let cells = ResultCells {
                 key,
                 result: Some(result),
-                winner: result.index == Some(key.winner),
+                decided: result.index == Some(key.decided),
             };
             let mut row = vec![
                 format!("{}{}", rank + 1, cells.marker()),
@@ -394,7 +394,7 @@ impl fmt::Display for Text<'_, CandidateReport> {
             );
         }
         fmt::Display::fmt(&table, f)?;
-        Role::Note.write(f, "slowdown: geometric mean of the candidate's score over the winner's, where both were measured;\n\
+        Role::Note.write(f, "slowdown: geometric mean of the candidate's score over the decided candidate's, where both were measured;\n\
              wall: compiling and benchmarking it, over the recorded tunes;\n\
              a candidate that won is bold, one never measured is muted.")?;
         writeln!(f)
@@ -413,19 +413,19 @@ fn not_run(outcome: &'static str) -> (String, String, &'static str, Option<Role>
 }
 
 /// What a candidate's result fills in the tables of one key's tune: how it
-/// ended, against the winner, and whether it is the winner.
+/// ended, against the decided candidate, and whether it is the decided candidate.
 struct ResultCells<'a> {
     key: &'a TunedKey,
     /// `None` for a candidate the stored results do not name.
     result: Option<&'a CandidateResult>,
-    winner: bool,
+    decided: bool,
 }
 
 impl ResultCells<'_> {
-    /// What follows its position: a star on the winner, the same width
+    /// What follows its position: a star on the decided candidate, the same width
     /// elsewhere, so the column stays aligned.
     fn marker(&self) -> &'static str {
-        match self.winner {
+        match self.decided {
             true => " *",
             false => "  ",
         }
@@ -449,14 +449,14 @@ impl ResultCells<'_> {
         }
     }
 
-    /// Its score over the winner's.
+    /// Its score over the decided candidate's.
     fn slowdown(&self) -> String {
         Ratio(self.result.and_then(|result| self.key.slowdown(result))).to_string()
     }
 
-    /// The winner in bold, a candidate with nothing measured muted.
+    /// The decided candidate in bold, a candidate with nothing measured muted.
     fn role(&self) -> Option<Role> {
-        match (self.winner, self.result.map(|result| &result.outcome)) {
+        match (self.decided, self.result.map(|result| &result.outcome)) {
             (true, _) => Some(Role::Strong),
             (false, Some(CandidateOutcome::Measured(_))) => None,
             (false, _) => Some(Role::Idle),

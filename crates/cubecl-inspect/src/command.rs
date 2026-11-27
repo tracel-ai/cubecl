@@ -22,7 +22,7 @@ pub enum Inspection {
     /// What the file holds, namespace by namespace, and what it says it was
     /// built for.
     Summary,
-    /// Every tuned key: its winner, how many candidates raced, how close it
+    /// Every tuned key: its decided candidate, how many candidates raced, how close it
     /// was.
     Autotune(AutotuneArgs),
     /// Every kernel the sessions compiled or loaded, per type and per
@@ -35,7 +35,7 @@ pub enum Inspection {
     /// its peak, padding, and largest allocation.
     Memory,
     /// This environment's autotune answers against another's: keys added
-    /// and gone, winners that changed, and how each tune's wall moved.
+    /// and gone, decided candidates that changed, and how each tune's wall moved.
     Diff {
         /// The environment compared against, taken as the later one.
         #[arg(value_parser = absolute)]
@@ -98,7 +98,7 @@ pub enum KernelView {
 /// The views of `autotune` beside its list.
 #[derive(Subcommand, Debug, Clone)]
 pub enum AutotuneView {
-    /// One key: every candidate's result, ranked, with the winner marked.
+    /// One key: every candidate's result, ranked, with the decided candidate marked.
     Show {
         /// The key's id, as `autotune` lists it.
         id: KeyId,

@@ -33,7 +33,7 @@ pub struct TunedKey {
     /// The checksum of the candidate list the key was tuned under.
     pub checksum: String,
     /// The index of the candidate the key runs.
-    pub winner: usize,
+    pub decided: usize,
     /// Each candidate's result, in the order cubecl stored them: best score
     /// first, not the order they ran in.
     pub results: Vec<CandidateResult>,
@@ -131,7 +131,7 @@ fn failure(error: AutotuneError) -> (Option<String>, CandidateOutcome) {
 }
 
 impl TunedKey {
-    /// A candidate that ran more than this many times the winner's score
+    /// A candidate that ran more than this many times the decided candidate's score
     /// lost clearly enough that the time it took is counted as
     /// [wasted](Self::wasted).
     pub const WASTE_THRESHOLD: f64 = 2.0;
@@ -146,7 +146,7 @@ impl TunedKey {
             table: table.clone(),
             key: stored.key,
             checksum: stored.checksum,
-            winner: value.decided_index,
+            decided: value.decided_index,
             results: value
                 .results
                 .into_iter()
@@ -158,34 +158,34 @@ impl TunedKey {
         })
     }
 
-    /// The winner's own result. `None` when the winner was picked with nothing
+    /// The decided candidate's own result. `None` when the decided candidate was picked with nothing
     /// measured — the tune ran but its samples could not be timed.
-    pub fn winning(&self) -> Option<&CandidateResult> {
+    pub fn decided_result(&self) -> Option<&CandidateResult> {
         self.results
             .iter()
-            .find(|result| result.index == Some(self.winner))
+            .find(|result| result.index == Some(self.decided))
     }
 
-    /// The winner's name, or its index when its result does not carry one.
-    pub fn winner_name(&self) -> String {
-        self.winning()
+    /// The decided candidate's name, or its index when its result does not carry one.
+    pub fn decided_name(&self) -> String {
+        self.decided_result()
             .and_then(|result| result.candidate.clone())
-            .unwrap_or_else(|| format!("#{}", self.winner))
+            .unwrap_or_else(|| format!("#{}", self.decided))
     }
 
-    /// The runner-up's score over the winner's: how close the race was. Near
+    /// The runner-up's score over the decided candidate's: how close the race was. Near
     /// 1 means the candidates were interchangeable here; a wide margin means
     /// the answer was never in doubt and the race could have been shorter.
     /// `None` when fewer than two candidates were measured.
     pub fn margin(&self) -> Option<f64> {
-        let winner = self.winning()?.score()?;
+        let decided = self.decided_result()?.score()?;
         let runner_up = self
             .results
             .iter()
-            .filter(|result| result.index != Some(self.winner))
+            .filter(|result| result.index != Some(self.decided))
             .filter_map(CandidateResult::score)
             .min()?;
-        Some(runner_up as f64 / winner.max(1) as f64)
+        Some(runner_up as f64 / decided.max(1) as f64)
     }
 
     /// The time the key's work takes at the device's modeled peak, launch
@@ -201,26 +201,26 @@ impl TunedKey {
         Some(floor + bounds.launch_overhead)
     }
 
-    /// The roofline over the winner's median: 1 at the roofline, 0.25 when
+    /// The roofline over the decided candidate's median: 1 at the roofline, 0.25 when
     /// the answer runs four times slower than the device allows.
     pub fn efficiency(&self) -> Option<f64> {
-        let CandidateOutcome::Measured(winner) = &self.winning()?.outcome else {
+        let CandidateOutcome::Measured(decided) = &self.decided_result()?.outcome else {
             return None;
         };
-        let median = winner.median.as_secs_f64();
+        let median = decided.median.as_secs_f64();
         if median <= 0.0 {
             return None;
         }
         Some(self.roofline()?.as_secs_f64() / median)
     }
 
-    /// Whether the winner came in under the [limit](Self::limit): a tune
+    /// Whether the decided candidate came in under the [limit](Self::limit): a tune
     /// that reaches it may stop before measuring every candidate.
     pub fn met_limit(&self) -> Option<bool> {
-        let CandidateOutcome::Measured(winner) = &self.winning()?.outcome else {
+        let CandidateOutcome::Measured(decided) = &self.decided_result()?.outcome else {
             return None;
         };
-        Some(winner.median <= self.limit?)
+        Some(decided.median <= self.limit?)
     }
 
     /// From the cache miss to the answer, when the tune was recorded.
@@ -272,15 +272,15 @@ impl TunedKey {
             .find(|result| result.candidate.as_deref() == Some(name))
     }
 
-    /// The candidate's score over the winner's, when both were measured.
+    /// The candidate's score over the decided candidate's, when both were measured.
     pub fn slowdown(&self, result: &CandidateResult) -> Option<f64> {
-        let winner = self.winning()?.score()?;
-        Some(result.score()?.max(1) as f64 / winner.max(1) as f64)
+        let decided = self.decided_result()?.score()?;
+        Some(result.score()?.max(1) as f64 / decided.max(1) as f64)
     }
 
     /// The wall of the trials that bought nothing: candidates that failed,
     /// and candidates that ran more than [`WASTE_THRESHOLD`](Self::WASTE_THRESHOLD) times the
-    /// winner's score. `None` when the tune was not recorded.
+    /// decided candidate's score. `None` when the tune was not recorded.
     pub fn wasted(&self) -> Option<Duration> {
         self.tune.as_ref()?;
         Some(

@@ -44,8 +44,8 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         self.sets.write().initialize(key, init_set)
     }
 
-    /// [`LocalTuner::fastest_identity`](crate::tune::LocalTuner::fastest_identity).
-    pub fn fastest_identity<I, Out, Id>(
+    /// [`LocalTuner::decided_identity`](crate::tune::LocalTuner::decided_identity).
+    pub fn decided_identity<I, Out, Id>(
         &self,
         id: &ID,
         operations: &TunableSet<AK, I, Out, Id>,
@@ -419,11 +419,11 @@ mod tests {
     }
 
     #[test]
-    fn an_id_that_executed_nothing_has_no_fastest_identity() {
+    fn an_id_that_executed_nothing_has_no_decided_identity() {
         let executor = TuneExecutor::<FakeAutotuneKey, u8>::new("test");
 
         assert_eq!(
-            executor.fastest_identity(&0, &set(), &FakeAutotuneKey),
+            executor.decided_identity(&0, &set(), &FakeAutotuneKey),
             None
         );
     }

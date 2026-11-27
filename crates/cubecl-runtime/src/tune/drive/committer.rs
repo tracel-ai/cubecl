@@ -141,7 +141,7 @@ impl<K: AutotuneKey> TuneCommitter<K> {
     /// loop on wasm, where it answers [`Pending`](TuneAnswer::Pending) until then.
     ///
     /// A tune that measured nothing decides a candidate that executed unmeasured
-    /// ([`unmeasured_pick`]).
+    /// ([`unmeasured_decision`]).
     pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneAnswer {
         #[cfg(target_family = "wasm")]
         {
@@ -168,7 +168,7 @@ impl<K: AutotuneKey> TuneCommitter<K> {
 
         let decided_index = decided
             .or_else(|| best_scored(self.results.iter()))
-            .unwrap_or_else(|| unmeasured_pick(&self.key, &self.results));
+            .unwrap_or_else(|| unmeasured_decision(&self.key, &self.results));
         // A decided candidate whose own outcome is an error is one picked with nothing measured:
         // it executed but could not be timed.
         let unmeasured = self
@@ -232,7 +232,7 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 ///
 /// When no candidate of `results` executed unmeasured: the plan's candidates end as
 /// [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s third Assumption says.
-pub fn unmeasured_pick<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
+pub fn unmeasured_decision<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
     let index = results
         .iter()
         .position(AutotuneResult::executed_unmeasured)
@@ -324,7 +324,10 @@ mod tests {
             message: "the block divides the vector".into(),
         });
 
-        assert_eq!(unmeasured_pick(&"key", &[panicked, failed(unknown())]), 1);
+        assert_eq!(
+            unmeasured_decision(&"key", &[panicked, failed(unknown())]),
+            1
+        );
     }
 
     #[test]
@@ -334,7 +337,7 @@ mod tests {
             name: "skipped".into(),
         });
 
-        unmeasured_pick(&"key", &[launch]);
+        unmeasured_decision(&"key", &[launch]);
     }
 
     #[test]
@@ -344,7 +347,10 @@ mod tests {
             reason: "not this shape".into(),
         });
 
-        assert_eq!(unmeasured_pick(&"key", &[rejected, failed(unknown())]), 1);
+        assert_eq!(
+            unmeasured_decision(&"key", &[rejected, failed(unknown())]),
+            1
+        );
     }
 
     #[test]
@@ -355,7 +361,7 @@ mod tests {
             reason: "the device thread is gone".into(),
         });
 
-        unmeasured_pick(&"key", &[unheld]);
+        unmeasured_decision(&"key", &[unheld]);
     }
 
     /// A sample of `micros` timed by the system clock.

@@ -50,7 +50,7 @@ pub struct KeyDiff {
 /// How one side answers a key.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Answer {
-    pub winner: String,
+    pub decided: String,
     /// The candidate list it was tuned under.
     pub checksum: String,
     pub margin: Option<f64>,
@@ -64,7 +64,7 @@ pub enum KeyChange {
     Added,
     Removed,
     /// Both answer it, differently.
-    WinnerChanged,
+    DecisionChanged,
     /// Both answer it, alike.
     Kept,
 }
@@ -72,7 +72,7 @@ pub enum KeyChange {
 impl From<&TunedKey> for Answer {
     fn from(key: &TunedKey) -> Self {
         Self {
-            winner: key.winner_name(),
+            decided: key.decided_name(),
             checksum: key.checksum.clone(),
             margin: key.margin(),
             wall: key.wall(),
@@ -85,15 +85,15 @@ impl KeyDiff {
         match (&self.before, &self.after) {
             (None, Some(_)) => KeyChange::Added,
             (Some(_), None) => KeyChange::Removed,
-            (Some(before), Some(after)) if before.winner != after.winner => {
-                KeyChange::WinnerChanged
+            (Some(before), Some(after)) if before.decided != after.decided => {
+                KeyChange::DecisionChanged
             }
             (Some(_), Some(_)) | (None, None) => KeyChange::Kept,
         }
     }
 
     /// Whether the two sides tuned it under different candidate lists: a
-    /// changed winner that is a changed list, not variance.
+    /// changed decided candidate that is a changed list, not variance.
     pub fn candidates_changed(&self) -> bool {
         match (&self.before, &self.after) {
             (Some(before), Some(after)) => before.checksum != after.checksum,

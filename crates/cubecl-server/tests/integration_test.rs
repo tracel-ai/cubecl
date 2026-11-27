@@ -1434,9 +1434,9 @@ fn autotune_basic_multiplication_execution() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn a_key_no_round_settled_has_no_fastest_identity() {
+fn a_key_no_round_settled_has_no_decided_identity() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_key_no_round_settled_has_no_fastest_identity");
+        local_tuner!("a_key_no_round_settled_has_no_decided_identity");
 
     let client = test_client(&DummyDevice);
     let id = "test".to_string();
@@ -1445,7 +1445,7 @@ fn a_key_no_round_settled_has_no_fastest_identity() {
     TUNER.execute(&id, &client, set.clone(), handles);
 
     let untuned = "a key no round has seen".to_string();
-    assert_eq!(TUNER.fastest_identity(&id, &set, &untuned), None);
+    assert_eq!(TUNER.decided_identity(&id, &set, &untuned), None);
 }
 
 /// The decided tunable hands back what it was identified by. The environment is rooted afresh,
@@ -1468,7 +1468,7 @@ fn the_decided_tunable_hands_back_its_identity() {
     TUNER.execute(&id, &client, set.clone(), handles);
 
     assert_eq!(
-        TUNER.fastest_identity(&id, &set, &key),
+        TUNER.decided_identity(&id, &set, &key),
         Some(dummy::Addition::Correct)
     );
 }
@@ -1500,7 +1500,7 @@ fn a_tune_on_a_lost_device_settles_nothing() {
     POISONED.store(false, Ordering::Relaxed);
     core::mem::drop(counted);
 
-    assert_eq!(TUNER.fastest_identity(&id, &set, &key), None);
+    assert_eq!(TUNER.decided_identity(&id, &set, &key), None);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
     let autotune = collector.statistics().autotune;
     assert_eq!(
@@ -1548,11 +1548,11 @@ fn a_lost_device_leaves_its_key_to_the_healthy_cards() {
     );
 
     assert_eq!(
-        TUNER.fastest_identity(&healthy, &healthy_set, &key),
+        TUNER.decided_identity(&healthy, &healthy_set, &key),
         Some(dummy::Addition::Correct)
     );
     assert_eq!(
-        TUNER.fastest_identity(&lost, &lost_set, &key),
+        TUNER.decided_identity(&lost, &lost_set, &key),
         Some(dummy::Addition::Correct),
         "the healthy card's pick is the one tuner both cards share"
     );
@@ -1897,9 +1897,9 @@ fn a_second_list_one_device_runs_never_answers_another_device() {
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
-fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
+fn a_result_only_on_disk_has_a_decided_identity_once_an_execute_reads_it() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it");
+        local_tuner!("a_result_only_on_disk_has_a_decided_identity_once_an_execute_reads_it");
     let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     rooted_at(first.path());
 
@@ -1909,26 +1909,26 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
     let set = TUNER.init(&id, identified_addition_initializer(slow_runs.clone()));
     let (handles, key) = addition_inputs(&client, &set);
     TUNER.execute(&id, &client, set.clone(), handles.clone());
-    let fastest_identity = || TUNER.fastest_identity(&id, &set, &key);
-    assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
+    let decided_identity = || TUNER.decided_identity(&id, &set, &key);
+    assert_eq!(decided_identity(), Some(dummy::Addition::Correct));
     let first_round = slow_runs.load(Ordering::Relaxed);
     assert!(first_round > 0, "the first execute holds a round");
 
     cubecl_environment::environment::set_root(second.path());
     assert_eq!(
-        fastest_identity(),
+        decided_identity(),
         None,
         "a result tuned under another environment"
     );
 
     cubecl_environment::environment::set_root(first.path());
     assert_eq!(
-        fastest_identity(),
+        decided_identity(),
         None,
         "a result only on disk, not yet read"
     );
     TUNER.execute(&id, &client, set.clone(), handles);
-    assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
+    assert_eq!(decided_identity(), Some(dummy::Addition::Correct));
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         slow_runs.load(Ordering::Relaxed),
@@ -2002,7 +2002,7 @@ impl ProcessTuner {
         handles: &Vec<Handle>,
     ) -> Option<Id> {
         self.local
-            .fastest_identity(&0, set, &set.generate_key(handles))
+            .decided_identity(&0, set, &set.generate_key(handles))
     }
 }
 

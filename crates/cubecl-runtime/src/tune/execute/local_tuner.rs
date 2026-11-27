@@ -95,7 +95,7 @@ where
     ///   an `execute` opens a tuner, which may purge the tables of an earlier layout, or while a
     ///   tune reads or writes the store.
     /// - An `id` that has not executed `operations` sees none.
-    pub fn fastest_identity<I, Out, Id>(
+    pub fn decided_identity<I, Out, Id>(
         &self,
         id: &ID,
         operations: &TunableSet<AK, I, Out, Id>,
@@ -105,7 +105,7 @@ where
         I: TuneInputs,
         Id: Clone,
     {
-        self.executor.fastest_identity(id, operations, key)
+        self.executor.decided_identity(id, operations, key)
     }
 
     /// Forget every tune and every set [`init`](Self::init) built.
