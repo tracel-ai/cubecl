@@ -1,12 +1,10 @@
-use super::host_import::HostImporter;
+use super::host_import::HipPinner;
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_server::storage::{
-    HostMemory, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
+    HostImporter, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
 };
 use std::collections::HashMap;
-use std::ops::Range;
-use std::sync::Arc;
 
 use crate::AMD_MAX_BINDINGS;
 
@@ -20,7 +18,7 @@ pub struct GpuStorage {
     allocated: u64,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
-    host_imports: HostImporter,
+    host_imports: HostImporter<HipPinner>,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -65,7 +63,7 @@ impl GpuStorage {
             allocated: 0,
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
-            host_imports: HostImporter::new(stream),
+            host_imports: HostImporter::new(HipPinner::new(stream)),
         }
     }
 }
@@ -120,7 +118,8 @@ impl StorageAllocator for GpuStorage {
             None => self
                 .host_imports
                 .device_ptr(&handle.id)
-                .expect("the handle should name a live allocation of this storage"),
+                .expect("the handle should name a live allocation of this storage")
+                as cubecl_hip_sys::hipDeviceptr_t,
         };
         let ptr = ptr as u64;
 
@@ -166,18 +165,13 @@ impl StorageAllocator for GpuStorage {
         ))
     }
 
-    fn import_host_memory(
-        &mut self,
-        memory: &Arc<HostMemory>,
-        range: Range<u64>,
-    ) -> Result<StorageHandle, IoError> {
-        memory.ensure_importable(&range)?;
-        let id = self.host_imports.import(memory, range.clone())?;
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
+        let id = self.host_imports.import(host)?;
         Ok(StorageHandle::new(
             id,
             StorageUtilization {
                 offset_bytes: 0,
-                size_bytes: range.end - range.start,
+                size_bytes: host.len(),
             },
         ))
     }

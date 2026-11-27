@@ -25,14 +25,12 @@ use crate::memory_management::{Cleanup, release_or_leak};
 use crate::server::{
     BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, PeerBinding, ServerError,
 };
-use crate::storage::{HostMemory, ManagedResource, StorageAllocator};
+use crate::storage::{HostRange, ManagedResource, StorageAllocator};
 use crate::stream::ResolvedStreams;
 use crate::stream::{Placement, TouchedPage};
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::Range;
 use cubecl_common::{bytes::Bytes, device::ServiceId};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
@@ -359,8 +357,8 @@ impl<'a, D: Driver> Command<'a, D> {
         self.streams.current().device_memory().storage().flush();
     }
 
-    /// Give `memory` `range` of `host`, which the device's kernels read in place, imported into
-    /// the current stream's memory.
+    /// Give `memory` `host`, which the device's kernels read in place, imported into the current
+    /// stream's memory.
     ///
     /// # Guarantees
     ///
@@ -375,8 +373,7 @@ impl<'a, D: Driver> Command<'a, D> {
     pub fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
-        host: &Arc<HostMemory>,
-        range: Range<u64>,
+        host: &HostRange,
     ) -> Result<(), IoError> {
         // Pinning fails a recording on drivers such as HIP, and so would the releases it retires.
         if self.streams.current().capturing().device().any_recording() {
@@ -389,7 +386,7 @@ impl<'a, D: Driver> Command<'a, D> {
         let device_memory = stream.device_memory();
         // A reservation is what releases freed imports otherwise, and a loop of imports makes none.
         device_memory.cleanup(Cleanup::Periodic, failures);
-        let storage = device_memory.storage().import_host_memory(host, range)?;
+        let storage = device_memory.storage().import_host_memory(host)?;
         let reserved = device_memory.adopt_import(storage);
         self.bind(reserved, memory);
         Ok(())

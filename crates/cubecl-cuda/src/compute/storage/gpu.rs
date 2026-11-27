@@ -1,7 +1,10 @@
+use super::host_import::CudaPinner;
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{
+    HostImporter, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
+};
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
@@ -23,6 +26,7 @@ pub struct GpuStorage {
     /// The bytes `memory` holds.
     allocated: u64,
     ptr_bindings: PtrBindings,
+    host_imports: HostImporter<CudaPinner>,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -43,20 +47,15 @@ impl GpuResource {
     }
 }
 
-impl Default for GpuStorage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GpuStorage {
-    /// Creates an empty storage.
-    pub fn new() -> Self {
+    /// Storage whose imports `stream`'s work reads. `stream` must outlive the storage.
+    pub(crate) fn new(stream: cudarc::driver::sys::CUstream) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
+            host_imports: HostImporter::new(CudaPinner::new(stream)),
         }
     }
 
@@ -64,6 +63,7 @@ impl GpuStorage {
     ///
     /// This method processes all pending deallocations by freeing the associated GPU memory.
     fn perform_deallocations(&mut self) {
+        self.host_imports.release_after_stream(&self.deallocations);
         self.deallocations
             .drain(..)
             .filter_map(|id| self.memory.remove(&id))
@@ -143,10 +143,13 @@ impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let (ptr, _, _) = self
-            .memory
-            .get(&handle.id)
-            .expect("the handle should name a live allocation of this storage");
+        let ptr = match self.memory.get(&handle.id) {
+            Some((ptr, _, _)) => *ptr,
+            None => self
+                .host_imports
+                .device_ptr(&handle.id)
+                .expect("the handle should name a live allocation of this storage"),
+        };
 
         let offset = handle.offset();
         let size = handle.size();
@@ -207,6 +210,17 @@ impl StorageAllocator for GpuStorage {
         ))
     }
 
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
+        let id = self.host_imports.import(host)?;
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization {
+                offset_bytes: 0,
+                size_bytes: host.len(),
+            },
+        ))
+    }
+
     fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
@@ -229,7 +243,7 @@ mod tests {
         let context = cudarc::driver::CudaContext::new(0).unwrap();
         let stream = context.new_stream().unwrap();
 
-        let mut storage = GpuStorage::new();
+        let mut storage = GpuStorage::new(stream.cu_stream());
         for size in [0, 16] {
             let handle = storage.allocate_bytes(size).unwrap();
             let resource = storage.get(&handle);

@@ -25,8 +25,6 @@ pub mod device;
 
 /// Device handle module.
 pub mod device_handle {
-    #[cfg(all(feature = "std", multi_threading))]
-    pub use super::device::handle::ExitGuard;
     #[cfg(feature = "std")]
     pub use super::device::handle::ProcessCpus;
     pub use super::device::handle::{

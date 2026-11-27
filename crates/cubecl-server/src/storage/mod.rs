@@ -3,7 +3,9 @@
 
 pub use cubecl_runtime::storage::*;
 
+mod host_import;
 mod pinned;
+pub use host_import::*;
 pub use pinned::*;
 
 #[cfg(feature = "storage-bytes")]

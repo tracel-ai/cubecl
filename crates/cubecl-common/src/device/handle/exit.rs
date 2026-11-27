@@ -24,8 +24,6 @@ pub(crate) fn is_exiting() -> bool {
 }
 
 #[cfg(multi_threading)]
-pub use handler::ExitGuard;
-#[cfg(multi_threading)]
 pub(crate) use handler::{close_at_exit, forget_device};
 
 #[cfg(multi_threading)]
@@ -55,69 +53,7 @@ mod handler {
     /// services it holds.
     const EXIT_CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 
-    /// How long the exit waits for the [`ExitGuard`]s still held once the services are closed,
-    /// however long their closes took: the runtime's teardown must not overlap a guarded call.
-    const EXIT_GUARD_TIMEOUT: Duration = Duration::from_secs(5);
-
     static SERVICES: spin::Mutex<Vec<ServiceAtExit>> = spin::Mutex::new(Vec::new());
-
-    /// How many [`ExitGuard`]s are held, and the exit's wait for none to be.
-    static EXIT_GUARDS: (std::sync::Mutex<usize>, std::sync::Condvar) =
-        (std::sync::Mutex::new(0), std::sync::Condvar::new());
-
-    /// Held across a runtime call made on a thread outside every service, such as releasing memory
-    /// where its last owner drops it. The exit waits for the guards held before the runtime's
-    /// teardown, as it does for the services, and like theirs the wait is bounded: a call stuck past
-    /// it can still overlap the teardown.
-    #[derive(Debug)]
-    pub struct ExitGuard {
-        _private: (),
-    }
-
-    impl ExitGuard {
-        /// Holds the exit back until dropped, or returns `None` once the process is exiting, when
-        /// the runtime may already be tearing down and the call must be skipped.
-        pub fn acquire() -> Option<Self> {
-            let mut calls = lock_exit_guards();
-            // Read under the lock the exit takes after setting it: either this call is counted
-            // before the exit waits, or it sees the exit.
-            if EXITING.load(Ordering::Acquire) {
-                return None;
-            }
-            *calls += 1;
-            Some(Self { _private: () })
-        }
-    }
-
-    impl Drop for ExitGuard {
-        fn drop(&mut self) {
-            let mut calls = lock_exit_guards();
-            *calls -= 1;
-            if *calls == 0 {
-                EXIT_GUARDS.1.notify_all();
-            }
-        }
-    }
-
-    fn lock_exit_guards() -> std::sync::MutexGuard<'static, usize> {
-        EXIT_GUARDS
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Waits until no [`ExitGuard`] is held, or until `deadline`.
-    fn wait_exit_guards(deadline: Instant) {
-        let calls = lock_exit_guards();
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        let (calls, _) = EXIT_GUARDS
-            .1
-            .wait_timeout_while(calls, timeout, |calls| *calls > 0)
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *calls > 0 {
-            log::warn!("{} runtime calls were still running at exit", *calls);
-        }
-    }
 
     #[cfg(not(miri))]
     unsafe extern "C" {
@@ -192,14 +128,12 @@ mod handler {
     }
 
     /// No service starts from here on, and every one that asked is closed, all within
-    /// [`EXIT_CLOSE_TIMEOUT`], then the exit guards are waited for, at least
-    /// [`EXIT_GUARD_TIMEOUT`]. Whichever of the guard and the handler runs second returns at once.
+    /// [`EXIT_CLOSE_TIMEOUT`]. The list is taken, so whichever of the guard and the handler runs
+    /// second finds nothing to close.
     fn close_services() {
         let services = {
             let mut services = SERVICES.lock();
-            if EXITING.swap(true, Ordering::AcqRel) {
-                return;
-            }
+            EXITING.store(true, Ordering::Release);
             core::mem::take(&mut *services)
         };
         let deadline = Instant::now() + EXIT_CLOSE_TIMEOUT;
@@ -207,7 +141,6 @@ mod handler {
             let remaining = deadline.saturating_duration_since(Instant::now());
             close_service(service.device_id, service.close, remaining);
         }
-        wait_exit_guards(deadline.max(Instant::now() + EXIT_GUARD_TIMEOUT));
     }
 
     /// Closes one service with `close`, logging a close that failed or ran out of time.

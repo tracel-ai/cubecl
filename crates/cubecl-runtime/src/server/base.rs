@@ -1,6 +1,6 @@
 use super::{CaptureStatus, DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
-use crate::storage::HostMemory;
+use crate::storage::HostRange;
 use crate::{
     client::Client,
     compiler::CompilationError,
@@ -18,7 +18,6 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::{boxed::Box, collections::BTreeSet, string::String, sync::Arc, vec::Vec};
-use core::ops::Range;
 use core::{
     fmt::{Debug, Display},
     hash::{BuildHasher, Hash},
@@ -859,8 +858,8 @@ pub trait Server:
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
 
-    /// Give `memory` `range` of `host`, which this device's kernels then read in place, on the
-    /// given [stream](StreamId).
+    /// Give `memory` `host`, which this device's kernels then read in place, on the given
+    /// [stream](StreamId).
     ///
     /// # Guarantees
     ///
@@ -872,20 +871,18 @@ pub trait Server:
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when the device imports no host memory, which is the
-    /// default, a stream records a graph, `range` is not
-    /// [importable](crate::storage::HostMemory::ensure_importable), or the driver refuses it. A
-    /// runtime that imports records the error on the memory, as in
+    /// default, a stream records a graph, or the driver refuses it. A runtime that imports records
+    /// the error on the memory, as in
     /// [`initialize_memory`](Self::initialize_memory).
     fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
-        host: Arc<HostMemory>,
-        range: Range<u64>,
+        host: HostRange,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        let _ = (memory, host, stream_id);
+        let _ = (memory, stream_id);
         Err(IoError::HostMemoryRefused {
-            reason: alloc::format!("this runtime imports no host memory (range {range:?})").into(),
+            reason: alloc::format!("this runtime imports no host memory ({host:?})").into(),
             backtrace: BackTrace::capture(),
         }
         .into())

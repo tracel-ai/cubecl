@@ -70,7 +70,7 @@ pub const PERSISTENT_POOL_POS: u8 = u8::MAX;
 pub const DEDICATED_POOL_POS: u8 = u8::MAX - 1;
 
 /// The pool position stamped on imported host memory
-/// ([`HostMemory`](crate::storage::HostMemory)), a fixed sentinel for the same reason as
+/// ([`HostRange`](crate::storage::HostRange)), a fixed sentinel for the same reason as
 /// [`PERSISTENT_POOL_POS`].
 #[doc(hidden)]
 pub const IMPORTED_POOL_POS: u8 = u8::MAX - 2;

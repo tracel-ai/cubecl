@@ -40,14 +40,13 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
-    storage::{HostMemory, ManagedResource},
+    storage::{HostRange, ManagedResource},
     stream::{
         ExecuteScope, FailureStore, MultiStream, ScopedOutcome, StreamCapture, WriteScoped,
         failed_writing,
     },
 };
 use std::collections::HashSet;
-use std::ops::Range;
 use std::sync::Arc;
 
 use crate::compute::status::checked;
@@ -94,14 +93,13 @@ impl Server for HipServer {
     fn import_host_memory(
         &mut self,
         memory: ManagedMemoryHandle,
-        host: Arc<HostMemory>,
-        range: Range<u64>,
+        host: HostRange,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
         let binding = memory.to_binding();
         let result = match self.command_no_inputs(stream_id) {
             Ok(mut command) => command
-                .import_host_memory(memory, &host, range)
+                .import_host_memory(memory, &host)
                 .map_err(ServerError::from),
             Err(error) => Err(error),
         };

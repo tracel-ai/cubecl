@@ -1,8 +1,6 @@
-use super::{HostMemory, StorageHandle, StorageId};
+use super::{HostRange, StorageHandle, StorageId};
 use crate::server::IoError;
 use alloc::format;
-use alloc::sync::Arc;
-use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
 
 /// What a runtime allocates device memory with: the pools carve their pages
@@ -35,27 +33,21 @@ pub trait StorageAllocator: Send {
     /// `size` more bytes, and may return one for a size it does not accept.
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError>;
 
-    /// Make `range` of `memory` readable by this device's kernels in place, and a handle to it.
+    /// Make `host` readable by this device's kernels in place, and a handle to it.
     ///
     /// # Guarantees
     ///
-    /// Every implementation keeps `memory` until the device's last work on the handle completes,
-    /// which can be after its id is [deallocated](Self::deallocate), and registers it through
-    /// [`HostMemory::register_once`] when the registration covers every device.
+    /// Every implementation keeps `host`'s memory pinned until the device's last work on the
+    /// handle completes, which can be after its id is [deallocated](Self::deallocate), and pins
+    /// it once for every device of the runtime that imports it.
     ///
     /// # Errors
     ///
     /// [`IoError::HostMemoryRefused`] when this storage imports no host memory, which is the
-    /// default, `range` is not [importable](HostMemory::ensure_importable), or the driver refuses
-    /// the registration.
-    fn import_host_memory(
-        &mut self,
-        memory: &Arc<HostMemory>,
-        range: Range<u64>,
-    ) -> Result<StorageHandle, IoError> {
-        let _ = memory;
+    /// default, or the driver refuses to pin it.
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
         Err(IoError::HostMemoryRefused {
-            reason: format!("this storage imports no host memory (range {range:?})").into(),
+            reason: format!("this storage imports no host memory ({host:?})").into(),
             backtrace: BackTrace::capture(),
         })
     }

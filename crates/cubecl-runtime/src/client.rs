@@ -14,7 +14,7 @@ use crate::{
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{HostMemory, ManagedResource, StorageAllocator},
+    storage::{HostRange, ManagedResource, StorageAllocator},
     throughput::{
         CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
@@ -941,19 +941,25 @@ impl Client {
     /// Several devices may import the same memory, and one device several ranges of it. Each
     /// imports it on its own: [sharing](Self::share_with_peers) it and collectives refuse it.
     ///
+    /// A range is contiguous, so a device that reads only its shard of a table imports it alone
+    /// when the table is laid out shard by shard, each padded to
+    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT). On a host with several
+    /// sockets, a device reading memory of the other socket crosses the link between them: one
+    /// memory per socket, each device importing the nearest, avoids it.
+    ///
     /// # Assumptions
     ///
-    /// - No stream records a graph on the thread that drops the last owner of `host`: HIP refuses
-    ///   to unpin then, which fails the recording.
-    /// - No [resource](Self::get_resource) of the handle outlives its device's service, which lets
-    ///   go of the import as it closes.
+    /// No [resource](Self::get_resource) of the handle outlives its device's service, which lets go
+    /// of the import as it closes.
     ///
     /// # Guarantees
     ///
-    /// - `host` lives until the last work reading the handle completes. Once nothing holds the
-    ///   handle, a binding of it or a graph reading it, an import or
+    /// - `host` stays pinned and alive until the last work reading the handle completes. Once
+    ///   nothing holds the handle, a binding of it or a graph reading it, an import or
     ///   [cleanup](Self::memory_cleanup) on the stream that imported it queues the release behind
-    ///   that work, and a later one lets go of `host` once the release completes.
+    ///   that work, and a later one lets go of `host` once the release completes, unpinning it
+    ///   when no other device still imports it. Dropping the caller's own `host` frees nothing
+    ///   the devices still read.
     /// - The handle is never [mutable in place](Handle::can_mut), and a [write](Self::write) to
     ///   it, or a launch that may write it, fails the handle.
     /// - A graph records kernels reading an import made before the recording.
@@ -962,12 +968,11 @@ impl Client {
     ///
     /// [`IoError::HostMemoryRefused`] when the device lacks
     /// [`Features::host_memory_import`], when a stream of the device records a graph, when
-    /// `range` is empty, past the end of `host` or not aligned to
-    /// [`HOST_MEMORY_ALIGNMENT`](crate::storage::HOST_MEMORY_ALIGNMENT), or
-    /// when the driver refuses it, such as past a limit on the memory it pins.
+    /// `host` and `range` make no [`HostRange`], or when the driver refuses it, such as past a
+    /// limit on the memory it pins.
     pub fn import_host_memory(
         &self,
-        host: &Arc<HostMemory>,
+        host: &Arc<Bytes>,
         range: Range<u64>,
     ) -> Result<Handle, ServerError> {
         let refused = |reason: String| -> ServerError {
@@ -983,16 +988,13 @@ impl Client {
                 self.service_id()
             )));
         }
-        host.ensure_importable(&range)?;
+        let host = HostRange::new(host.clone(), range)?;
 
         let stream_id = self.stream_id();
-        let handle = Handle::new(self.service_id(), stream_id, range.end - range.start);
+        let handle = Handle::new(self.service_id(), stream_id, host.len());
         let memory = handle.memory.clone();
-        let host = host.clone();
         self.device
-            .submit_blocking(move |server| {
-                server.import_host_memory(memory, host, range, stream_id)
-            })
+            .submit_blocking(move |server| server.import_host_memory(memory, host, stream_id))
             .closed_as_error()?;
         Ok(handle)
     }

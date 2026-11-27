@@ -232,6 +232,13 @@ impl DeviceService for CudaServer {
             },
         );
         register_supported_types(&mut device_props);
+        // SAFETY: as above, read-only queries of a valid device.
+        device_props.features.host_memory_import = unsafe {
+            use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
+            let supports = |attribute| get_attribute(device_ptr, attribute).is_ok_and(|on| on != 0);
+            supports(CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY)
+                && supports(CU_DEVICE_ATTRIBUTE_HOST_REGISTER_SUPPORTED)
+        };
         for kind in [ComplexKind::C32, ComplexKind::C64] {
             let ty = ElemType::Complex(kind);
             device_props.register_type_usage(ty, TypeUsage::Conversion | TypeUsage::Buffer);

@@ -18,9 +18,6 @@ pub use placement::ProcessCpus;
 #[cfg(feature = "std")]
 mod exit;
 
-#[cfg(all(feature = "std", multi_threading))]
-pub use exit::ExitGuard;
-
 #[allow(dead_code)]
 mod mutex;
 

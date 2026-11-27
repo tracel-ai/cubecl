@@ -10,7 +10,7 @@ use cubecl_core::server::{Handle, IoError, ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_hip::HipRuntime;
 use cubecl_server::runtime::Runtime;
-use cubecl_server::storage::{HOST_MEMORY_ALIGNMENT, HostMemory};
+use cubecl_server::storage::HOST_MEMORY_ALIGNMENT;
 use std::sync::{Arc, Mutex};
 
 /// Graph capture holds the one cached client's stream for its whole window,
@@ -434,9 +434,9 @@ fn hip_graph_holds_another_streams_input_until_it_drops() {
     graph_streams::a_graph_holds_another_streams_input_until_it_drops::<HipRuntime>();
 }
 
-fn host_floats(values: &[f32]) -> Arc<HostMemory> {
-    let mut memory = HostMemory::new(HOST_MEMORY_ALIGNMENT).unwrap();
-    memory.bytes_mut()[..values.len() * 4].copy_from_slice(f32::as_bytes(values));
+fn host_floats(values: &[f32]) -> Arc<Bytes> {
+    let mut memory = Bytes::zeroed_aligned(HOST_MEMORY_ALIGNMENT, HOST_MEMORY_ALIGNMENT).unwrap();
+    memory[..values.len() * 4].copy_from_slice(f32::as_bytes(values));
     Arc::new(memory)
 }
 
