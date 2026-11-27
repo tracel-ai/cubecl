@@ -95,17 +95,17 @@ impl AutotuneBound {
     ///
     /// # Guarantees
     ///
-    /// - `None` for a threshold that is zero, negative, subnormal or `NaN`, and for a peak
-    ///   [`ResourceBound::time_at_peak`] gives no time for.
+    /// - `None` for a threshold that is zero, negative, subnormal or `NaN`, for a peak
+    ///   [`ResourceBound::time_at_peak`] gives no time for, and for a limit no [`Duration`]
+    ///   holds.
     pub fn time_limit(&self) -> Option<Duration> {
         // The threshold divides the roofline time. A negative one panics `div_f64`, and
         // zero or a subnormal divides the limit away, so neither is a limit to compute.
         if self.threshold_fraction <= 0.0 || !self.threshold_fraction.is_normal() {
             return None;
         }
-        self.resource
-            .time_at_peak()
-            .map(|limit| limit.div_f64(self.threshold_fraction as f64))
+        let at_peak = self.resource.time_at_peak()?;
+        Duration::try_from_secs_f64(at_peak.as_secs_f64() / self.threshold_fraction as f64).ok()
     }
 }
 
@@ -115,13 +115,13 @@ impl Bounds {
     /// # Guarantees
     ///
     /// - `None` where no bound gives a [time limit](AutotuneBound::time_limit): the overhead alone
-    ///   is no limit.
+    ///   is no limit. The sum saturates at the longest [`Duration`].
     pub fn time_limit(&self) -> Option<Duration> {
         self.bounds
             .iter()
             .filter_map(AutotuneBound::time_limit)
             .max()
-            .map(|limit| limit + self.launch_overhead)
+            .map(|limit| limit.saturating_add(self.launch_overhead))
     }
 }
 
@@ -234,5 +234,20 @@ mod tests {
             launch_overhead: Duration::from_millis(500),
         };
         assert_eq!(bounds.time_limit(), None);
+    }
+
+    #[test]
+    fn a_limit_no_duration_holds_is_no_limit() {
+        assert_eq!(bound(8, 4.0, 1e-30).time_limit(), None);
+    }
+
+    #[test]
+    fn the_overhead_saturates_the_limit() {
+        let bounds = Bounds {
+            bounds: vec![bound(8, 4.0, 1.0)],
+            launch_overhead: Duration::MAX,
+        };
+
+        assert_eq!(bounds.time_limit(), Some(Duration::MAX));
     }
 }

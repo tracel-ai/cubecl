@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
-use cubecl_environment::sync::Mutex;
 use core::time::Duration;
+use cubecl_environment::sync::Mutex;
 
 use crate::tune::cache::record::{Answer, TuneRecorder};
 use crate::tune::cache::tracker::TuneTracker;
