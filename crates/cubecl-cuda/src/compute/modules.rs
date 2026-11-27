@@ -8,12 +8,11 @@ use cubecl_core::{ir::settings::DebugInfo, prelude::*};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::compiler::{
-    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, RegisterSpill,
-    StoreNames,
+    ArtifactId, ArtifactRoot, ArtifactStore, CompilationError, CompilationTarget, StoreNames,
 };
 use cubecl_server::kernel::BufferIOAttr;
 use cudarc::driver::sys::CUfunc_st;
-use std::ffi::{CStr, CString, c_char, c_void};
+use std::ffi::{CStr, CString, c_char};
 use std::sync::Arc;
 
 /// Loads CUDA modules for one device, from the PTX store when it holds the
@@ -83,10 +82,6 @@ impl CompilationTarget for CudaModules {
         self.ptx_store.take_by_source(source)
     }
 
-    fn register_spill(&self, artifact: &CudaArtifact) -> Option<RegisterSpill> {
-        artifact.register_spill
-    }
-
     fn load(
         &mut self,
         id: &ArtifactId<()>,
@@ -96,40 +91,27 @@ impl CompilationTarget for CudaModules {
 
         let func_name = CString::new(artifact.entrypoint_name.clone()).unwrap();
         let line_info = id.kernel.debug_info() != DebugInfo::None;
-        // SAFETY: `cubin` is machine code a driver assembled for this device's architecture, and
-        // `ptx` a valid null-terminated PTX binary. `func_name` is a null-terminated `CString`
-        // matching the kernel entry point in the compiled module.
-        let func = unsafe {
-            // The machine code a compiling thread assembled. A stored environment may carry
-            // machine code from a newer driver than this one, which refuses it: the PTX is
-            // then assembled here instead.
-            let module = cudarc::driver::result::module::load_data(
-                artifact.cubin.as_ptr() as *const std::ffi::c_void
-            )
-            .map_err(|err| ("cuModuleLoadData", err))
-            .or_else(|(op, err)| match poisons_device(err.0) {
-                true => Err((op, err)),
-                false => load_module(artifact.ptx.as_ptr().cast(), line_info)
-                    .map_err(|err| (load_module_op(line_info), err)),
-            })
-            .map_err(|(op, err)| {
-                if poisons_device(err.0) {
-                    driver_error(op, err).into()
-                } else {
-                    CompilationError::Generic {
-                        reason: format!("Unable to load the PTX: {err}"),
-                        backtrace: BackTrace::capture(),
-                    }
+        // A stored environment may carry machine code from a newer driver than this one, which
+        // refuses it: the PTX is then assembled again here, and the spills of what it assembles
+        // are not checked again.
+        // SAFETY: both are machine code a driver assembled: the artifact's, and the one assembled
+        // again from its PTX.
+        let module = unsafe {
+            match load_cubin(&artifact.cubin) {
+                Err(err) if !poisons_device(err.0) => {
+                    load_cubin(&self.compiler.assemble(&artifact.ptx, line_info)?.cubin)
                 }
+                loaded => loaded,
+            }
+        }
+        .map_err(module_error)?;
+        // SAFETY: `module` is loaded, and `func_name` a null-terminated `CString` matching the
+        // kernel entry point in it.
+        let func = unsafe { cudarc::driver::result::module::get_function(module, func_name) }
+            .map_err(|err| CompilationError::Generic {
+                reason: format!("Unable to fetch the function from the module: {err:?}"),
+                backtrace: BackTrace::capture(),
             })?;
-
-            cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
-                CompilationError::Generic {
-                    reason: format!("Unable to fetch the function from the module: {err:?}"),
-                    backtrace: BackTrace::capture(),
-                }
-            })?
-        };
 
         Ok(CudaCompiledKernel {
             cube_dim: id.kernel.cube_dim().into(),
@@ -162,46 +144,27 @@ fn cache_namespace(
     }
 }
 
-/// Loads the module of `ptx`. With `line_info`, the driver keeps the `.loc` lines of the PTX in the
-/// code, for Nsight Compute and CUPTI (`CU_JIT_GENERATE_LINE_INFO`). The optimization level does
-/// not change.
+/// Loads the module of the machine code `cubin`. A driver older than the one that assembled it
+/// refuses it with an error.
 ///
 /// # Safety
-/// `ptx` must be a valid null-terminated PTX image.
-unsafe fn load_module(
-    ptx: *const c_void,
-    line_info: bool,
+///
+/// `cubin` is machine code a CUDA driver assembled, an ELF image whose header states its size.
+unsafe fn load_cubin(
+    cubin: &[u8],
 ) -> Result<cudarc::driver::sys::CUmodule, cudarc::driver::DriverError> {
-    use cudarc::driver::sys;
-
-    if !line_info {
-        // SAFETY: the caller's contract.
-        return unsafe { cudarc::driver::result::module::load_data(ptx) };
-    }
-    let mut module = std::mem::MaybeUninit::uninit();
-    let mut options = [sys::CUjit_option::CU_JIT_GENERATE_LINE_INFO];
-    // The value of a flag option is the integer itself, in the place of a pointer.
-    let mut values = [std::ptr::without_provenance_mut::<c_void>(1)];
-    // SAFETY: the caller's contract, and the two arrays have one element each, as the count says.
-    unsafe {
-        sys::cuModuleLoadDataEx(
-            module.as_mut_ptr(),
-            ptx,
-            1,
-            options.as_mut_ptr(),
-            values.as_mut_ptr(),
-        )
-        .result()?;
-        Ok(module.assume_init())
-    }
+    // SAFETY: the caller's contract.
+    unsafe { cudarc::driver::result::module::load_data(cubin.as_ptr().cast()) }
 }
 
-/// The driver call that [`load_module`] makes, to name it in an error.
-fn load_module_op(line_info: bool) -> &'static str {
-    if line_info {
-        "cuModuleLoadDataEx"
-    } else {
-        "cuModuleLoadData"
+/// The error of a module that failed to load: the device's, when the failure poisoned it.
+fn module_error(err: cudarc::driver::DriverError) -> CompilationError {
+    match poisons_device(err.0) {
+        true => driver_error("cuModuleLoadData", err).into(),
+        false => CompilationError::Generic {
+            reason: format!("Unable to load the machine code: {err}"),
+            backtrace: BackTrace::capture(),
+        },
     }
 }
 

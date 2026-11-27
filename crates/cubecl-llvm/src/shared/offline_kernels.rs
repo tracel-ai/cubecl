@@ -178,6 +178,37 @@ pub(crate) fn scale_held_kernel(n: usize) -> impl CubeKernel {
     )
 }
 
+/// Copies `n` inputs into a local array, then writes the one each unit's own input picks: an
+/// index known only when the kernel runs, so the array lives in scratch memory.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn pick_held(input: &[u32], output: &mut [u32], #[comptime] n: usize) {
+    let mut held = Array::<u32>::new(n);
+    #[unroll]
+    for i in 0..n {
+        held[i] = input[i];
+    }
+    let picked = input[ABSOLUTE_POS] as usize % n;
+    output[ABSOLUTE_POS] = held[picked];
+}
+
+#[cfg(feature = "amdgpu")]
+pub(crate) fn pick_held_kernel(n: usize) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    pick_held::PickHeld::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        n,
+    )
+}
+
 /// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
 // Cube code indexes: it has no iterators to lower.
 #[cfg(feature = "nvptx")]

@@ -1,6 +1,6 @@
 //! What the HSA metadata of an AMDGPU code object reports about its kernels.
 
-use cubecl_runtime::compiler::RegisterSpill;
+use cubecl_runtime::compiler::SpillReport;
 
 /// The ELF section type of notes.
 const SHT_NOTE: u32 = 7;
@@ -13,21 +13,44 @@ const NOTE_HEADER_BYTES: usize = 12;
 /// The alignment of a note's name and descriptor.
 const NOTE_ALIGNMENT_BYTES: usize = 4;
 
-/// The registers the kernels of `code_object` spill, as its HSA metadata reports them: the
-/// vector registers they spill to scratch memory together, and the most scratch memory one of
-/// them reserves per unit. Scalar registers spill into the lanes of vector registers rather than
-/// into memory, so they are not counted.
-///
-/// `None` when `code_object` is no 64-bit ELF, or holds no HSA metadata that counts spills.
-pub fn register_spill(code_object: &[u8]) -> Option<RegisterSpill> {
-    let metadata = metadata(code_object)?;
-    let spilled = values(metadata, b".vgpr_spill_count").reduce(u64::saturating_add)?;
+/// The bytes one vector register spill store writes for a unit.
+const VGPR_BYTES: u64 = 4;
+
+/// An AMDGPU code object, as both of HIP's backends emit it, and what its HSA metadata reports
+/// of its kernels.
+#[derive(Clone, Copy, Debug)]
+pub struct CodeObject<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> CodeObject<'a> {
+    /// The code object `bytes` hold.
+    pub fn from_bytes(bytes: &'a [u8]) -> Self {
+        Self { bytes }
+    }
+
+    /// What the HSA metadata reports of the spills of the code object's kernels: the bytes
+    /// their vector register spill stores write together, and the most scratch memory one of
+    /// them reserves per unit. Scalar registers spill into the lanes of vector registers rather
+    /// than into memory, so they are not counted.
+    ///
+    /// `None` when the bytes are no 64-bit ELF, or hold no HSA metadata that counts spills.
+    pub fn spill_report(&self) -> Option<SpillReport> {
+        metadata(self.bytes).and_then(report_in_metadata)
+    }
+}
+
+/// What the HSA `metadata` reports of its kernels' spills: `.vgpr_spill_count` counts the spill
+/// stores of one vector register each, summed over the kernels, and
+/// `.private_segment_fixed_size` the scratch bytes of one unit, the largest of the kernels.
+fn report_in_metadata(metadata: &[u8]) -> Option<SpillReport> {
+    let spill_stores = values(metadata, b".vgpr_spill_count").reduce(u64::saturating_add)?;
     let scratch_bytes = values(metadata, b".private_segment_fixed_size")
         .max()
         .unwrap_or(0);
 
-    Some(RegisterSpill {
-        spilled_registers: u32::try_from(spilled).unwrap_or(u32::MAX),
+    Some(SpillReport {
+        spill_store_bytes: spill_stores.saturating_mul(VGPR_BYTES),
         scratch_bytes,
     })
 }
@@ -121,7 +144,10 @@ mod tests {
 
     #[test]
     fn what_is_no_elf_reports_nothing() {
-        assert_eq!(register_spill(b"__CLANG_OFFLOAD_BUNDLE__"), None);
+        assert_eq!(
+            CodeObject::from_bytes(b"__CLANG_OFFLOAD_BUNDLE__").spill_report(),
+            None
+        );
     }
 
     #[test]

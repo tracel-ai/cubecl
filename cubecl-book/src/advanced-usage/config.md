@@ -115,8 +115,10 @@ it to find where kernel compilation time goes.
 spills registers to scratch memory fails to compile with a register spill error. An autotune drops
 such a candidate, as it drops any candidate that fails to compile. A plain launch of the kernel
 fails, so it stays off by default: a kernel with no candidate that fits its registers would fail
-where it now runs slowly. HIP reports spills for its LLVM and C++ backends, and CUDA from the
-assembler's log. wgpu, Metal and the CPU runtime report none, so they never refuse a kernel.
+where it now runs slowly. HIP reports spills from the code object, and CUDA from the assembler's
+log, both for their LLVM and C++ backends. wgpu, Metal and the CPU runtime report none, so they
+never refuse a kernel. Autotune results measured with spills refused are stored apart from the
+others, so turning the option on retunes rather than serving a winner that spills.
 
 **Example:**
 

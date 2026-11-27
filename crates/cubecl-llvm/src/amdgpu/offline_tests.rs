@@ -1,12 +1,13 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
-use crate::amdgpu::code_object::register_spill;
+use crate::amdgpu::code_object::CodeObject;
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
     cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
     fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
-    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
-    scale_held_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, pick_held_kernel, plane_moves_kernel,
+    relay_kernel, scale_held_kernel, scale_kernel, tally_kernel, tile_product_in_plane,
+    tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -72,9 +73,27 @@ fn a_1d_cube_ignores_the_y_and_z_work_item_ids() {
 #[test]
 fn a_kernel_within_its_registers_reports_no_spill() {
     let module = module_of(scale_held_kernel(64), &GfxArch::parse("gfx1151"));
-    let spill = register_spill(&module.code_object).expect("the code object counts spills");
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
 
-    assert_eq!(spill.spilled_registers, 0);
+    assert_eq!(report.spill_store_bytes, 0);
+}
+
+/// A local array indexed by a value the kernel reads lives in scratch memory, and that is no
+/// spill.
+#[test]
+fn a_dynamically_indexed_array_is_no_spill() {
+    let module = module_of(pick_held_kernel(256), &GfxArch::parse("gfx1151"));
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
+
+    assert!(
+        report.scratch_bytes > 0,
+        "the array is in scratch: {report:?}"
+    );
+    assert!(!report.spills(), "{report:?}");
 }
 
 /// A local array of more values than a unit has VGPRs, all live across a loop, spills, and the
@@ -85,9 +104,11 @@ fn a_kernel_past_its_registers_reports_its_spill() {
         scale_held_kernel(SPILLING_ARRAY_LEN),
         &GfxArch::parse("gfx1151"),
     );
-    let spill = register_spill(&module.code_object).expect("the code object counts spills");
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
 
-    assert!(spill.spills(), "{spill:?}");
+    assert!(report.spills(), "{report:?}");
 }
 
 /// The length of a local array that cannot fit in one unit's 256 VGPRs.

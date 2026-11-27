@@ -12,8 +12,9 @@ use cubecl_cpp::cuda::arch::CudaArchitecture;
 use cubecl_cpp::{formatter::format_cpp, shared::signature::source_forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_server::compiler::{
-    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording, RegisterSpill,
+    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording, SpillReport,
 };
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
 use cubecl_server::driver::DriverError;
 use cubecl_server::kernel::{BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation};
 use cubecl_server::logging::ServerLogger;
@@ -85,38 +86,51 @@ pub struct CudaArtifact {
     /// defaulted for entries persisted before the field existed.
     #[serde(default)]
     pub io: Option<Vec<BufferIOAttr>>,
-    /// What the assembler's log reported of the registers `cubin` spills; `None` when it
-    /// reported nothing, and for entries persisted before the field existed.
-    #[serde(default)]
-    pub register_spill: Option<RegisterSpill>,
+    /// The verbose `info` log the driver's assembler wrote when it assembled `cubin`, which
+    /// reports what each function spills. Required, so an entry stored before it existed does
+    /// not decode and is compiled again rather than loaded with no report.
+    pub assembler_log: String,
 }
 
-/// The machine code the driver assembled, and the registers its log reported it spills.
-struct Assembled {
-    cubin: Vec<u8>,
-    register_spill: Option<RegisterSpill>,
+/// The machine code the driver assembled, and the verbose log it wrote doing so.
+#[derive(Debug)]
+pub struct Assembled {
+    pub cubin: Vec<u8>,
+    pub log: String,
 }
 
-/// The registers the assembler's verbose `info` log reports spilling, from its
-/// `N bytes stack frame, N bytes spill stores, N bytes spill loads` line, summed over the
-/// functions it lists. A 32-bit register a spill store moves is 4 bytes. `None` when no line
-/// reports spill stores.
-fn register_spill(info: &str) -> Option<RegisterSpill> {
-    info.lines()
+/// What the assembler's verbose `log` reports of the spills of the functions it assembled, from
+/// each `N bytes stack frame, N bytes spill stores, N bytes spill loads` line: the spill stores
+/// summed over the functions, and the largest stack frame. `None` when no line reports spill
+/// stores.
+fn report_in_assembler_log(log: &str) -> Option<SpillReport> {
+    log.lines()
         .filter_map(|line| {
-            let stores = bytes_before(line, "bytes spill stores")?;
-            let stack = bytes_before(line, "bytes stack frame").unwrap_or(0);
-            Some(RegisterSpill {
-                spilled_registers: u32::try_from(stores.div_ceil(4)).unwrap_or(u32::MAX),
-                scratch_bytes: stack,
+            Some(SpillReport {
+                spill_store_bytes: bytes_before(line, "bytes spill stores")?,
+                scratch_bytes: bytes_before(line, "bytes stack frame").unwrap_or(0),
             })
         })
-        .reduce(|total, spill| RegisterSpill {
-            spilled_registers: total
-                .spilled_registers
-                .saturating_add(spill.spilled_registers),
-            scratch_bytes: total.scratch_bytes.max(spill.scratch_bytes),
+        .reduce(|total, function| SpillReport {
+            spill_store_bytes: total
+                .spill_store_bytes
+                .saturating_add(function.spill_store_bytes),
+            scratch_bytes: total.scratch_bytes.max(function.scratch_bytes),
         })
+}
+
+/// Warns that the assembler's `log` reports no spill, when the configuration refuses spills:
+/// a driver that changed the log's format, or wrote none, never has a kernel refused.
+fn warn_on_unreported_spills(log: &str) {
+    let refusing = CubeClRuntimeConfig::get()
+        .compilation
+        .refuse_register_spills;
+    if refusing && report_in_assembler_log(log).is_none() {
+        log::warn!(
+            "The CUDA assembler's log reports no register spill, so no kernel it assembled is \
+             refused for spilling:\n{log}"
+        );
+    }
 }
 
 /// The number written right before `label` in `line`.
@@ -223,20 +237,26 @@ impl ArtifactCompiler for CudaArtifactCompiler {
             ptx,
             cubin: assembled.cubin,
             io,
-            register_spill: assembled.register_spill,
+            assembler_log: assembled.log,
         })
+    }
+
+    /// What the assembler's verbose log, kept with the artifact, reports. Both backends' PTX is
+    /// assembled by the driver, so both report.
+    fn spill_report(artifact: &CudaArtifact) -> Option<SpillReport> {
+        report_in_assembler_log(&artifact.assembler_log)
     }
 }
 
 impl CudaArtifactCompiler {
     /// Assembles `ptx` into the machine code of this context's device, with the line table of
-    /// the PTX's `.loc` directives if `line_info` is set.
+    /// the PTX's `.loc` directives if `line_info` is set, and the assembler's verbose log.
     ///
     /// # Errors
     ///
     /// The driver call that failed, with the assembler's log when it wrote one: PTX the
     /// assembler rejects, or a kernel past the device's limits.
-    fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Assembled, CompilationError> {
+    pub fn assemble(&self, ptx: &[c_char], line_info: bool) -> Result<Assembled, CompilationError> {
         let mut log = vec![0u8; ASSEMBLER_LOG_BYTES];
         let mut info = vec![0u8; ASSEMBLER_LOG_BYTES];
         let mut options = vec![
@@ -293,15 +313,12 @@ impl CudaArtifactCompiler {
             }
             poisoned => poisoned,
         })?;
-        let register_spill = CStr::from_bytes_until_nul(&info)
-            .ok()
-            .and_then(|info| info.to_str().ok())
-            .and_then(register_spill);
+        let log = CStr::from_bytes_until_nul(&info)
+            .map(|info| info.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        warn_on_unreported_spills(&log);
 
-        Ok(Assembled {
-            cubin,
-            register_spill,
-        })
+        Ok(Assembled { cubin, log })
     }
 
     /// Assembles `ptx` with the link `state`, and copies out the machine code it yields.
@@ -448,23 +465,56 @@ fn backend_of(lowered: &CompiledKernel<CudaCompiler>) -> CudaBackend {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_spill_stores_count_the_registers_spilled() {
-        let info = "ptxas info    : Function properties for kernel\n    \
-                    1224 bytes stack frame, 1188 bytes spill stores, 1188 bytes spill loads\n\
-                    ptxas info    : Used 255 registers, 380 bytes cmem[0]";
+    /// A verbose log in the format ptxas documents, for a kernel past its registers.
+    const SPILLING_LOG: &str = "ptxas info    : Compiling entry function 'kernel' for 'sm_89'\n\
+        ptxas info    : Function properties for kernel\n    \
+        1224 bytes stack frame, 1188 bytes spill stores, 1188 bytes spill loads\n\
+        ptxas info    : Used 255 registers, used 0 barriers, 1224 bytes cumulative stack size";
 
+    #[test]
+    fn spill_stores_are_read_from_the_log() {
         assert_eq!(
-            register_spill(info),
-            Some(RegisterSpill {
-                spilled_registers: 297,
+            report_in_assembler_log(SPILLING_LOG),
+            Some(SpillReport {
+                spill_store_bytes: 1188,
                 scratch_bytes: 1224,
             })
         );
     }
 
+    /// A local array in local memory makes a stack frame with no spill store.
     #[test]
-    fn a_log_without_spill_stores_reports_nothing() {
-        assert_eq!(register_spill("ptxas info    : Used 32 registers"), None);
+    fn a_stack_frame_without_spill_stores_does_not_spill() {
+        let log = "ptxas info    : Function properties for kernel\n    \
+                   1024 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads";
+
+        let report = report_in_assembler_log(log).expect("the log reports spills");
+
+        assert_eq!(report.scratch_bytes, 1024);
+        assert!(!report.spills());
+    }
+
+    #[test]
+    fn spill_stores_of_every_function_add_up() {
+        let log = "ptxas info    : Function properties for helper\n    \
+                   8 bytes stack frame, 8 bytes spill stores, 8 bytes spill loads\n\
+                   ptxas info    : Function properties for kernel\n    \
+                   64 bytes stack frame, 16 bytes spill stores, 16 bytes spill loads";
+
+        assert_eq!(
+            report_in_assembler_log(log),
+            Some(SpillReport {
+                spill_store_bytes: 24,
+                scratch_bytes: 64,
+            })
+        );
+    }
+
+    #[test]
+    fn a_log_without_function_properties_reports_nothing() {
+        assert_eq!(
+            report_in_assembler_log("ptxas info    : Used 32 registers"),
+            None
+        );
     }
 }

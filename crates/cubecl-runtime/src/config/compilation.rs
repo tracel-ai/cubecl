@@ -63,8 +63,12 @@ pub struct CompilationConfig {
     /// would fail where it now runs slowly. Set by `CUBECL_REFUSE_REGISTER_SPILLS`.
     ///
     /// HIP reports spills for both of its backends, from the code object's metadata, and CUDA
-    /// from the assembler's log. wgpu, Metal and the CPU runtime report none, so they never
-    /// refuse a kernel, and neither does CUDA for a kernel its driver assembled when it loaded.
+    /// for both of its backends, from the assembler's log. wgpu, Metal and the CPU runtime
+    /// report none, so they never refuse a kernel. A CUDA kernel whose stored machine code the
+    /// driver refuses is assembled again when it loads, and judged by the stored report.
+    ///
+    /// Autotune answers measured with spills refused are kept apart from those measured with
+    /// spills accepted, so turning the option on never serves a winner that spills.
     #[serde(default)]
     pub refuse_register_spills: bool,
 }

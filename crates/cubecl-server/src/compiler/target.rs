@@ -6,7 +6,7 @@
 use core::fmt::Debug;
 use core::hash::Hash;
 
-use super::{CompilationError, CompilationRecording, RegisterSpill};
+use super::{CompilationError, CompilationRecording, SpillReport};
 use crate::id::KernelId;
 use crate::kernel::CubeKernel;
 use crate::logging::ServerLogger;
@@ -79,6 +79,17 @@ pub trait ArtifactCompiler: Sync {
         id: &ArtifactId<Self::Variant>,
         lowered: Self::Lowered,
     ) -> Result<Self::Artifact, LaunchError>;
+
+    /// What the device's compiler reported of the registers `artifact` spills, read from the
+    /// artifact alone, whether it was just finalized or read from the compilation store.
+    ///
+    /// Every implementation returns `Some` with no spill store bytes when the compiler reported
+    /// that the kernel fits its registers, and `None` only when the artifact holds no report.
+    /// `None`, the default, never refuses the artifact.
+    fn spill_report(artifact: &Self::Artifact) -> Option<SpillReport> {
+        let _ = artifact;
+        None
+    }
 }
 
 /// The variant an [`ArtifactCompiler`] keys its artifacts by.
@@ -114,14 +125,6 @@ pub trait CompilationTarget {
     /// that keeps no artifact by source.
     fn stored_for_source(&mut self, source: &str) -> Option<ArtifactOf<Self>> {
         let _ = source;
-        None
-    }
-
-    /// The registers `artifact` spills, as the device's compiler reported them, asked before it
-    /// loads when the configuration refuses spills. `None`, the default, when the compiler
-    /// reported nothing, which never refuses the artifact.
-    fn register_spill(&self, artifact: &ArtifactOf<Self>) -> Option<RegisterSpill> {
-        let _ = artifact;
         None
     }
 

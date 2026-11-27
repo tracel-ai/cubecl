@@ -66,45 +66,42 @@ pub enum CompilationError {
     /// [refuses register spills](crate::config::compilation::CompilationConfig::refuse_register_spills)
     /// returns it.
     #[error(
-        "The kernel `{kernel}` spills {spilled_registers} registers to scratch memory, {scratch_bytes} bytes of it per unit"
+        "The kernel `{kernel}` spills registers: its spill stores write {} bytes per unit, within {} bytes of scratch memory per unit",
+        report.spill_store_bytes,
+        report.scratch_bytes
     )]
     RegisterSpill {
         /// The kernel that spills.
         kernel: String,
-        /// See [`RegisterSpill::spilled_registers`].
-        spilled_registers: u32,
-        /// See [`RegisterSpill::scratch_bytes`].
-        scratch_bytes: u64,
+        /// What its compiler reported.
+        report: SpillReport,
     },
 }
 
-/// The registers a compiled kernel spills, as the device's compiler reported them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct RegisterSpill {
-    /// The 32-bit registers the compiler moved to scratch memory, per unit.
-    pub spilled_registers: u32,
-    /// The scratch memory each unit reserves, for spills and local arrays together.
+/// What a device compiler reported of the registers one compiled kernel spills.
+///
+/// # Guarantees
+///
+/// Both fields mean the same on every vendor that reports them, counted over the kernel's code
+/// rather than over a run: a spill store in a loop counts once. A kernel whose local arrays live
+/// in scratch memory while its registers all fit has no spill store bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
+pub struct SpillReport {
+    /// The bytes the kernel's spill stores write to scratch memory, per unit.
+    pub spill_store_bytes: u64,
+    /// The scratch memory each unit reserves, for spills, local arrays and its stack together.
     pub scratch_bytes: u64,
 }
 
-impl RegisterSpill {
-    /// Whether the compiler moved any register to scratch memory. A kernel whose local arrays
-    /// live in scratch memory while its registers all fit does not spill.
+impl SpillReport {
+    /// Whether the compiler moved any register to scratch memory.
     pub fn spills(&self) -> bool {
-        self.spilled_registers > 0
+        self.spill_store_bytes > 0
     }
 }
 
 impl CompilationError {
-    /// The error refusing `kernel` for `spill`.
-    pub fn register_spill(kernel: String, spill: RegisterSpill) -> Self {
-        Self::RegisterSpill {
-            kernel,
-            spilled_registers: spill.spilled_registers,
-            scratch_bytes: spill.scratch_bytes,
-        }
-    }
-
     /// Whether the device that emitted the error is poisoned.
     pub fn is_device_poisoned(&self) -> bool {
         matches!(self, Self::DevicePoisoned(_))
@@ -183,22 +180,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_arrays_in_scratch_memory_are_no_spill() {
-        let spill = RegisterSpill {
-            spilled_registers: 0,
+    fn a_report_without_spill_stores_does_not_spill() {
+        let report = SpillReport {
+            spill_store_bytes: 0,
             scratch_bytes: 2048,
         };
 
-        assert!(!spill.spills());
+        assert!(!report.spills());
     }
 
     #[test]
     fn a_register_spill_is_a_refusal() {
-        let spill = RegisterSpill {
-            spilled_registers: 297,
-            scratch_bytes: 1188,
+        let refused = CompilationError::RegisterSpill {
+            kernel: "matmul".into(),
+            report: SpillReport {
+                spill_store_bytes: 1188,
+                scratch_bytes: 1224,
+            },
         };
 
-        assert!(CompilationError::register_spill("matmul".into(), spill).is_refusal());
+        assert!(refused.is_refusal());
     }
 }

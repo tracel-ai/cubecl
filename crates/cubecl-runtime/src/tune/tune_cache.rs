@@ -169,16 +169,35 @@ pub struct TuneTableName<'a> {
     pub hardware: &'a str,
     /// The tuner, named by the code that declared it.
     pub tuner: &'a str,
+    /// Whether the answers were measured with
+    /// [register spills refused](crate::config::compilation::CompilationConfig::refuse_register_spills),
+    /// which drops the candidates that spill from the race.
+    pub refuses_register_spills: bool,
 }
 
 #[cfg(persistence)]
 impl TuneTableName<'_> {
-    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`.
+    /// `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`, with `@no-spills` after the
+    /// tuner when spills are refused: an answer a spilling candidate won is never served to a
+    /// process that refuses it.
     pub fn namespace(&self) -> Namespace {
-        let Self { hardware, tuner } = self;
-        TABLES.namespace(&alloc::format!("{hardware}/{tuner}"))
+        let Self {
+            hardware,
+            tuner,
+            refuses_register_spills,
+        } = self;
+        let policy = if *refuses_register_spills {
+            NO_SPILLS_SUFFIX
+        } else {
+            ""
+        };
+        TABLES.namespace(&alloc::format!("{hardware}/{tuner}{policy}"))
     }
 }
+
+/// What a table's tuner segment ends with when its answers were measured with spills refused.
+#[cfg(persistence)]
+const NO_SPILLS_SUFFIX: &str = "@no-spills";
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub fn new(
@@ -194,6 +213,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             let namespace = TuneTableName {
                 hardware: &hardware.to_string(),
                 tuner: name,
+                refuses_register_spills: config.compilation.refuse_register_spills,
             }
             .namespace();
             let table = namespace.as_str().into();
@@ -438,6 +458,25 @@ mod tests {
     use cubecl_environment::persistence::MemoryStorage;
 
     const KEY: &str = "matmul-64x64";
+
+    #[test]
+    fn refused_spills_name_a_table_of_their_own() {
+        let name = |refuses_register_spills| {
+            TuneTableName {
+                hardware: "gfx1151",
+                tuner: "matmul",
+                refuses_register_spills,
+            }
+            .namespace()
+        };
+
+        assert_ne!(name(true).as_str(), name(false).as_str());
+        assert_eq!(
+            name(false).as_str(),
+            TABLES.namespace("gfx1151/matmul").as_str(),
+            "the table of answers with spills accepted keeps its name"
+        );
+    }
     /// Sorts before [`CURRENT`], so a table read in key order meets it first.
     const STALE: &str = "0000-older-list";
     const CURRENT: &str = "ffff-current-list";

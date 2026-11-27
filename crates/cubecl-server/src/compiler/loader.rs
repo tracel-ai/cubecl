@@ -14,7 +14,7 @@ use cubecl_runtime::id::KernelId;
 
 use super::{
     ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationError,
-    CompilationOutcome, CompilationRecording, CompilationTarget, RegisterSpill, VariantOf,
+    CompilationOutcome, CompilationRecording, CompilationTarget, SpillReport, VariantOf,
     WorkLaunchStore,
 };
 use crate::config::RuntimeConfig;
@@ -837,14 +837,14 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
             } => {
                 let started = Instant::now();
                 let spill = refuse_register_spills
-                    .then(|| target.register_spill(&artifact))
+                    .then(|| T::Compiler::spill_report(&artifact))
                     .flatten()
-                    .filter(RegisterSpill::spills);
+                    .filter(SpillReport::spills);
                 let loaded = match spill {
-                    Some(spill) => Err(CompilationError::register_spill(
-                        self.kernel.name().into(),
-                        spill,
-                    )),
+                    Some(report) => Err(CompilationError::RegisterSpill {
+                        kernel: self.kernel.name().into(),
+                        report,
+                    }),
                     None => target.load(&self.id, &artifact),
                 };
                 match loaded {
@@ -1261,25 +1261,20 @@ mod tests {
     }
 
     /// With spills refused, a kernel whose compiler reports one fails with
-    /// the counts the compiler reported.
+    /// the report the compiler gave.
     #[test]
     #[serial_test::serial(records)]
     fn a_spilling_kernel_is_refused_when_spills_are_refused() {
         let mut loader = loader(1);
         loader.refuse_register_spills = true;
-        loader.target.spilling = Some(1);
         let logger = ServerLogger::default();
 
-        let refused = loader.load(&Numbered(1), &id(1), &logger);
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
 
         assert!(matches!(
             refused,
             Err(LaunchError::CompilationError(
-                CompilationError::RegisterSpill {
-                    spilled_registers: 1,
-                    scratch_bytes: 64,
-                    ..
-                }
+                CompilationError::RegisterSpill { report: SPILL, .. }
             ))
         ));
     }
@@ -1289,10 +1284,60 @@ mod tests {
     fn a_spilling_kernel_loads_when_spills_are_accepted() {
         let mut loader = loader(1);
         loader.refuse_register_spills = false;
-        loader.target.spilling = Some(1);
         let logger = ServerLogger::default();
 
-        assert_eq!(loader.load(&Numbered(1), &id(1), &logger).unwrap(), 1);
+        let loaded = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert_eq!(loaded.unwrap(), SPILLING);
+    }
+
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_refused_kernel_is_not_stored() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert!(refused.is_err());
+        assert!(loader.target.by_source.is_empty(), "nothing was stored");
+    }
+
+    /// An artifact the store gives, here one another kernel finalized from
+    /// the same source, is checked as one just compiled is.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_from_the_store_is_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        loader.target.by_source.insert("shared".into(), SPILLING);
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(1), &id(1), &logger);
+
+        assert!(matches!(
+            refused,
+            Err(LaunchError::CompilationError(
+                CompilationError::RegisterSpill { .. }
+            ))
+        ));
+    }
+
+    /// A compiler that reports nothing, as wgpu's, Metal's and the CPU's,
+    /// never has a kernel refused.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_without_a_report_loads_when_spills_are_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        let logger = ServerLogger::default();
+
+        let loaded = loader.load(&Numbered(UNREPORTED), &id(UNREPORTED), &logger);
+
+        assert_eq!(loaded.unwrap(), UNREPORTED);
     }
 
     /// A failure the next batch finds unreported is dropped, not kept: the
@@ -1730,9 +1775,17 @@ mod tests {
         storeless: bool,
         /// The number of the kernel the device refuses to load.
         rejecting: Option<u32>,
-        /// The number of the kernel whose compiler reports a register spill.
-        spilling: Option<u32>,
     }
+
+    /// The number of the kernel whose compiler reports [`SPILL`].
+    const SPILLING: u32 = 40;
+    /// The number of the kernel whose compiler reports nothing of its spills.
+    const UNREPORTED: u32 = 41;
+    /// What the compiler reports of [`SPILLING`].
+    const SPILL: SpillReport = SpillReport {
+        spill_store_bytes: 4,
+        scratch_bytes: 64,
+    };
 
     #[derive(Debug, Default)]
     struct FakeCompiler {
@@ -1808,6 +1861,17 @@ mod tests {
             lowered.1.as_deref()
         }
 
+        fn spill_report(artifact: &u32) -> Option<SpillReport> {
+            match *artifact {
+                SPILLING => Some(SPILL),
+                UNREPORTED => None,
+                _ => Some(SpillReport {
+                    spill_store_bytes: 0,
+                    scratch_bytes: 64,
+                }),
+            }
+        }
+
         fn finalize(
             &self,
             _id: &ArtifactId<()>,
@@ -1842,13 +1906,6 @@ mod tests {
 
         fn stored(&mut self, _id: &ArtifactId<()>) -> Option<u32> {
             None
-        }
-
-        fn register_spill(&self, artifact: &u32) -> Option<RegisterSpill> {
-            Some(RegisterSpill {
-                spilled_registers: u32::from(self.spilling == Some(*artifact)),
-                scratch_bytes: 64,
-            })
         }
 
         fn load(
