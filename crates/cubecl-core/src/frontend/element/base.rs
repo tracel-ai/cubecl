@@ -228,6 +228,13 @@ impl<T> AsDerefExpand for &mut T {
     }
 }
 
+/// `&mut *x` on a mutable reference: a reborrow, so a `&mut` field passes on without moving out.
+impl<T> AsDerefMutExpand for &mut T {
+    fn __expand_as_deref_mut_method(&mut self, _: &Scope) -> &mut T {
+        self
+    }
+}
+
 pub trait CubeEnum: Sized {
     type RuntimeValue: ExpandTypeClone + CubeDebug;
 
