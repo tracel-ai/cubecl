@@ -192,6 +192,9 @@ impl Launch {
             });
 
             #registers
+            // Registering the buffers marked the ones small enough for 32-bit byte offsets,
+            // which the kernel compiles with and its id names.
+            __settings.narrow_bindings = launcher.settings.narrow_bindings;
         };
 
         (setup, args)

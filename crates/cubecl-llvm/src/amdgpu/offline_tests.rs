@@ -3,9 +3,9 @@
 use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
     cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
-    fence_send_kernel, keep_largest_kernel, manual_product_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    fence_send_kernel, keep_largest_kernel, manual_product_kernel, narrow_input_scale_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
+    scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -38,6 +38,44 @@ fn a_32_bit_kernel_indexes_in_32_bits() {
 fn a_64_bit_kernel_indexes_in_64_bits() {
     let asm = asm_of(scale_kernel(AddressType::U64), "gfx1201");
     assert!(asm.contains("_u64"), "a 64-bit bounds check:\n{asm}");
+}
+
+/// A narrow binding is indexed by a 32-bit byte offset, which AMDGPU loads from a base in scalar
+/// registers; the output, unmarked, keeps its 64-bit address.
+#[test]
+fn a_narrow_binding_loads_from_a_scalar_base() {
+    let asm = asm_of(narrow_input_scale_kernel(), "gfx1201");
+    let load = asm
+        .lines()
+        .find(|line| line.contains("global_load_b32"))
+        .expect("the kernel loads its input");
+    assert!(load.contains(", s["), "the input's base is scalar:\n{asm}");
+    let store = asm
+        .lines()
+        .find(|line| line.contains("global_store_b32"))
+        .expect("the kernel stores its output");
+    assert!(
+        store.contains(", off"),
+        "the output keeps its own address:\n{asm}"
+    );
+}
+
+/// Without a narrow binding, every access keeps its element index and its 64-bit address.
+#[test]
+fn an_unmarked_binding_keeps_its_element_index() {
+    let arch = GfxArch::parse("gfx1201");
+    let module = module_of(scale_kernel(AddressType::U32), &arch);
+    assert!(
+        !module.ir.contains("getelementptr inbounds nuw i8"),
+        "no byte offset:\n{}",
+        module.ir
+    );
+    let asm = asm_of(scale_kernel(AddressType::U32), "gfx1201");
+    let load = asm
+        .lines()
+        .find(|line| line.contains("global_load_b32"))
+        .expect("the kernel loads its input");
+    assert!(load.contains(", off"), "the input's own address:\n{asm}");
 }
 
 /// Every shuffle is lowered to `ds_bpermute`, and the backend is what turns one with a known

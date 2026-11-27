@@ -6,7 +6,10 @@ use crate::{InfoBuilder, MetadataOverflow, ScalarArgType};
 use alloc::string::{String, ToString};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
+use cubecl_ir::{
+    AddressType, ElemType, Scope,
+    settings::{KernelSettings, NarrowBindings},
+};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{
     ArgumentOverflow, BufferBinding, CubeCount, KernelResource, LaunchError, PeerAccess,
@@ -241,8 +244,29 @@ impl KernelLauncher {
         }
     }
 
+    /// Marks `resource`, about to take the next binding position, in the settings'
+    /// [narrow bindings](NarrowBindings) when it is a buffer that [`is_narrow`].
+    fn mark_narrow(&mut self, resource: &KernelResource) {
+        let KernelResource::Buffer(binding) = resource else {
+            return;
+        };
+        let device_marks = self.with_scope(|scope| {
+            scope
+                .state()
+                .device_properties
+                .as_ref()
+                .is_some_and(|properties| properties.features.narrow_bindings)
+        });
+        if is_narrow(device_marks, self.address_type, binding.size_in_used()) {
+            self.settings
+                .narrow_bindings
+                .insert_position(self.resources.len());
+        }
+    }
+
     /// Record a resource.
     fn push_resource(&mut self, resource: KernelResource) {
+        self.mark_narrow(&resource);
         let io = match &resource {
             // A tensor map's global side is written through TMA operations no
             // signature shows — a map registered from a `&TensorMap` can
@@ -382,10 +406,41 @@ impl KernelLauncher {
     }
 }
 
+/// Whether a buffer of `size_bytes` is a [narrow binding](NarrowBindings): the device addresses
+/// narrow bindings (`device_marks`), the kernel computes its addresses in 32 bits and every byte
+/// offset into the buffer fits 32 bits.
+fn is_narrow(device_marks: bool, address_type: AddressType, size_bytes: u64) -> bool {
+    device_marks && address_type == AddressType::U32 && NarrowBindings::fits_size_bytes(size_bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cubecl_ir::settings::{Dim3, ExecutionMode};
+
+    #[test]
+    fn a_small_buffer_on_a_device_that_marks_is_narrow() {
+        assert!(is_narrow(true, AddressType::U32, NarrowBindings::MAX_BYTES));
+    }
+
+    #[test]
+    fn a_device_that_does_not_mark_has_no_narrow_binding() {
+        assert!(!is_narrow(false, AddressType::U32, 4));
+    }
+
+    #[test]
+    fn a_64_bit_kernel_has_no_narrow_binding() {
+        assert!(!is_narrow(true, AddressType::U64, 4));
+    }
+
+    #[test]
+    fn a_buffer_past_four_gib_is_not_narrow() {
+        assert!(!is_narrow(
+            true,
+            AddressType::U32,
+            NarrowBindings::MAX_BYTES + 1
+        ));
+    }
 
     fn settings() -> KernelSettings {
         KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32)

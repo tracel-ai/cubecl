@@ -98,6 +98,10 @@ impl KernelBuilder {
         self.scope
             .ctx_mut()
             .set_aux_ty(self.settings.float_contraction);
+        // Read by the backends that address narrow bindings with 32-bit byte offsets.
+        self.scope
+            .ctx_mut()
+            .set_aux_ty(self.settings.narrow_bindings);
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,
             info,

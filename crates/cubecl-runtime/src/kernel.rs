@@ -126,8 +126,9 @@ pub trait CubeKernel: KernelMetadata {
 /// a refusal, so a harness that skips refused kernels reports it instead.
 ///
 /// In debug builds, it also checks that the kernel's [id](KernelMetadata::id) names the float
-/// contraction its definition compiles with: the id is the cache key, so an id that missed it
-/// would hand a kernel that turned contraction off the binary of one that allows it.
+/// contraction and the narrow bindings its definition compiles with: the id is the cache key, so
+/// an id that missed either would hand a kernel that turned contraction off the binary of one
+/// that allows it, or a binding over 4 GiB the binary that addresses it with 32-bit offsets.
 pub fn define_kernel<K: CubeKernel + ?Sized>(
     kernel: &K,
 ) -> Result<KernelDefinition, CompilationError> {
@@ -137,6 +138,13 @@ pub fn define_kernel<K: CubeKernel + ?Sized>(
         definition.settings.float_contraction,
         "the id of kernel `{}` must name the float contraction its settings ask for, with \
          `KernelId::with_float_contraction`",
+        kernel.name(),
+    );
+    debug_assert_eq!(
+        kernel.id().narrow_bindings(),
+        definition.settings.narrow_bindings,
+        "the id of kernel `{}` must name the narrow bindings its settings mark, with \
+         `KernelId::with_narrow_bindings`",
         kernel.name(),
     );
     Ok(definition)

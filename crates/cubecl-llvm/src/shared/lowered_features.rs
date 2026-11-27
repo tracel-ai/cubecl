@@ -44,6 +44,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
     props.features.matmul.wgmma.clear();
     // The quantized MMA lowers through AMDGPU's plain one alone, so only that target offers it.
     props.features.matmul.quantized_mma.clear();
+    // 32-bit byte offsets into narrow bindings lower on AMDGPU alone.
+    props.features.narrow_bindings = false;
     match target {
         #[cfg(feature = "nvptx")]
         GpuTarget::Nvptx { arch } => {
@@ -61,6 +63,8 @@ pub fn restrict_features(props: &mut DeviceProperties, target: GpuTarget) {
             props.features.matmul.scaled_mma = Default::default();
             // `copy_async` lowers to NVPTX's `cp.async` alone.
             props.features.copy_async = false;
+            // A narrow binding's loads take their base from scalar registers.
+            props.features.narrow_bindings = true;
             remove_tma(props);
         }
     }
@@ -412,6 +416,14 @@ mod tests {
         );
     }
 
+    /// AMDGPU addresses a narrow binding's loads from a scalar base, so it offers narrow bindings.
+    #[test]
+    fn amdgpu_offers_narrow_bindings() {
+        let mut props = (*device_properties(32)).clone();
+        restrict_features(&mut props, GpuTarget::AmdGpu { matrix: None });
+        assert!(props.features.narrow_bindings);
+    }
+
     fn restricted_for(arch: &str) -> DeviceProperties {
         let mut props = advertising_every_matrix_form();
         let matrix = GfxArch::parse(arch).matrix_core();
@@ -456,6 +468,20 @@ mod nvptx_tests {
     use super::*;
     use crate::shared::offline_kernels::device_properties;
     use cubecl_core::ir::features::MmaConfig;
+
+    /// NVPTX keeps element-indexed addresses, so a property claiming otherwise is taken away.
+    #[test]
+    fn nvptx_offers_no_narrow_bindings() {
+        let mut props = (*device_properties(32)).clone();
+        props.features.narrow_bindings = true;
+        restrict_features(
+            &mut props,
+            GpuTarget::Nvptx {
+                arch: SmArch::new(80, true),
+            },
+        );
+        assert!(!props.features.narrow_bindings);
+    }
 
     #[test]
     fn tf32_keeps_only_supported_matrix_shapes() {
