@@ -1,75 +1,36 @@
 //! How a plane's units reach the cells of a sum one at a time: in turns over a plane's cells
-//! ([`in_plane_turns`]), and written through a memory window's own write ([`write_cells`]).
+//! ([`plane_turns`]), and written through a memory window's own write ([`cell_sink`]).
 
-use cubecl::ir::Scope;
 use cubecl::prelude::*;
-use cubecl::unexpanded;
 
 use crate::*;
 
-/// Hands `work` each cell of `cells` this unit takes when a plane's units take them in turns, a
-/// cell each per turn: this unit's place in the plane, then every plane width past it.
+/// This unit's first cell, and the cells between two of its turns, when a plane's units take a
+/// sum's cells in turns, a cell each per turn: walked as `range_stepped(first, cells, stride)`.
 ///
 /// # Guarantees
 ///
-/// - Across a plane's units, every cell below `cells` is handed to exactly one unit, once, for
-///   any plane width.
-pub fn in_plane_turns(_cells: usize, _work: impl FnMut(usize)) {
-    unexpanded!()
-}
-
-/// [`in_plane_turns`] as a kernel expands it.
-pub mod in_plane_turns {
-    use super::*;
-
-    pub fn expand(
-        scope: &Scope,
-        cells: NativeExpand<usize>,
-        work: impl FnMut(&Scope, NativeExpand<usize>),
-    ) {
-        let (first, stride) = first_cell_and_stride::expand(scope);
-        let turns = range_stepped::expand(scope, first, cells, stride);
-        for_expand(scope, turns, false, work);
-    }
-}
-
-/// This unit's first cell of a plane's turns, and the cells between two of its turns.
+/// - Across a plane's units, that walk hands every cell below `cells` to exactly one unit, once,
+///   for any plane width.
 #[cube]
-fn first_cell_and_stride() -> (usize, usize) {
+pub fn plane_turns() -> (usize, usize) {
     (UNIT_POS_PLANE as usize, PLANE_DIM as usize)
 }
 
-/// Writes a sum's cells into `mem` through its own write, which replaces them or adds into them:
-/// `cells` writes each run of `W` cells it holds into the sink it is handed, at the run's row and
-/// line of the matrix `space`'s edges make: its innermost dimension the columns, the last one
-/// above it longer than one cell the rows, as the fragment's store intrinsic addresses them.
+/// The sink a sum's cells are written into `mem` through, by its own write, which replaces them
+/// or adds into them: each run of `W` cells at its row and line of the matrix `space`'s edges
+/// make, its innermost dimension the columns and the last one above it longer than one cell the
+/// rows, as the fragment's store intrinsic addresses them.
 ///
 /// # Guarantees
 ///
 /// - The sink addresses `mem`'s window as the accumulator's rows and columns, whatever order
 ///   `space` lists the window's dimensions in past its trailing ones, and whatever one-wide
 ///   dimensions it lists between them.
-pub fn write_cells<Out: Numeric, W: Size>(
-    _mem: &mut Memory,
-    _space: &Space,
-    _cells: impl FnOnce(&mut MatrixViewMut<'_, Vector<Out, W>>),
-) {
-    unexpanded!()
-}
-
-/// [`write_cells`] as a kernel expands it.
-pub mod write_cells {
-    use super::*;
-
-    pub fn expand<'a, Out: Numeric, W: Size>(
-        scope: &Scope,
-        mem: &'a mut MemoryExpand,
-        space: &'a Space,
-        cells: impl FnOnce(&Scope, &mut <MatrixViewMut<'a, Vector<Out, W>> as CubeType>::ExpandType),
-    ) {
-        let dimensions = MatrixDimensions::edges(space);
-        let mut sink =
-            mem.__expand_matrix_mut_method::<Out, W>(scope, 0usize.into(), dimensions, space);
-        cells(scope, &mut sink);
-    }
+#[cube]
+pub fn cell_sink<'a, Out: Numeric, W: Size>(
+    mem: &'a mut Memory,
+    #[comptime] space: &'a Space,
+) -> MatrixViewMut<'a, Vector<Out, W>> {
+    mem.matrix_mut::<Out, W>(0usize, comptime!(MatrixDimensions::edges(space)), space)
 }

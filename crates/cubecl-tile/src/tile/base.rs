@@ -1093,9 +1093,9 @@ impl Tile {
                     d.load_window::<S>(src, DeepLoad::Steps, row)
                 }
                 (TileKind::Memory(d), TileKind::PlaneTile(s)) => s.store_window::<S>(d, &held),
-                (TileKind::Memory(d), TileKind::TmaGmem(s)) => d.load_box::<S>(s),
+                (TileKind::Memory(d), TileKind::TmaGmem(s)) => load_box::<S>(d, s),
                 (TileKind::TmaGmem(d), TileKind::Memory(s)) => d.store_from::<S>(s),
-                (TileKind::Memory(d), TileKind::Memory(s)) => d.load_from::<S>(s, &space),
+                (TileKind::Memory(d), TileKind::Memory(s)) => load_from::<S>(d, s, &space),
                 (TileKind::Memory(d), TileKind::Procedural(s)) => d.fill_procedural::<S>(s, &space),
                 (TileKind::PlaneTile(_), TileKind::PlaneTile(_)) => {
                     panic!("Tile::copy_from: plane tile to plane tile cast not wired")

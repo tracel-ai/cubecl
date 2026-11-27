@@ -104,14 +104,7 @@ impl Memory {
             };
             // Only an equal-width fill moves each line whole, which is what an engine moving memory
             // to memory does ([`TransportKind::new`] refuses it any other).
-            Memory::move_lines::<I2, WP2>(
-                d,
-                &s,
-                &layout,
-                total,
-                comptime!(src.access.delivery),
-                fill,
-            );
+            move_lines::<I2, WP2>(d, &s, &layout, total, comptime!(src.access.delivery), fill);
         } else {
             let s = if steps.is_empty() {
                 src.edged(
@@ -129,7 +122,7 @@ impl Memory {
                 )
             };
             // A padded stage assembles each line out of narrower ones, through the registers.
-            Memory::sync_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
+            sync_lines::<I2, WP2, Const<1>>(d, &s, &layout, total, fill, padding);
         }
     }
 }

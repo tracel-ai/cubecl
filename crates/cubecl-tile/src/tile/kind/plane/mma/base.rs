@@ -1446,7 +1446,7 @@ fn laid_out(row: u32, col: u32, #[comptime] layout: MatrixLayout) -> (u32, u32) 
     }
 }
 
-/// Each unit's accumulator cells written through `mem`'s own write ([`write_cells`]): one element
+/// Each unit's accumulator cells written through `mem`'s own write ([`cell_sink`]): one element
 /// at a time, or, where `mem` is bound as wide as a unit's run of cells along a row of a row-major
 /// destination, a run at a time, as a sink that adds whole lines takes them.
 #[cube]
@@ -1476,21 +1476,20 @@ fn store_cells_one_by_one<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: 
     let num_vectors = def.vectors_per_lane(MatrixIdent::Accumulator);
     let vector_size = def.vector_size(MatrixIdent::Accumulator);
     let unit_id = UNIT_POS_PLANE;
-    write_cells::<Out, Const<1>>(mem, space, |sink| {
+    let mut sink = cell_sink::<Out, Const<1>>(mem, space);
+    #[unroll]
+    for i in 0..num_vectors {
         #[unroll]
-        for i in 0..num_vectors {
-            #[unroll]
-            for e in 0..vector_size {
-                let elem_idx = i * vector_size + e;
-                let (row, col) =
-                    def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
-                let at = laid_out(row, col, layout);
-                let mut value = Vector::<Out, Const<1>>::empty();
-                value.insert(0usize, Out::cast_from(fragment[i].extract(e)));
-                sink.write(at, value);
-            }
+        for e in 0..vector_size {
+            let elem_idx = i * vector_size + e;
+            let (row, col) =
+                def.position_of_nth(unit_id, elem_idx as u32, MatrixIdent::Accumulator);
+            let at = laid_out(row, col, layout);
+            let mut value = Vector::<Out, Const<1>>::empty();
+            value.insert(0usize, Out::cast_from(fragment[i].extract(e)));
+            sink.write(at, value);
         }
-    });
+    }
 }
 
 /// [`store_cells`] a unit's run along a row at a time.
@@ -1517,20 +1516,19 @@ fn store_cell_runs<T: Numeric, Out: Numeric, A: Numeric, B: Numeric, CD: Numeric
          {width} wide"
     ));
     let size!(W) = width;
-    write_cells::<Out, W>(mem, space, |sink| {
+    let mut sink = cell_sink::<Out, W>(mem, space);
+    #[unroll]
+    for i in 0..num_vectors {
+        // A run starts at a column the width divides: the sink's lines count columns by it.
+        let (row, col) =
+            def.position_of_nth(unit_id, (i * vector_size) as u32, MatrixIdent::Accumulator);
+        let mut value = Vector::<Out, W>::empty();
         #[unroll]
-        for i in 0..num_vectors {
-            // A run starts at a column the width divides: the sink's lines count columns by it.
-            let (row, col) =
-                def.position_of_nth(unit_id, (i * vector_size) as u32, MatrixIdent::Accumulator);
-            let mut value = Vector::<Out, W>::empty();
-            #[unroll]
-            for e in 0..vector_size {
-                value.insert(e, Out::cast_from(fragment[i].extract(e)));
-            }
-            sink.write((row, col / comptime!(width as u32)), value);
+        for e in 0..vector_size {
+            value.insert(e, Out::cast_from(fragment[i].extract(e)));
         }
-    });
+        sink.write((row, col / comptime!(width as u32)), value);
+    }
 }
 
 /// A run of accumulators along `k`, `accs`, regrouped as the `A` operand of an `m × n × k`

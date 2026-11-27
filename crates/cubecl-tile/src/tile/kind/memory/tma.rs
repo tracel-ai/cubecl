@@ -79,7 +79,7 @@ impl TmaData {
     }
 
     /// Issue the `tensor_map_load` into `dst` on `barrier` without arriving or waiting; who issues
-    /// it, and when, is the TMA engine's ([`Memory::issue_box`]).
+    /// it, and when, is the TMA engine's ([`issue_box`](crate::stage::issue_box)).
     pub(crate) fn stage_into<T: Numeric>(&self, dst: &mut Memory, barrier: &Shared<Barrier>) {
         // A box lands its rows dense, swizzled by the descriptor where the stage keeps them
         // swizzled; the launch built the descriptor off the same answer

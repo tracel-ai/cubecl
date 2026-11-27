@@ -144,7 +144,8 @@ impl CmmaData {
     ) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        in_plane_turns(m * n, |nth| {
+        let (first, stride) = plane_turns();
+        for nth in range_stepped(first, m * n, stride) {
             let mut cells = Sequence::<HeldCell>::new();
             cells.push(HeldCell {
                 row: (nth / n) as u32 + comptime!(origin.0 as u32),
@@ -153,7 +154,7 @@ impl CmmaData {
             });
             let cell = Vector::<T, Const<1>>::cast_from(scratch[nth]);
             scratch[nth] = scales.applied::<T, Const<1>>(cell, &cells).extract(0usize);
-        });
+        }
     }
 
     /// `self[i, :] *= factors[first + i]` for every slice `i` along the fragment's columns,
@@ -169,9 +170,10 @@ impl CmmaData {
     pub(crate) fn mul_spilled<T: Numeric>(&self, factors: &Array<T>, #[comptime] first: usize) {
         let mut scratch = self.scratch_slot::<T>();
         let (m, n) = self.shape;
-        in_plane_turns(m * n, |cell| {
+        let (start, stride) = plane_turns();
+        for cell in range_stepped(start, m * n, stride) {
             scratch[cell] *= factors[first + cell / n];
-        });
+        }
     }
 
     /// Load this fragment back from its slot of the plane's scratch. The caller owns the barriers.
@@ -187,7 +189,7 @@ impl CmmaData {
     }
 
     /// Write this fragment's spilled cells into `mem` through the store's own write
-    /// ([`write_cells`]), the plane's units taking its lines in turns.
+    /// ([`cell_sink`]), the plane's units taking its lines in turns ([`plane_turns`]).
     ///
     /// # Panics
     ///
@@ -208,19 +210,19 @@ impl CmmaData {
         let size!(W) = width;
         let lines_per_row = n / width;
         let lines = m * lines_per_row;
-        write_cells::<Out, W>(mem, space, |sink| {
-            in_plane_turns(lines, |line| {
-                let mut value = Vector::<Out, W>::empty();
-                #[unroll]
-                for e in 0..width {
-                    value.insert(e, Out::cast_from(scratch[line * width + e]));
-                }
-                sink.write(
-                    ((line / lines_per_row) as u32, (line % lines_per_row) as u32),
-                    value,
-                );
-            });
-        });
+        let mut sink = cell_sink::<Out, W>(mem, space);
+        let (first, stride) = plane_turns();
+        for line in range_stepped(first, lines, stride) {
+            let mut value = Vector::<Out, W>::empty();
+            #[unroll]
+            for e in 0..width {
+                value.insert(e, Out::cast_from(scratch[line * width + e]));
+            }
+            sink.write(
+                ((line / lines_per_row) as u32, (line % lines_per_row) as u32),
+                value,
+            );
+        }
     }
 
     /// Drain this fragment through its slot of the plane's scratch. The slot is the plane's own,

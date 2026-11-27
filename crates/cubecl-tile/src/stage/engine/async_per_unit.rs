@@ -10,7 +10,7 @@
 //!
 //! Nothing here waits: the slot's barrier is handed the copies and flips once they land
 //! ([`Meeting::release_write`](crate::Meeting)), or a blocking copy waits on one of its own
-//! ([`Memory::load_from`]).
+//! ([`load_from`]).
 
 use cubecl::{
     ir::DeviceProperties,
@@ -26,7 +26,7 @@ use crate::*;
 const COPY_BYTES: [usize; 3] = [4, 8, 16];
 
 /// What the copy engine states.
-pub(crate) const ASYNC_PER_UNIT: Engine = Engine {
+pub const ASYNC_PER_UNIT: Engine = Engine {
     issuer: Issuer::Unit,
     route: Route::MemoryToMemory,
     present: |device: &DeviceProperties| device.features.copy_async,
@@ -35,33 +35,31 @@ pub(crate) const ASYNC_PER_UNIT: Engine = Engine {
     stage_alignment: 0,
 };
 
+/// [`sync_lines`] with every line handed to the copy engine: the same lines per unit, dealt the
+/// same way, numbered in the source's order ([`BufferLayout::row_major_coords`]).
+///
+/// A move of its own rather than an arm of `sync_lines`: the copy reads and writes lines of one
+/// width, which `sync_lines`, generic over a source served narrower, cannot hand it.
 #[cube]
-impl Memory {
-    /// [`Memory::sync_lines`] with every line handed to the copy engine: the same lines per unit,
-    /// dealt the same way, numbered in the source's order ([`BufferLayout::row_major_coords`]).
-    ///
-    /// A move of its own rather than an arm of `sync_lines`: the copy reads and writes lines of one
-    /// width, which `sync_lines`, generic over a source served narrower, cannot hand it.
-    pub(crate) fn async_lines<I2: Numeric, W: Size>(
-        d: &mut [Vector<I2, W>],
-        s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
-        layout: &BufferLayout,
-        total: usize,
-        #[comptime] fill: Level,
-    ) {
-        // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic
-        // and `value` is not expanded at all.
-        let width = W::value();
-        let elem_size = I2::size().comptime();
-        let bytes = comptime!(width * elem_size);
-        comptime!(assert!(
-            COPY_BYTES.contains(&bytes),
-            "Memory::async_lines: the copy engine moves 4, 8 or 16 bytes at once, and this stage's \
-             lines are {bytes}: serve the operand in lines one copy moves"
-        ));
-        for line in Walk::copy(&fill, total) {
-            copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
-        }
+pub fn async_lines<I2: Numeric, W: Size>(
+    d: &mut [Vector<I2, W>],
+    s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
+    layout: &BufferLayout,
+    total: usize,
+    #[comptime] fill: Level,
+) {
+    // Both read outside `comptime!`: in there, `size` is the host's `size_of` of the generic
+    // and `value` is not expanded at all.
+    let width = W::value();
+    let elem_size = I2::size().comptime();
+    let bytes = comptime!(width * elem_size);
+    comptime!(assert!(
+        COPY_BYTES.contains(&bytes),
+        "async_lines: the copy engine moves 4, 8 or 16 bytes at once, so a stage's lines should be \
+         one of those, and this one's are {bytes}: serve the operand in lines one copy moves"
+    ));
+    for line in Walk::copy(&fill, total) {
+        copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
     }
 }
 
