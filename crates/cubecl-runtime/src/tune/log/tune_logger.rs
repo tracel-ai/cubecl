@@ -89,23 +89,24 @@ impl TuneLogger {
         }
     }
 
-    /// Report the cross-checks of a tune that stopped with nothing decided, which no decision
-    /// carries: written to the log, as a warning.
-    pub fn report_undecided<K: AutotuneKeyable>(&self, key: &K) {
-        if let Some(report) = self.undecided_report(key) {
+    /// Report the cross-checks of a tune that stopped on a lost card, which no decision carries:
+    /// written to the log, as a warning.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn report_stopped<K: AutotuneKeyable>(&self, key: &K) {
+        if let Some(report) = self.stopped_report(key) {
             log::warn!("{report}");
         }
     }
 
-    /// The report of the cross-checks of the undecided tune of `key`, where the tune collected
-    /// some.
-    pub fn undecided_report<K: AutotuneKeyable>(&self, key: &K) -> Option<String> {
+    /// The report of the cross-checks of the stopped tune of `key`, where the tune collected some.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn stopped_report<K: AutotuneKeyable>(&self, key: &K) -> Option<String> {
         self.context
             .as_ref()
             .and_then(|context| context.checks.as_ref())
             .map(|checks| {
                 format!(
-                    "Autotune of {key} stopped with nothing decided, so no decision reports its cross-checks: {checks:?}"
+                    "Autotune of {key} stopped on a lost card, so no decision reports its cross-checks: {checks:?}"
                 )
             })
     }
@@ -391,8 +392,9 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
-    fn an_undecided_tune_reports_the_checks_it_collected() {
+    fn a_stopped_tune_reports_the_checks_it_collected() {
         let logger = TuneLogger {
             context: Some(AutotuneLogContext {
                 checks: Some(vec![crate::tune::CheckResult {
@@ -403,11 +405,12 @@ mod tests {
             }),
         };
 
-        assert!(logger.undecided_report(&"key".to_string()).is_some());
+        assert!(logger.stopped_report(&"key".to_string()).is_some());
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
-    fn an_undecided_tune_with_no_checks_reports_nothing() {
-        assert_eq!(logging().undecided_report(&"key".to_string()), None);
+    fn a_stopped_tune_with_no_checks_reports_nothing() {
+        assert_eq!(logging().stopped_report(&"key".to_string()), None);
     }
 }

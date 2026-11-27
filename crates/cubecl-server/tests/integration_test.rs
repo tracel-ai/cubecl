@@ -3987,42 +3987,6 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     );
 }
 
-/// A round that measures nothing never falls back on a candidate that rejected the problem: the
-/// first candidate's function rejects it, then profiles stop opening, so the correct `add` is
-/// kept from running. The tune decides nothing, and the call runs the candidates in plan order,
-/// where `add` serves it. Deciding the rejection would run it for real and fail the same way.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_round_that_measures_nothing_never_falls_back_on_a_rejection");
-    #[cfg(persistence)]
-    let root = tempfile::tempdir().unwrap();
-    #[cfg(persistence)]
-    rooted_at(root.path());
-
-    let client = test_client(&DummyDevice);
-    let lhs = client.create_from_slice(&[0, 1, 2]);
-    let rhs = client.create_from_slice(&[4, 4, 4]);
-    let out = client.empty(3);
-    let handles = vec![lhs, rhs, out.clone()];
-
-    let uid = fresh_tune_key_uid();
-    let test_set = TUNER.init(&"test".to_string(), move || {
-        let client = test_client(&DummyDevice);
-        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-        dummy::addition_set_rejected_then_unmeasured(client, shapes, uid.clone())
-    });
-
-    // Its rejected candidate refuses profiles from then on.
-    let refusing = ClearsRefusedProfiles;
-    TUNER.execute(&"test".to_string(), &client, test_set, handles);
-    drop(refusing);
-
-    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
-}
-
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]

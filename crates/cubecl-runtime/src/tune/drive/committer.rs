@@ -140,8 +140,8 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
     /// candidate its strategy picked, if it picked one: inline natively, on the browser event
     /// loop on wasm, where it answers [`Pending`](TuneAnswer::Pending) until then.
     ///
-    /// A tune that measured nothing decides a candidate that executed unmeasured, or, where none
-    /// did and the harness kept some from running, [stops undecided](TuneSettler::stop_undecided).
+    /// A tune that measured nothing decides a candidate that executed unmeasured
+    /// ([`unmeasured_pick`]).
     pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneAnswer {
         #[cfg(target_family = "wasm")]
         {
@@ -166,16 +166,9 @@ impl<K: AutotuneKeyable> TuneCommitter<K> {
     ) -> TuneAnswer {
         self.record_launched(pending).await;
 
-        let Some(decided_index) = decided
+        let decided_index = decided
             .or_else(|| best_scored(self.results.iter()))
-            .or_else(|| unmeasured_pick(&self.key, &self.results))
-        else {
-            log::warn!(
-                "Autotune of {} stopped: no candidate executed, and the harness kept some from running, so a later call tunes the key again",
-                self.key
-            );
-            return self.settler.stop_undecided(&self.key, &self.logger);
-        };
+            .unwrap_or_else(|| unmeasured_pick(&self.key, &self.results));
         // A decided candidate whose own outcome is an error is one picked with nothing measured:
         // it executed but could not be timed.
         let unmeasured = self
@@ -226,8 +219,7 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 }
 
 /// The candidate a tune that measured nothing decides: the first one that executed but could not
-/// be measured, or none where none did and the harness [kept some from
-/// running](AutotuneError::kept_from_running).
+/// be measured.
 ///
 /// A timing failure — a profiling hiccup, timestamp query sets on a busy stream — leaves a usable
 /// kernel: deciding it unmeasured beats panicking the device thread, since a dead tune poisons
@@ -238,24 +230,21 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 ///
 /// # Panics
 ///
-/// When no candidate of `results` executed and the harness kept none from running: the plan's
-/// candidates end as [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s third
-/// Assumption says.
-pub fn unmeasured_pick<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> Option<usize> {
-    let Some(index) = results.iter().position(AutotuneResult::executed_unmeasured) else {
-        assert!(
-            results.iter().any(|result| result
-                .outcome
-                .as_ref()
-                .is_err_and(AutotuneError::kept_from_running)),
-            "Can't execute the autotune plan for key: {key:?}: some candidate the plan schedules should execute on the device, or be kept from running by the harness\n - results: {results:?}"
-        );
-        return None;
-    };
+/// When no candidate of `results` executed unmeasured: the plan's candidates end as
+/// [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s third Assumption says.
+pub fn unmeasured_pick<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
+    let index = results
+        .iter()
+        .position(AutotuneResult::executed_unmeasured)
+        .unwrap_or_else(|| {
+            panic!(
+                "Can't execute the autotune plan for key: {key:?}: some candidate the plan schedules should be measured, or execute with only its timing failed\n - results: {results:?}"
+            )
+        });
     log::warn!(
         "Autotune measured no candidate for key {key:?}; deciding candidate {index} unmeasured.\n - results: {results:?}"
     );
-    Some(index)
+    index
 }
 
 /// Await every sample of a queued benchmark and fold them into one result, its step charged the
@@ -335,14 +324,11 @@ mod tests {
             message: "the block divides the vector".into(),
         });
 
-        assert_eq!(
-            unmeasured_pick(&"key", &[panicked, failed(unknown())]),
-            Some(1)
-        );
+        assert_eq!(unmeasured_pick(&"key", &[panicked, failed(unknown())]), 1);
     }
 
     #[test]
-    #[should_panic(expected = "should execute on the device")]
+    #[should_panic(expected = "should be measured")]
     fn a_held_plan_where_nothing_executed_panics() {
         let launch = failed(AutotuneError::Skip {
             name: "skipped".into(),
@@ -352,13 +338,24 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_that_could_not_be_held_decides_nothing() {
+    fn a_rejection_is_never_decided_unmeasured() {
+        let rejected = failed(AutotuneError::Rejected {
+            name: "rejects".into(),
+            reason: "not this shape".into(),
+        });
+
+        assert_eq!(unmeasured_pick(&"key", &[rejected, failed(unknown())]), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "should be measured")]
+    fn a_plan_the_device_could_not_be_held_for_panics() {
         let unheld = failed(AutotuneError::HoldFailed {
             name: "unheld".into(),
             reason: "the device thread is gone".into(),
         });
 
-        assert_eq!(unmeasured_pick(&"key", &[unheld]), None);
+        unmeasured_pick(&"key", &[unheld]);
     }
 
     /// A sample of `micros` timed by the system clock.

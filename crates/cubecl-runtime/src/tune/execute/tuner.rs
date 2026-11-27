@@ -86,9 +86,8 @@ impl<K: AutotuneKeyable> Tuner<K> {
     /// - One tune of a key runs at a time within an environment: a concurrent call answers
     ///   [`Pending`](TuneAnswer::Pending). A switch drops the mark, so a tune may run once
     ///   more for the new environment while the old one's finishes.
-    /// - A tune that unwinds, or where no scheduled candidate executed and the harness kept one
-    ///   from running, leaves the key to the next call; one that stops on a lost card leaves it to
-    ///   another card.
+    /// - A tune that unwinds leaves the key to the next call; one that stops on a lost card leaves
+    ///   it to another card.
     /// - An answer picked with nothing measured is kept in memory, never in the store.
     pub fn tune<'a, F: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
         &self,

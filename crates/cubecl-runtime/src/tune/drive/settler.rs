@@ -6,7 +6,9 @@ use cubecl_environment::sync::Mutex;
 
 use crate::config::Logger;
 use crate::execution::{TuneOutcome, TuneRegistration};
-use crate::tune::cache::tracker::{TuneAnswer, TuneTracker};
+#[cfg(not(target_family = "wasm"))]
+use crate::tune::cache::tracker::TuneAnswer;
+use crate::tune::cache::tracker::TuneTracker;
 use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::{AutotuneKeyable, AutotuneResult};
@@ -88,15 +90,9 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         self.unmarker.unmark();
     }
 
-    /// Stop the tune of `key` with nothing decided, `tune_logger` reporting the cross-checks it
-    /// collected: answered pending, with the tune's [unmarker](PendingUnmarker) and registration
-    /// dropped.
-    pub fn stop_undecided(self, key: &K, tune_logger: &TuneLogger) -> TuneAnswer {
-        tune_logger.report_undecided(key);
-        TuneAnswer::Pending
-    }
-
-    /// [Stop the tune undecided](Self::stop_undecided) on the lost card `service`, tracked lost.
+    /// Stop the tune of `key` on the lost card `service`, tracked lost, with nothing decided:
+    /// `tune_logger` reports the cross-checks it collected, and the answer is pending, with the
+    /// tune's [unmarker](PendingUnmarker) and registration dropped.
     #[cfg(not(target_family = "wasm"))]
     pub fn stop_on_lost_card(
         self,
@@ -105,6 +101,7 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         tune_logger: &TuneLogger,
     ) -> TuneAnswer {
         self.tracker.lock().track_lost(service);
-        self.stop_undecided(key, tune_logger)
+        tune_logger.report_stopped(key);
+        TuneAnswer::Pending
     }
 }

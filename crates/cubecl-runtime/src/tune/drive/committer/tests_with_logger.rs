@@ -125,17 +125,6 @@ mod commit {
         }
     }
 
-    fn unheld_at(index: usize) -> ResolvedBench {
-        ResolvedBench {
-            index,
-            step: None,
-            result: AutotuneResult::from_error(AutotuneError::HoldFailed {
-                name: alloc::format!("k{index}"),
-                reason: "the device thread is gone".into(),
-            }),
-        }
-    }
-
     #[test]
     fn a_strategy_s_decision_wins_over_the_best_score() {
         let tracker = tracker();
@@ -159,33 +148,6 @@ mod commit {
         assert!(matches!(
             committer.commit(Vec::new(), None),
             TuneAnswer::Hit { decided_index: 1 }
-        ));
-    }
-
-    #[test]
-    fn a_plan_kept_from_running_stops_undecided() {
-        let tracker = tracker();
-        let mut committer = committer(&tracker);
-        committer.record_bench(unheld_at(0));
-        committer.record_bench(unheld_at(1));
-
-        assert!(matches!(
-            committer.commit(Vec::new(), None),
-            TuneAnswer::Pending
-        ));
-    }
-
-    #[test]
-    fn an_undecided_stop_leaves_the_key_to_the_next_call() {
-        let tracker = tracker();
-        let mut committer = committer(&tracker);
-        committer.record_bench(unheld_at(0));
-        committer.record_bench(unheld_at(1));
-        committer.commit(Vec::new(), None);
-
-        assert!(matches!(
-            tracker.lock().decided(&"key".to_string()),
-            TuneAnswer::Miss
         ));
     }
 }
