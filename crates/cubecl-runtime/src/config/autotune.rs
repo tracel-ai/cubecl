@@ -7,17 +7,17 @@ pub struct AutotuneConfig {
     #[serde(default)]
     pub logger: LoggerConfig<AutotuneLogLevel>,
 
-    /// Where to write one [`AutotuneDecision`](crate::tune::AutotuneDecision) per tuning
-    /// decision, as JSON, for a tool to read back.
+    /// Where to write one [`LoggedTune`](crate::tune::LoggedTune) per tune, as
+    /// JSON, for a tool to read back.
     ///
     /// Independent of [`logger`](Self::logger), because the two answer different questions and both
-    /// can be wanted at once: the logger's level says how much to tell a human, `decisions` says
+    /// can be wanted at once: the logger's level says how much to tell a human, `tunes` says
     /// where to put the machine-readable account.
     ///
-    /// Also read under `recorder`.
+    /// Also read under its earlier names, `decisions` and `recorder`.
     #[serde(default)]
-    #[serde(alias = "recorder")]
-    pub decisions: LoggerConfig<DecisionLevel>,
+    #[serde(alias = "decisions", alias = "recorder")]
+    pub tunes: LoggerConfig<LoggedTuneLevel>,
 
     /// How hard autotune tries, `balanced` unless configured.
     #[serde(default)]
@@ -133,26 +133,26 @@ pub enum AutotuneLogLevel {
 
 impl LogLevel for AutotuneLogLevel {}
 
-/// The verbosity [`AutotuneConfig::decisions`] lacks.
+/// The verbosity [`AutotuneConfig::tunes`] lacks.
 ///
-/// A decision is written in one fixed schema, which is the whole point: a tool reads it back and depends on its
-/// shape, so there is no "how much" to choose. Decisions are written when they have a sink
-/// (see [`AutotuneConfig::decisions_enabled`]); this type exists only so it can reuse
+/// A tune is logged in one fixed schema, which is the whole point: a tool reads it back and depends on its
+/// shape, so there is no "how much" to choose. Tunes are logged when they have a sink
+/// (see [`AutotuneConfig::tunes_logged`]); this type exists only so it can reuse
 /// [`LoggerConfig`]'s sinks.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-pub struct DecisionLevel;
+pub struct LoggedTuneLevel;
 
-impl LogLevel for DecisionLevel {}
+impl LogLevel for LoggedTuneLevel {}
 
 impl AutotuneConfig {
-    /// Whether tuning decisions have somewhere to be written.
-    pub fn decisions_enabled(&self) -> bool {
+    /// Whether tunes have somewhere to be logged.
+    pub fn tunes_logged(&self) -> bool {
         #[cfg(std_io)]
-        let has_file = self.decisions.file.is_some();
+        let has_file = self.tunes.file.is_some();
         #[cfg(not(std_io))]
         let has_file = false;
 
-        has_file || self.decisions.stdout || self.decisions.stderr
+        has_file || self.tunes.stdout || self.tunes.stderr
     }
 }
 
@@ -181,26 +181,34 @@ pub enum AutotuneLevel {
 mod tests {
     use super::*;
 
-    /// A config naming the sink `recorder` still writes decisions there.
+    /// A config naming the sink by an earlier name still logs tunes there.
     #[cfg(feature = "std")]
     #[test]
-    fn decisions_are_read_under_recorder_too() {
+    fn tunes_are_read_under_recorder_too() {
         let config: AutotuneConfig = toml::from_str("[recorder]\nstdout = true").unwrap();
 
-        assert!(config.decisions.stdout);
+        assert!(config.tunes.stdout);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn tunes_are_read_under_decisions_too() {
+        let config: AutotuneConfig = toml::from_str("[decisions]\nstdout = true").unwrap();
+
+        assert!(config.tunes.stdout);
     }
 
     #[test]
-    fn a_sink_enables_decisions() {
+    fn a_sink_logs_tunes() {
         let mut config = AutotuneConfig::default();
-        config.decisions.stderr = true;
+        config.tunes.stderr = true;
 
-        assert!(config.decisions_enabled());
+        assert!(config.tunes_logged());
     }
 
     #[test]
-    fn decisions_without_a_sink_are_disabled() {
-        assert!(!AutotuneConfig::default().decisions_enabled());
+    fn tunes_without_a_sink_are_not_logged() {
+        assert!(!AutotuneConfig::default().tunes_logged());
     }
 
     #[test]

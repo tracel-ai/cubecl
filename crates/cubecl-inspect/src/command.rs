@@ -34,7 +34,7 @@ pub enum Inspection {
     /// Every memory snapshot the sessions recorded: each pool's pages against
     /// its peak, padding, and largest allocation.
     Memory,
-    /// This environment's autotune answers against another's: keys added
+    /// This environment's tunes against another's: keys added
     /// and gone, winners that changed, and how each tune's wall moved.
     Diff {
         /// The environment compared against, taken as the later one.
@@ -186,7 +186,7 @@ impl ValueEnum for KeyOrder {
             ),
             Self::Trials => PossibleValue::new("trials").help("Most candidates measured first"),
             Self::Margin => PossibleValue::new("margin")
-                .help("Widest margin first: the races whose answer was never in doubt"),
+                .help("Widest margin first: the races whose tune was never in doubt"),
             Self::Table => PossibleValue::new("table").help("Grouped by tuner, as the file stores them"),
         })
     }

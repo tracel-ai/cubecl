@@ -8,7 +8,7 @@ use core::hash::Hash;
 /// # Guarantees
 ///
 /// - Every implementation's equal keys pose problems one decision is measured for: a tune
-///   measures one of them and keeps its answer for every equal key.
+///   measures one of them and keeps its tune for every equal key.
 /// - Where tunes persist, a key serialized and read back is equal to the key it was written from.
 pub trait AutotuneKeyable:
     Clone + Debug + PartialEq + Eq + Hash + Display + Persistable + Send + Sync + 'static

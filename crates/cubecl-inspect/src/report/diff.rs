@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Two environments' autotune answers, key by key: what one has that the
-/// other lacks, and where they answer the same key differently.
+/// Two environments' tunes, key by key: what one has that the
+/// other lacks, and where they tune the same key differently.
 ///
 /// A key is matched by its tuner, its device, the adapter and API the device
 /// resolved to, and its value — not by the
 /// cubecl version in its namespace, so two environments a version apart
-/// still compare. A file that answers one key under several versions answers it
+/// still compare. A file that tunes one key under several versions tunes it
 /// with its newest. Winners that differ between two environments filled with the same
 /// settings are the run-to-run variance that makes a loaded file compile
 /// kernels its own sessions never did.
@@ -18,7 +18,7 @@ use std::time::Duration;
 pub struct EnvironmentDiff {
     pub before: PathBuf,
     pub after: PathBuf,
-    /// Every key either side answers, in table order.
+    /// Every key either side tunes, in table order.
     pub keys: Vec<KeyDiff>,
 }
 
@@ -29,13 +29,13 @@ pub struct Comparison<'a> {
     pub after: DiffSide<'a>,
 }
 
-/// One environment of a [`Comparison`]: its file and its autotune answers.
+/// One environment of a [`Comparison`]: its file and its tunes.
 pub struct DiffSide<'a> {
     pub path: PathBuf,
     pub autotune: &'a AutotuneReport,
 }
 
-/// One key, as each side answers it.
+/// One key, as each side tunes it.
 #[derive(Clone, Debug, Serialize)]
 pub struct KeyDiff {
     pub tuner: String,
@@ -43,13 +43,13 @@ pub struct KeyDiff {
     /// The adapter and API the device resolved to, when the tables say.
     pub fingerprint: Option<String>,
     pub key: ciborium::Value,
-    pub before: Option<Answer>,
-    pub after: Option<Answer>,
+    pub before: Option<Tune>,
+    pub after: Option<Tune>,
 }
 
-/// How one side answers a key.
+/// How one side tunes a key.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Answer {
+pub struct Tune {
     pub winner: String,
     /// The candidate list it was tuned under.
     pub checksum: String,
@@ -63,13 +63,13 @@ pub struct Answer {
 pub enum KeyChange {
     Added,
     Removed,
-    /// Both answer it, differently.
+    /// Both tune it, differently.
     WinnerChanged,
-    /// Both answer it, alike.
+    /// Both tune it, alike.
     Kept,
 }
 
-impl From<&TunedKey> for Answer {
+impl From<&TunedKey> for Tune {
     fn from(key: &TunedKey) -> Self {
         Self {
             winner: key.winner_name(),
@@ -143,12 +143,12 @@ impl EnvironmentDiff {
         for key in newest(before.autotune).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
-                .before = Some(Answer::from(key));
+                .before = Some(Tune::from(key));
         }
         for key in newest(after.autotune).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
-                .after = Some(Answer::from(key));
+                .after = Some(Tune::from(key));
         }
         Self {
             before: before.path,
@@ -164,7 +164,7 @@ impl EnvironmentDiff {
 }
 
 /// Each key of `report` once: when several cubecl versions or table layouts
-/// answer it, the newest's answer, versions compared by number rather than as
+/// tune it, the newest's tune, versions compared by number rather than as
 /// text, where `0.9` would pass `0.10`.
 fn newest(report: &AutotuneReport) -> BTreeMap<Identity, &TunedKey> {
     let recency = |key: &TunedKey| (version(&key.table.version), key.table.naming.layout());

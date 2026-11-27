@@ -14,7 +14,7 @@ use crate::execution::TuneRegistration;
 use crate::tune::AutotuneKeyable;
 #[cfg(persistence)]
 use crate::tune::cache::table::{
-    PersistentCacheKey, PersistentCacheValue, TABLE_LAYOUT_VERSION, TuneTable, TuneTableName,
+    StoredTune, TABLE_LAYOUT_VERSION, TuneEntry, TuneTable, TuneTableName,
 };
 #[cfg(persistence)]
 use alloc::string::String;
@@ -22,7 +22,7 @@ use alloc::string::String;
 /// What a [`TuneTracker`] knows of one key.
 #[derive(Debug)]
 pub enum TrackedKey {
-    Done {
+    Tuned {
         decided_index: usize,
     },
     Pending,
@@ -43,23 +43,23 @@ impl TrackedKey {
     fn into_registration(self) -> Option<TuneRegistration> {
         match self {
             Self::Compiled { registration, .. } => registration,
-            Self::Done { .. } | Self::Pending => None,
+            Self::Tuned { .. } | Self::Pending => None,
         }
     }
 }
 
-/// Tracks the answers one tuner holds: tuned picks and tunes in flight in memory, the cards found
+/// Tracks the keys one tuner holds: their tunes and the tunes in flight in memory, the cards found
 /// lost, and, where tunes persist, the table every device of its hardware shares.
 #[derive(Debug)]
 pub struct TuneTracker<K> {
     /// The single in-memory home of tuning state, keyed for the per-launch lookup (Keyed Usage):
     /// tuned picks and in-flight tunes. Cleared when the environment switches.
-    answers: HashMap<K, TrackedKey>,
+    keys: HashMap<K, TrackedKey>,
     /// The cards a tune found lost (Membership Usage). Kept across environment switches: a card
     /// stays lost.
     lost: HashSet<ServiceId>,
     /// Write-through persistence, or `None` when the persistent cache is disabled, so no cache
-    /// file is ever touched. Lazy: an entry is read when [`Self::answers`] misses, then lives
+    /// file is ever touched. Lazy: an entry is read when [`Self::keys`] misses, then lives
     /// there.
     #[cfg(persistence)]
     persistent_cache: Option<PersistedTable<K>>,
@@ -73,9 +73,9 @@ pub struct TuneTracker<K> {
 #[derive(Debug)]
 pub struct PersistedTable<K> {
     /// The table's tunes, read lazily.
-    pub tunes: Store<PersistentCacheKey<K>, PersistentCacheValue>,
+    pub tunes: Store<TuneEntry<K>, StoredTune>,
     /// The table's entries this build's work used: those it loaded and those it stored.
-    pub uses: WorkUses<PersistentCacheKey<K>>,
+    pub uses: WorkUses<TuneEntry<K>>,
 }
 
 /// What a tuner answers for a key.
@@ -100,7 +100,7 @@ pub enum TuneAnswer {
 }
 
 impl<K: AutotuneKeyable> TuneTracker<K> {
-    /// A tracker of the answers of the tuner `name` on `hardware`, reading and writing that
+    /// A tracker of the tunes of the tuner `name` on `hardware`, reading and writing that
     /// table unless the cache is disabled.
     pub fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
@@ -119,7 +119,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         #[cfg(not(persistence))]
         {
             TuneTracker {
-                answers: HashMap::new(),
+                keys: HashMap::new(),
                 lost: HashSet::new(),
             }
         }
@@ -133,8 +133,8 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             return TuneAnswer::Miss;
         }
 
-        match self.answers.get(key) {
-            Some(TrackedKey::Done { decided_index }) => TuneAnswer::Hit {
+        match self.keys.get(key) {
+            Some(TrackedKey::Tuned { decided_index }) => TuneAnswer::Hit {
                 decided_index: *decided_index,
             },
             Some(TrackedKey::Pending) => TuneAnswer::Pending,
@@ -165,7 +165,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// of starting a second job for the same key. Returns where the key's tune was registered, if
     /// the override that gathered it registered it.
     pub fn track_pending(&mut self, key: K) -> Option<TuneRegistration> {
-        self.answers
+        self.keys
             .insert(key, TrackedKey::Pending)
             .and_then(TrackedKey::into_registration)
     }
@@ -173,8 +173,8 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// Drop the [tracked](Self::track_pending) tune of `key` that stopped before it settled, so
     /// the next caller tunes the key. A settled key is left settled.
     pub fn untrack_pending(&mut self, key: &K) {
-        if let Some(TrackedKey::Pending) = self.answers.get(key) {
-            self.answers.remove(key);
+        if let Some(TrackedKey::Pending) = self.keys.get(key) {
+            self.keys.remove(key);
         }
     }
 
@@ -191,8 +191,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
             registration: register(),
             services: HashSet::new(),
         };
-        if let TrackedKey::Compiled { services, .. } =
-            self.answers.entry(key).or_insert_with(compiled)
+        if let TrackedKey::Compiled { services, .. } = self.keys.entry(key).or_insert_with(compiled)
         {
             services.insert(service);
         }
@@ -205,18 +204,18 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     }
 
     /// Track `decided_index` as the pick of `key`, in memory, and answer it.
-    pub fn track_answer(&mut self, key: K, decided_index: usize) -> TuneAnswer {
-        self.answers.insert(key, TrackedKey::Done { decided_index });
+    pub fn track_tune(&mut self, key: K, decided_index: usize) -> TuneAnswer {
+        self.keys.insert(key, TrackedKey::Tuned { decided_index });
         TuneAnswer::Hit { decided_index }
     }
 }
 
 #[cfg(persistence)]
 impl<K: AutotuneKeyable> TuneTracker<K> {
-    /// A tracker over `persistent_cache`, its answers built for `table`.
+    /// A tracker over `persistent_cache`, its tunes built for `table`.
     pub fn with_store(persistent_cache: Option<PersistedTable<K>>, table: TuneTable) -> Self {
         Self {
-            answers: HashMap::new(),
+            keys: HashMap::new(),
             lost: HashSet::new(),
             persistent_cache,
             table,
@@ -239,24 +238,24 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
 
         log::debug!("Environment switched, resetting the autotune cache");
         self.table.generation = cubecl_environment::environment::generation();
-        self.answers.clear();
+        self.keys.clear();
     }
 
     pub fn table(&self) -> &TuneTable {
         &self.table
     }
 
-    /// Track the store's answer for `key` under the set's `checksum`, read once memory missed,
+    /// Track the store's tune for `key` under the set's `checksum`, read once memory missed,
     /// and answer it. A miss costs one read of the store, under the tuner mutex, and a key read
     /// counts as loaded and is recorded as one the work used. A stored index outside the `len`
     /// candidates of the set is a miss, and its row is deleted from the table so the tune that
-    /// follows can store its answer: the row was written by another build, or edited. Such a row
+    /// follows can store its tune: the row was written by another build, or edited. Such a row
     /// is not recorded as used.
     pub fn track_stored(&mut self, key: &K, checksum: &str, len: usize) -> TuneAnswer {
         let Some(persisted) = self.persistent_cache.as_mut() else {
             return TuneAnswer::Miss;
         };
-        let stored = PersistentCacheKey {
+        let stored = TuneEntry {
             key: key.clone(),
             checksum: checksum.into(),
         };
@@ -269,28 +268,28 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         }
         persisted.uses.record(&stored);
         let gathered = self
-            .answers
+            .keys
             .remove(key)
             .and_then(TrackedKey::into_registration);
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
-        self.track_answer(key.clone(), value.decided_index)
+        self.track_tune(key.clone(), value.decided_index)
     }
 
-    /// Store an answer in the table, and say whether it took it: never when the cache is
+    /// Store a tune in the table, and say whether it took it: never when the cache is
     /// disabled.
     ///
     /// The entry is recorded as one the work used whether or not the table takes the value: when
-    /// it keeps another answer to the key, that answer is the one the next process loads. One
+    /// it keeps another tune of the key, that tune is the one the next process loads. One
     /// whose row the storage refused is recorded with no row, which neither a prune nor a save
-    /// reads as an answer.
-    pub fn store_answer(&mut self, key: K, checksum: String, value: PersistentCacheValue) -> bool {
+    /// reads as a tune.
+    pub fn store_tune(&mut self, key: K, checksum: String, value: StoredTune) -> bool {
         let Some(persisted) = self.persistent_cache.as_mut() else {
             return false;
         };
 
-        let entry = PersistentCacheKey { key, checksum };
+        let entry = TuneEntry { key, checksum };
         // Recorded before the table takes the entry, which then needs no clone.
         persisted.uses.record(&entry);
         let Err(err) = persisted.tunes.insert(entry, value) else {
@@ -305,7 +304,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
     /// Whether `key` answers [`Compiled`](TuneAnswer::Compiled) on `service`.
     fn is_compiled(&self, key: &K, service: ServiceId) -> bool {
         matches!(
-            self.answers.get(key),
+            self.keys.get(key),
             Some(TrackedKey::Compiled { services, .. }) if services.contains(&service)
         )
     }
@@ -344,7 +343,7 @@ impl<K: AutotuneKeyable> TuneTracker<K> {
         Self::with_store(persisted, table)
     }
 
-    /// Whether the environment switched since the answers were built. Never with persistence
+    /// Whether the environment switched since the tunes were built. Never with persistence
     /// disabled: the tuning state is then process-local and unbound, like a store without a
     /// storage, and survives switches.
     fn environment_switched(&self) -> bool {
@@ -368,7 +367,7 @@ fn lazy<
     )
 }
 
-/// Log why the table did not take an answer.
+/// Log why the table did not take a tune.
 #[cfg(persistence)]
 fn log_store_error<K: core::fmt::Debug, V: core::fmt::Debug>(err: StoreError<K, V>) {
     match err {
@@ -412,7 +411,7 @@ mod small_tests {
         #[cfg(not(persistence))]
         {
             TuneTracker {
-                answers: HashMap::new(),
+                keys: HashMap::new(),
                 lost: HashSet::new(),
             }
         }
@@ -437,9 +436,9 @@ mod small_tests {
     }
 
     #[test]
-    fn a_tracked_answer_is_a_hit() {
+    fn a_tracked_tune_is_a_hit() {
         let mut tracker = tracker();
-        tracker.track_answer(key(), 3);
+        tracker.track_tune(key(), 3);
 
         assert!(matches!(
             tracker.answer(&key(), service_at(0), false),
@@ -470,7 +469,7 @@ mod small_tests {
     #[test]
     fn untracking_a_pending_tune_leaves_a_settled_key() {
         let mut tracker = tracker();
-        tracker.track_answer(key(), 1);
+        tracker.track_tune(key(), 1);
         tracker.untrack_pending(&key());
 
         assert!(matches!(
@@ -543,7 +542,7 @@ mod small_tests {
     #[test]
     fn a_tracker_that_persists_nothing_never_resets() {
         let mut tracker = tracker();
-        tracker.track_answer(key(), 2);
+        tracker.track_tune(key(), 2);
         tracker.table.generation = tracker.table.generation.wrapping_add(1);
 
         tracker.reset_if_environment_switched();
@@ -566,14 +565,14 @@ mod small_tests {
     #[cfg(persistence)]
     #[test]
     fn a_tracker_without_a_store_stores_nothing() {
-        let value = PersistentCacheValue {
+        let value = StoredTune {
             decided_index: 0,
             results: Vec::new(),
             bounds: None,
             limit: None,
         };
 
-        assert!(!tracker().store_answer(key(), "checksum".into(), value));
+        assert!(!tracker().store_tune(key(), "checksum".into(), value));
     }
 }
 

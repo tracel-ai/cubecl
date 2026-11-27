@@ -16,7 +16,7 @@ use crate::tune::{AutotuneError, TuneInputs};
 /// # Assumptions
 ///
 /// - Its function launches the same kernels for equal inputs: a tune measures it on generated
-///   inputs and keeps the answer for every call of the key.
+///   inputs and keeps the tune for every call of the key.
 ///
 /// # Guarantees
 ///

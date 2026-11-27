@@ -3,7 +3,7 @@ use cubecl_environment::sync::{Arc, AtomicUsize, Mutex, Ordering};
 
 use super::{
     AutotuneStatistics, CompilationStatistics, Countable, CountedWork, ExecutionStatistics,
-    KernelHandling, KernelOutcome, TuneOutcome, TunePick, WorkCompilationFailure,
+    KernelHandling, KernelOutcome, TuneHandling, TuneOutcome, WorkCompilationFailure,
 };
 use crate::id::KernelId;
 use crate::server::LaunchError;
@@ -100,7 +100,7 @@ fn autotune_statistics(read: &TallyRead) -> AutotuneStatistics {
         loaded_count: read.settled_counts[TuneOutcome::Loaded.index()],
         failed_count: read.settled_counts[TuneOutcome::Failed.index()],
         abandoned_count: read.settled_counts[TuneOutcome::Abandoned.index()],
-        persisted_count: read.later_counts[TuneOutcome::later_index(TunePick::Persisted)],
+        persisted_count: read.later_counts[TuneOutcome::later_index(TuneHandling::Persisted)],
     }
 }
 
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn a_kept_tune_pick_counts_as_persisted() {
         let counter = StatisticsCounter::default();
-        counter.count_later::<TuneOutcome>(TunePick::Persisted);
+        counter.count_later::<TuneOutcome>(TuneHandling::Persisted);
         assert_eq!(counter.counted().statistics.autotune.persisted_count, 1);
     }
 

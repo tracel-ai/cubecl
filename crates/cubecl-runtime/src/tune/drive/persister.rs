@@ -3,11 +3,9 @@ use alloc::vec::Vec;
 use core::time::Duration;
 use cubecl_environment::sync::Mutex;
 
-use crate::tune::cache::record::{Answer, TuneRecorder};
+use crate::tune::cache::record::{Tune, TuneRecorder};
 use crate::tune::cache::tracker::TuneTracker;
-use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue,
-};
+use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneResult, Bounds, StoredTune};
 
 /// Persists what one tune answered: its decided candidate in the table, and the record of how it
 /// went.
@@ -35,7 +33,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         }
     }
 
-    /// Persist `decided_index` as the answer to `key`, with every candidate's `results`: in the
+    /// Persist `decided_index` as the tune of `key`, with every candidate's `results`: in the
     /// table of `tracker` unless it is `unmeasured`, locking it only for that insert, and in the
     /// tune's record either way, with no lock held. Answers whether the table took it.
     ///
@@ -51,15 +49,15 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         unmeasured: bool,
         log_context: Option<&AutotuneLogContext>,
     ) -> bool {
-        let value = PersistentCacheValue {
+        let value = StoredTune {
             decided_index,
             results,
             bounds: self.bounds,
             limit: self.limit,
         };
-        let stored = !unmeasured && tracker.lock().store_answer(key, self.checksum, value);
-        self.recorder.record_answer(
-            Answer {
+        let stored = !unmeasured && tracker.lock().store_tune(key, self.checksum, value);
+        self.recorder.record_tune(
+            Tune {
                 decided_index,
                 stored,
             },

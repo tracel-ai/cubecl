@@ -50,7 +50,7 @@ pub use bounds::{AutotuneBound, Bounds, Thresholds};
 pub use cache::record::{Placement, PlannedCandidate, Trial, TuneRecord};
 pub use cache::table::LAYOUT_PREFIX;
 #[cfg(persistence)]
-pub use cache::table::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
+pub use cache::table::{StoredTune, TuneEntry, TuneTableName};
 pub use hook::bounds_generator::BoundsGenerator;
 pub use key::anchor::Anchor;
 pub use set::checkable::AutotuneCheckable;
@@ -67,7 +67,7 @@ pub use hook::stage_enterer::StageEnterer;
 pub use hook::tune_stage::TuneStage;
 pub use key::keyable::AutotuneKeyable;
 #[cfg(std_io)]
-pub use log::context::AutotuneDecision;
+pub use log::context::LoggedTune;
 pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};
 pub use measure::outcome::{AutotuneOutcome, AutotuneResult};
 pub use plan::group::{OrderedSettings, Patience, TuneGroup};

@@ -1,4 +1,4 @@
-//! One tune of one key: driving its batches, committing its answer and settling it.
+//! One tune of one key: driving its batches, committing its tune and settling it.
 
 pub mod committer;
 pub mod driver;

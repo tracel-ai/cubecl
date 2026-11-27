@@ -17,8 +17,8 @@ pub struct Logger {
     compilation_index: Vec<usize>,
     /// The sinks of the autotune log, read in order by every `log_autotune`.
     autotune_index: Vec<usize>,
-    /// The sinks of the autotune decisions, read in order by every `log_autotune_decision`.
-    autotune_decisions_index: Vec<usize>,
+    /// The sinks of the logged tunes, read in order by every `log_tune`.
+    logged_tunes_index: Vec<usize>,
     /// The sinks of the streaming log, read in order by every `log_streaming`.
     streaming_index: Vec<usize>,
     /// The sinks of the memory log, read in order by every `log_memory`.
@@ -49,10 +49,10 @@ impl Logger {
         let autotune_index = register(&mut sinks, &config.autotune.logger);
         // Decisions have their own sink, so they land wherever it points regardless of what the
         // logger above is set to, including with the logger disabled.
-        let autotune_decisions_index = register_enabled(
+        let logged_tunes_index = register_enabled(
             &mut sinks,
-            &config.autotune.decisions,
-            config.autotune.decisions_enabled(),
+            &config.autotune.tunes,
+            config.autotune.tunes_logged(),
         );
         let streaming_index = register(&mut sinks, &config.streaming.logger);
         let memory_index = register(&mut sinks, &config.memory.logger);
@@ -61,7 +61,7 @@ impl Logger {
             sinks,
             compilation_index,
             autotune_index,
-            autotune_decisions_index,
+            logged_tunes_index,
             streaming_index,
             memory_index,
             config,
@@ -91,10 +91,10 @@ impl Logger {
             .log(&self.autotune_index, "cubecl::autotune", msg);
     }
 
-    /// Writes one autotune decision, directing it to all configured decision sinks.
-    pub fn log_autotune_decision<S: Display>(&mut self, msg: &S) {
+    /// Writes one logged tune, directing it to all its configured sinks.
+    pub fn log_tune<S: Display>(&mut self, msg: &S) {
         self.sinks.log(
-            &self.autotune_decisions_index,
+            &self.logged_tunes_index,
             // The target keeps the spelling log filters already name.
             "cubecl::autotune::record",
             msg,

@@ -48,12 +48,12 @@ impl core::fmt::Display for AutotuneLogContext {
     }
 }
 
-/// The complete account of one tuning decision, written as JSON when autotune decisions have a
-/// sink configured. One entry per line, per decision, in a fixed schema for tools to read back.
+/// The complete account of one tune, written as JSON when logged tunes have a
+/// sink configured. One entry per line, per tune, in a fixed schema for tools to read back.
 #[cfg(std_io)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(bound(deserialize = "K: Clone + serde::Deserialize<'de>"))]
-pub struct AutotuneDecision<'a, K: Clone> {
+pub struct LoggedTune<'a, K: Clone> {
     /// The key for the autotuning job.
     pub key: Cow<'a, K>,
     /// The candidate the tune decided, as the table stores it.

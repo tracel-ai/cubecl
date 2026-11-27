@@ -1,13 +1,13 @@
-//! What a tune leaves in the environment beside its answer.
+//! What a tune leaves in the environment beside its table entry.
 //!
 //! The table stores a key's decided candidate and every candidate's result, ranked. What
 //! it cannot say is how the tune went: which candidates ran and in what order,
 //! what each cost to compile and benchmark, whether the tune stopped early,
-//! and how long the key took from its miss to its answer. A [`TuneRecord`] is
+//! and how long the key took from its miss to its decision. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
 use crate::tune::cache::table::TuneTable;
-use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
+use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, TuneEntry};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 /// How one autotune key was decided.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TuneRecord<K> {
-    /// The namespace of the table the answer is stored in.
+    /// The namespace of the table the tune is stored in.
     pub table: String,
-    /// The table's entry the answer is stored under: the key, and the
+    /// The table's entry the tune is stored under: the key, and the
     /// checksum of the candidate list it was tuned under.
-    pub entry: PersistentCacheKey<K>,
+    pub entry: TuneEntry<K>,
     /// Stored under its earlier name, which environments already saved hold.
     #[serde(rename = "winner")]
     pub decided_index: usize,
@@ -33,16 +33,16 @@ pub struct TuneRecord<K> {
     /// The candidate that met the time limit and ended the tune before the
     /// rest of the plan ran.
     pub short_circuit: Option<String>,
-    /// From the cache miss to the answer committed.
+    /// From the cache miss to the tune committed.
     pub wall: Duration,
     /// Whether the tune ran under a process mode that discards launches, where
     /// they compile but do not execute. Stored under its earlier name, which
     /// environments already saved hold.
     #[serde(rename = "dry_run")]
     pub launches_discarded: bool,
-    /// Whether the table took the answer. One that measured nothing, or that
-    /// was tuned with the cache disabled, answers this process alone: the
-    /// table holds another answer to the key, or none.
+    /// Whether the table took the tune. One that measured nothing, or that
+    /// was tuned with the cache disabled, serves this process alone: the
+    /// table holds another tune of the key, or none.
     pub stored: bool,
     /// Every candidate in the order the plan releases them, whether or not
     /// it ran: the priorities that decided the order, read when the tune
@@ -109,14 +109,14 @@ pub struct TuneRecorder<K> {
 pub struct OpenRecording<K> {
     pub span: Span,
     pub table: String,
-    pub entry: PersistentCacheKey<K>,
+    pub entry: TuneEntry<K>,
     pub launches_discarded: bool,
     /// Every candidate, in the order the plan releases them (Arrival Usage).
     pub plan: Vec<PlannedCandidate>,
 }
 
-/// What [`TuneRecorder::record_answer`] needs to know of the answer.
-pub struct Answer {
+/// What [`TuneRecorder::record_tune`] needs to know of the tune.
+pub struct Tune {
     pub decided_index: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
@@ -129,7 +129,7 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         let open = Span::new().map(|span| OpenRecording {
             span,
             table: table.namespace.clone(),
-            entry: PersistentCacheKey {
+            entry: TuneEntry {
                 key: key.clone(),
                 checksum: checksum.into(),
             },
@@ -154,8 +154,8 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         open.plan = account();
     }
 
-    /// Write the record of the tune that just answered.
-    pub fn record_answer(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
+    /// Write the record of the tune that just settled.
+    pub fn record_tune(self, tune: Tune, log_context: Option<&AutotuneLogContext>) {
         let Some(open) = self.open else {
             return;
         };
@@ -167,12 +167,12 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         let record = TuneRecord {
             table: open.table,
             entry: open.entry,
-            decided_index: answer.decided_index,
+            decided_index: tune.decided_index,
             trials,
             short_circuit,
             wall,
             launches_discarded: open.launches_discarded,
-            stored: answer.stored,
+            stored: tune.stored,
             plan: open.plan,
         };
         open.span.close(effect_when_stored(record.stored), &record);
@@ -202,7 +202,7 @@ fn trials(log_context: Option<&AutotuneLogContext>) -> (Vec<Trial>, Option<Strin
     (trials, short_circuit)
 }
 
-/// A stored decision is the environment changing; an answer kept in memory is not.
+/// A stored decision is the environment changing; a tune kept in memory is not.
 fn effect_when_stored(stored: bool) -> RecordEffect {
     if stored {
         RecordEffect::Changed
@@ -259,12 +259,12 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_answer_changes_the_environment() {
+    fn a_stored_tune_changes_the_environment() {
         assert_eq!(effect_when_stored(true), RecordEffect::Changed);
     }
 
     #[test]
-    fn an_answer_kept_in_memory_only_observes_the_environment() {
+    fn a_tune_kept_in_memory_only_observes_the_environment() {
         assert_eq!(effect_when_stored(false), RecordEffect::Observed);
     }
 }

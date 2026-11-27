@@ -1,4 +1,4 @@
-//! What tunes leave behind: answers in memory and in the table, and the records of how they went.
+//! What tunes leave behind: tunes in memory and in the table, and the records of how they went.
 
 #[cfg(persistence)]
 pub mod record;
