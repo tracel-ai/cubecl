@@ -7,13 +7,14 @@ use cubecl_std::tensor::layout::{CoordsDyn, Layout, LayoutExpand};
 use crate::*;
 
 /// A [`Layout`] mapping a tile's logical coordinate to its window's physical one:
-/// `phys[pa] = (Σ logical[dimension] * scale + residue) / divisor`, constant offsets excluded.
+/// `phys[pa] = (Σ logical[dimension] * scale + residue) / divisor`, constant offsets excluded; a
+/// digit term reads its digit of `logical[dimension]` plus the tile's start along it.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct ProjectionInKernel {
     /// Per-logical-dimension extents in space order, the innermost in lines.
     shape: Coords<u32>,
-    /// The runtime coefficients and division residues.
+    /// The runtime coefficients, division residues and digit starts.
     map: RuntimeMap,
     #[cube(comptime)]
     space: Space,
@@ -51,6 +52,13 @@ impl ProjectionInKernel {
             phases == projection.physical_rank(),
             "ProjectionInKernel: the projection has {} physical axes but {phases} residues were given",
             projection.physical_rank()
+        ));
+        let digits = map.digit_starts.len();
+        comptime!(assert!(
+            digits == projection.digit_dimensions().len(),
+            "ProjectionInKernel: the projection folds {} dimensions but {digits} digit starts were \
+             given",
+            projection.digit_dimensions().len()
         ));
         ProjectionInKernel {
             shape,
@@ -121,9 +129,10 @@ impl ProjectionInKernel {
             let term = comptime!(axis_map.terms()[t]);
             if !moving.contains(&term.dimension) {
                 let p = comptime!(self.space.position(term.dimension));
-                match axis_map.static_offset_step(t) {
-                    Some(step) => offsets.push(pos[p].times(comptime!(step as u32))),
-                    None => match term.scale {
+                match (term.digit, axis_map.static_offset_step(t)) {
+                    (Some(_), _) => terms.push(self.digit_term(pos, pa, t)),
+                    (None, Some(step)) => offsets.push(pos[p].times(comptime!(step as u32))),
+                    (None, None) => match term.scale {
                         Scale::Static(s) => terms.push(pos[p].times(comptime!(line_scale(
                             &self.space,
                             &self.projection,
@@ -163,6 +172,26 @@ impl ProjectionInKernel {
         }
     }
 
+    /// Term `t` of physical axis `pa`, a digit, at `pos`: its digit of the position plus the
+    /// tile's start along the dimension, times its coefficient.
+    fn digit_term(&self, pos: &CoordsDyn, #[comptime] pa: usize, #[comptime] t: usize) -> u32 {
+        let term = comptime!(self.projection.physical_axis(pa).terms()[t]);
+        let digit = term.digit.unwrap();
+        let p = comptime!(self.space.position(term.dimension));
+        let start = self
+            .map
+            .digit_starts
+            .at(comptime!(self.projection.digit_start_index(term.dimension)));
+        let quotient = pos[p]
+            .plus(start)
+            .divided_by(comptime!(digit.place_value as u32));
+        let place = match digit.quotient {
+            Quotient::Whole => quotient,
+            Quotient::Modulo => quotient.remainder(comptime!(digit.extent as u32)),
+        };
+        place.times(comptime!(term.scale.get() as u32))
+    }
+
     /// `anchor` moved to where `pos` places the `moving` dimensions it was anchored against.
     pub(crate) fn advance(
         &self,
@@ -182,7 +211,9 @@ impl ProjectionInKernel {
             #[unroll]
             for t in 0..n {
                 let term = comptime!(axis_map.terms()[t]);
-                if moving.contains(&term.dimension) {
+                if moving.contains(&term.dimension) && term.digit.is_some() {
+                    steps.push(self.digit_term(&pos, pa, t));
+                } else if moving.contains(&term.dimension) {
                     let p = comptime!(self.space.position(term.dimension));
                     match axis_map.additive_step(t) {
                         // Same units as `anchor`'s offset, since the two are added.

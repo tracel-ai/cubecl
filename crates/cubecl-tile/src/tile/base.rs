@@ -881,6 +881,7 @@ impl Tile {
             comptime!(None),
             comptime!(StageOwner::CUBE),
             comptime!(None),
+            comptime!(None),
         )
     }
 
@@ -905,6 +906,7 @@ impl Tile {
                 depth: walk.depth(),
                 storage,
                 width: None,
+                contracted: None,
                 decoded,
                 owner,
             }),

@@ -139,13 +139,15 @@ impl Tile {
     }
 
     /// Whether [`Guard::Proved`] is sound here: false on a [`Boundary::Clamp`] dimension, and where
-    /// a backward coefficient puts the box's extremes off its two logical corners.
+    /// a backward coefficient or a folded dimension's digits, which wrap inside the box, put its
+    /// extremes off its two logical corners.
     pub(crate) fn guard_provable(&self) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
                 comptime!(
                     !data.window.boundaries.contains(&Some(Boundary::Clamp))
                         && !data.projection.has_negative_scale()
+                        && data.projection.digit_dimensions().is_empty()
                 )
             }
             TileKind::PlaneTile(_)
