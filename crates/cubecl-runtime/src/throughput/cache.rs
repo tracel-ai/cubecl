@@ -24,18 +24,18 @@ static GLOBAL_CACHE: Caches<ThroughputKey> = Mutex::new(None);
 
 static LINK_CACHE: Caches<LinkKey> = Mutex::new(None);
 
-/// What can key a [`ThroughputCache`]: stored where the cache persists, hashed where it lives in
+/// A key of a [`ThroughputCache`]: one stored where the cache persists, hashed where it lives in
 /// memory.
 #[cfg(persistence)]
-pub trait ThroughputKeyable: cubecl_environment::persistence::StoreKey + core::fmt::Debug {}
+pub trait ThroughputCacheKey: cubecl_environment::persistence::StoreKey + core::fmt::Debug {}
 #[cfg(persistence)]
-impl<K: cubecl_environment::persistence::StoreKey + core::fmt::Debug> ThroughputKeyable for K {}
+impl<K: cubecl_environment::persistence::StoreKey + core::fmt::Debug> ThroughputCacheKey for K {}
 
-/// What can key a [`ThroughputCache`]: hashed, since this build keeps the cache in memory.
+/// A key of a [`ThroughputCache`]: one hashed, since this build keeps the cache in memory.
 #[cfg(not(persistence))]
-pub trait ThroughputKeyable: core::hash::Hash + Eq + core::fmt::Debug {}
+pub trait ThroughputCacheKey: core::hash::Hash + Eq + core::fmt::Debug {}
 #[cfg(not(persistence))]
-impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputKeyable for K {}
+impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 
 /// Caches the [`ThroughputValue`] for a given key: a [`ThroughputKey`] for one device, a
 /// [`LinkKey`] for the devices a link joins.
@@ -94,7 +94,7 @@ fn device_name(runtime: &str, properties: &DeviceProperties) -> String {
         .name_with_memory_bytes(properties.memory.max_page_size)
 }
 
-fn cached<K: ThroughputKeyable>(
+fn cached<K: ThroughputCacheKey>(
     caches: &Caches<K>,
     name: String,
 ) -> Arc<Mutex<ThroughputCache<K>>> {
@@ -130,7 +130,7 @@ fn host_id() -> Option<String> {
     Some("local".into())
 }
 
-impl<K: ThroughputKeyable> ThroughputCache<K> {
+impl<K: ThroughputCacheKey> ThroughputCache<K> {
     /// The cache named `name`, empty or as an earlier run stored it.
     pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
         #[cfg(not(persistence))]

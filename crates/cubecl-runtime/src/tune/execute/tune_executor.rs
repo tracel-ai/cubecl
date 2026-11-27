@@ -9,7 +9,7 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::execute::set_initializer::SetInitializer;
 use crate::tune::execute::tuner_opener::TunerOpener;
 use crate::tune::{
-    AutotuneCheckable, AutotuneError, AutotuneKey, CheckResult, TunableSet, TuneInputs,
+    AutotuneError, AutotuneKey, AutotuneOutput, CheckResult, TunableSet, TuneInputs,
 };
 
 /// Executes what a [`LocalTuner`](crate::tune::LocalTuner) is asked to: builds its sets, opens its
@@ -35,7 +35,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         Id: Send + Sync + 'static,
         I: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
     {
         let key = (TypeId::of::<F>(), id.clone());
         if let Some(set) = self.sets.read().cached(&key) {
@@ -86,7 +86,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         Id: Send + Sync,
     {
         let key = operations.generate_key(&inputs);
@@ -127,7 +127,7 @@ impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     not(feature = "autotune-checks"),
     allow(unused_variables, clippy::unnecessary_wraps)
 )]
-fn check_candidates<'a, AK: AutotuneKey, I: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
+fn check_candidates<'a, AK: AutotuneKey, I: TuneInputs, Out: AutotuneOutput, Id: Sync>(
     operations: &TunableSet<AK, I, Out, Id>,
     inputs: &<I as TuneInputs>::At<'a>,
     client: &Client,

@@ -53,7 +53,7 @@ pub use cache::table::LAYOUT_PREFIX;
 pub use cache::table::{PersistentCacheKey, PersistentCacheValue, TuneTableName};
 pub use hook::bounds_generator::BoundsGenerator;
 pub use key::anchor::Anchor;
-pub use set::checkable::AutotuneCheckable;
+pub use set::autotune_output::AutotuneOutput;
 // `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
 // autotune bounds and benchmark reporting share one definition.
 pub use cubecl_common::work::Work;

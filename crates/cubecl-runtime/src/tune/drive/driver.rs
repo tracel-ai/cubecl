@@ -16,7 +16,7 @@ use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::batch::Batch;
 use crate::tune::plan::planner::TunePlanner;
 use crate::tune::{
-    AutotuneCheckable, AutotuneKey, AutotuneResult, TunableSet, TuneDeviceAccess, TuneInputs,
+    AutotuneKey, AutotuneOutput, AutotuneResult, TunableSet, TuneDeviceAccess, TuneInputs,
 };
 
 /// How a [`TuneDriver`] measures.
@@ -48,7 +48,7 @@ pub struct TuneDriver<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     track_steps: bool,
 }
 
-impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneCheckable> TuneDriver<'t, 'i, K, F, Out>
+impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneOutput> TuneDriver<'t, 'i, K, F, Out>
 where
     <F as TuneInputs>::At<'i>: Clone + Send,
 {
@@ -96,7 +96,7 @@ where
     }
 }
 
-impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneCheckable> TuneDriver<'t, 'i, K, F, Out>
+impl<'t, 'i, K: AutotuneKey, F: TuneInputs, Out: AutotuneOutput> TuneDriver<'t, 'i, K, F, Out>
 where
     <F as TuneInputs>::At<'i>: Clone + Send,
 {

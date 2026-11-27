@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::tune::execute::tune_executor::TuneExecutor;
-use crate::tune::{AutotuneCheckable, AutotuneKey, TunableSet, TuneInputs};
+use crate::tune::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs};
 use alloc::sync::Arc;
 use core::hash::Hash;
 
@@ -77,7 +77,7 @@ where
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         Id: Send + Sync + 'static,
         I: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
     {
         self.executor.init(id, init_set)
     }
@@ -158,7 +158,7 @@ where
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         Id: Send + Sync,
     {
         self.executor.execute(id, client, operations, inputs)
