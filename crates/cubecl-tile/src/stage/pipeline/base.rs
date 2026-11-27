@@ -190,17 +190,13 @@ impl Stages<OperandPair> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<OperandPair> {
-        let sources = OperandPair {
-            lhs: lhs.clone(),
-            rhs: rhs.clone(),
-            staged,
-        };
-        Stages::new(
+        Stages::pair(
             walk,
-            &sources,
+            lhs,
+            rhs,
+            staged,
+            comptime!(None),
             storage,
-            comptime!(None),
-            comptime!(None),
             depth,
             decoded,
         )
@@ -209,6 +205,15 @@ impl Stages<OperandPair> {
     /// [`smem_staging`](Stages::smem_staging) for the factors of a contraction summed along
     /// `contracted`, whose stages are laid out in the order the fragments reading them take
     /// ([`StageStorage::ordered_for_fragments`]).
+    ///
+    /// # Assumptions
+    ///
+    /// - Both operands span `contracted`.
+    ///
+    /// # Guarantees
+    ///
+    /// - Each operand `staged` names is staged as [`smem_staging`](Stages::smem_staging) stages
+    ///   it, but for the order its stage is laid out in.
     #[allow(clippy::too_many_arguments)]
     pub fn smem_factors(
         walk: &Walk,
@@ -216,6 +221,26 @@ impl Stages<OperandPair> {
         rhs: &Tile,
         #[comptime] staged: StagedOperands,
         #[comptime] contracted: Dimension,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
+        let contracted = comptime!(Some(contracted));
+        Stages::pair(walk, lhs, rhs, staged, contracted, storage, depth, decoded)
+    }
+}
+
+#[cube]
+impl Stages<OperandPair> {
+    /// The slots staging the operands `staged` names, `contracted` the Dimension a contraction
+    /// sums them along where the caller states one.
+    #[allow(clippy::too_many_arguments)]
+    fn pair(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] contracted: Option<Dimension>,
         #[comptime] storage: StageStorage,
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
@@ -230,7 +255,7 @@ impl Stages<OperandPair> {
             &sources,
             storage,
             comptime!(None),
-            comptime!(Some(contracted)),
+            contracted,
             depth,
             decoded,
         )

@@ -80,7 +80,7 @@ pub use space::partition::levels::Levels;
 pub use space::region::{Leaves, Planes, Region};
 pub use space::vector_region::VectorRegion;
 pub use space::walk::base::Walk;
-pub use stage::base::{FactorStage, StageOrder, StageStorage};
+pub use stage::base::{FactorStage, StageOrder, StageSource, StageStorage};
 pub use stage::pipeline::base::Stages;
 pub use tile::accumulator::base::Scratch;
 pub use tile::base::{Tile, TileExpand};
