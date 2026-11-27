@@ -427,8 +427,8 @@ mod dynamic {
     pub struct ScaleBindings<C: Coordinates> {
         pub(crate) inner: Box<ViewArg<C>>,
         pub(crate) global_scale: Option<BufferArg>,
-        /// A lookup scheme's `2^bits`-entry table, present exactly under
-        /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode). Not a scale level —
+        /// An index format's `2^bits`-entry table, present exactly when the scheme's value is
+        /// one. Not a scale level —
         /// [`len`](Self::len) never counts it — but it rides here because it is the same kind of
         /// thing: a side binding the dequantizing read folds in.
         pub(crate) table: Option<BufferArg>,
@@ -454,9 +454,8 @@ mod dynamic {
             }
         }
 
-        /// The bindings of a one-level lookup scheme
-        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode)): the scales and the
-        /// table each stored field indexes, so a read reconstructs `table[field] * scale`.
+        /// The bindings of a one-level scheme of an index format: the scales and the table each
+        /// stored field indexes, so a read reconstructs `table[field] * scale`.
         ///
         /// `table` must hold `2^bits` f32 entries — registration checks its length against the
         /// scheme, and the unpack's mask bounds every index to that range.
@@ -567,10 +566,12 @@ mod dynamic {
         /// corresponding scale.
         ///
         /// Panics when the bindings and the scheme's levels disagree in count, since a missing
-        /// level would be dropped from the reconstruction, and for an global level this reader
-        /// cannot serve. See [`quant::check_scale_bindings`].
+        /// level would be dropped from the reconstruction, and for a coarser level other than one
+        /// f32 scale for the whole tensor, which this reader holds as one value. See
+        /// [`quant::check_scale_bindings`] and [`quant::check_global_levels`].
         pub fn new_quantized(values: Self, scales: ScaleBindings<C>, scheme: QuantScheme) -> Self {
             quant::check_scale_bindings(&scheme, scales.len());
+            quant::check_global_levels(&scheme);
             quant::check_table_bindings(&scheme, scales.table.is_some());
             Self::Quantized {
                 values: Box::new(values),

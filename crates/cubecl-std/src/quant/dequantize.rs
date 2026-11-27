@@ -11,8 +11,10 @@ use cubecl_core::post_processing::minifloat::fp8_bits_to_f32;
 /// they combine is the caller's business, folded before the call. This is what keeps the
 /// primitive per-read arithmetic, serving equally a one-level read, a view multiplying the
 /// per-tensor scale in per read, or a tile handing every read one register.
-/// `table` is a lookup scheme's `2^bits`-entry table, and must be present exactly when
-/// `scheme.mode` is [`QuantMode::Lookup`].
+/// `table` is an index format's `2^bits`-entry table, and must be present exactly when
+/// `scheme.value` is an index format ([`QuantValue::is_index`]).
+///
+/// [`QuantValue::is_index`]: cubecl_common::quant::scheme::QuantValue::is_index
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
@@ -29,11 +31,9 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
         }
     };
 
-    match scheme.mode {
-        // Lookup already resolved the field to its table entry in the unpack; both modes are one
-        // scale multiply from there.
-        QuantMode::Symmetric | QuantMode::Lookup => q_values * Vector::<F, NF>::cast_from(scale),
-    }
+    // An index format already resolved each field to its table entry in the unpack: every format
+    // is one scale multiply from here.
+    q_values * Vector::<F, NF>::cast_from(scale)
 }
 
 /// [`dequantize_aligned`] for a scale a caller folded in f32, forming the product there too and
@@ -66,7 +66,7 @@ pub fn multiply_global_scale<S: CubePrimitive>(global_scale: f32, scale: S) -> f
 }
 
 /// Unpack a set of values from u32, and convert to the specified floating point format.
-/// `table` decodes each field under [`QuantMode::Lookup`] and must be `None` otherwise
+/// `table` decodes each field of an index format and must be `None` otherwise
 /// ([`dequantize_aligned`] checks the pairing).
 #[cube]
 pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
@@ -142,6 +142,13 @@ pub fn unpack_fields<F: Numeric, NF: Size>(
 /// The mask required for each packed value, taking into account the native packing required for
 /// `e2m1`.
 fn packing_mask(scheme: QuantScheme) -> u32 {
+    assert!(
+        !matches!(
+            scheme.value,
+            QuantValue::F32 | QuantValue::F16 | QuantValue::BF16
+        ),
+        "a float format is stored native, never packed in words"
+    );
     let bits = match scheme.value {
         QuantValue::E2M1 => 8, // Packed conversion
         other => other.size_bits(),
@@ -203,6 +210,16 @@ fn cast_masked_plain<F: Numeric, N: Size>(
             let signed_value = (value ^ sign_bit) as i32 - sign_bit as i32;
             Vector::<F, N>::cast_from(signed_value)
         }
+        QuantValue::F32 | QuantValue::F16 | QuantValue::BF16 => {
+            comptime!(unreachable!(
+                "a float format is stored native, never packed in words"
+            ))
+        }
+        QuantValue::Index8 | QuantValue::Index4 | QuantValue::Index2 => {
+            comptime!(unreachable!(
+                "an index format decodes only through its table"
+            ))
+        }
     }
 }
 
@@ -236,10 +253,11 @@ mod tests {
 
         for scheme in [
             QuantScheme::default(),
-            QuantScheme::default().per_block([32], ScaleDtype::F32),
-            QuantScheme::default()
-                .per_block([32], ScaleDtype::F32)
-                .per_tensor(ScaleDtype::F32),
+            QuantScheme::default().with_levels([BlockScale::per_block([32], ScaleDtype::F32)]),
+            QuantScheme::default().with_levels([
+                BlockScale::per_block([32], ScaleDtype::F32),
+                BlockScale::per_tensor(ScaleDtype::F32),
+            ]),
         ] {
             dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
                 &scope,

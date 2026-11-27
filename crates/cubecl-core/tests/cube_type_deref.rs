@@ -72,6 +72,31 @@ pub struct BorrowedFields<'__cube_deref> {
     pub label: &'__cube_deref str,
 }
 
+#[derive(CubeType)]
+pub struct Counter {
+    pub count: u32,
+}
+
+#[cube]
+pub fn bump(counter: &mut Counter) {
+    counter.count += 1;
+}
+
+// A `&mut` field passes on through a reborrow, `&mut *`, as often as needed: passing the field
+// itself would move it out of the struct.
+#[derive(CubeType)]
+pub struct Borrowing<'a> {
+    pub counter: &'a mut Counter,
+}
+
+#[cube]
+impl<'a> Borrowing<'a> {
+    pub fn bump_twice(&mut self) {
+        bump(&mut *self.counter);
+        bump(&mut *self.counter);
+    }
+}
+
 #[test]
 fn deref_reads_mutable_fields() {
     let scope = Scope::root(KernelSettings::new(

@@ -1138,11 +1138,11 @@ fn separable_scaled_kernel<E: Float>(
 #[test]
 fn a_separable_lhs_contracts_a_packed_scaled_rhs() {
     use crate::support::{TileInput, ValidationResult};
-    use cubecl::quant::scheme::{QuantScheme, QuantStore, QuantValue, ScaleDtype};
+    use cubecl::quant::scheme::{BlockScale, QuantScheme, QuantStore, QuantValue, ScaleDtype};
 
     let client = cubecl::test_device().client();
     let scheme = QuantScheme::default()
-        .per_tensor(ScaleDtype::F32)
+        .with_levels([BlockScale::per_tensor(ScaleDtype::F32)])
         .with_store(QuantStore::PackedU32(0))
         .with_value(QuantValue::Q8S);
     let pack = scheme.num_quants();

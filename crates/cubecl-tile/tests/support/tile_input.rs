@@ -360,8 +360,16 @@ fn integer_valued(value: QuantValue) -> bool {
         | QuantValue::Q4F
         | QuantValue::Q4S
         | QuantValue::Q2F
-        | QuantValue::Q2S => true,
-        QuantValue::E5M2 | QuantValue::E4M3 | QuantValue::E2M1 => false,
+        | QuantValue::Q2S
+        | QuantValue::Index8
+        | QuantValue::Index4
+        | QuantValue::Index2 => true,
+        QuantValue::E5M2
+        | QuantValue::E4M3
+        | QuantValue::E2M1
+        | QuantValue::F32
+        | QuantValue::F16
+        | QuantValue::BF16 => false,
     }
 }
 
@@ -384,15 +392,9 @@ impl QuantizedTileInput {
         self.scales.clone().binding()
     }
 
-    /// The field each stored value occupies: the scheme's value, or under a lookup scheme an
-    /// index as wide, which names a table entry rather than a number.
+    /// The field each stored value occupies.
     pub fn field(&self) -> Field {
-        match self.scheme.mode {
-            cubecl::quant::scheme::QuantMode::Lookup => Field::Index {
-                bits: self.scheme.size_bits_value(),
-            },
-            _ => Field::Quant(self.scheme.value),
-        }
+        Field::from(self.scheme.value)
     }
 
     /// The packed values as an operand, bound `width` words wide: `u32` words of
