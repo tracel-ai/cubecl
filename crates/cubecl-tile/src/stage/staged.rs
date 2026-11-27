@@ -105,10 +105,7 @@ impl Memory {
         let space = comptime!(level.child(&operand.place.space));
         let factor = Memory::factor_stage::<S>(operand, &space, width, element, contracted);
         let target = comptime::target_properties().comptime();
-        let storage = comptime!(match factor {
-            Some(stage) => storage.ordered_for_fragments(&stage, &target.mma),
-            None => storage,
-        });
+        let storage = comptime!(storage.ordered_for_fragments(&factor, &target.mma));
         let stage = Memory::stage_memory_as_served::<S>(
             operand, level, storage, width, owner, element, decodes,
         );
@@ -120,17 +117,15 @@ impl Memory {
     }
 
     /// The facts of `operand`'s stage over `space` that the order its fragments read it in is
-    /// decided by, holding `element` and served `width` wide where stated, `contracted`
-    /// the Dimension its caller states a contraction sums it along: where it is a plain operand
-    /// of values in memory, staged as they lie, at their own width, through a direct map. `None`
-    /// for any other stage, which is laid out as stated.
+    /// decided by, holding `element` and served `width` wide where stated, `contracted` the
+    /// Dimension its caller states a contraction sums it along.
     fn factor_stage<S: Numeric>(
         operand: &Tile,
         #[comptime] space: &Space,
         #[comptime] width: Option<usize>,
         #[comptime] element: StageElement,
         #[comptime] contracted: Option<Dimension>,
-    ) -> comptime_type!(Option<FactorStage>) {
+    ) -> comptime_type!(FactorStage) {
         let packing = operand.packing();
         let quantized = operand.quantized();
         let memory = operand.is_memory();
@@ -138,20 +133,19 @@ impl Memory {
         let delivery = operand.delivery();
         let source_width = operand.vector_size();
         let elem = elem_type_of::<S>();
-        comptime!({
-            let as_lies = element == StageElement::Served
-                && packing == Packing::Plain
-                && !quantized
-                && width.is_none()
-                && memory
-                && projection.is_direct();
-            as_lies.then(|| FactorStage {
-                space: space.clone(),
-                contracted,
-                elem_bits: elem.size_bits(),
-                width: source_width,
-                delivery,
-            })
+        comptime!(FactorStage {
+            space: space.clone(),
+            contracted,
+            elem_bits: elem.size_bits(),
+            vector_size: source_width,
+            delivery,
+            source: StageSource {
+                served: element == StageElement::Served,
+                plain: packing == Packing::Plain && !quantized,
+                own_width: width.is_none(),
+                memory,
+                direct: projection.is_direct(),
+            },
         })
     }
 
@@ -284,7 +278,7 @@ mod tests {
 
     /// The facts the Lowering decides the order of a plain `[m, k]` `f32` operand's stage by,
     /// its caller stating `contracted` and the stage served `width` wide where stated.
-    fn factor_stage(contracted: Option<Dimension>, width: Option<usize>) -> Option<FactorStage> {
+    fn factor_stage(contracted: Option<Dimension>, width: Option<usize>) -> FactorStage {
         let scope = test_scope();
         let space = Space::new(&[(M, 16), (K, 16)]);
         let operand = Tile::__expand_shared::<f32>(&scope, space.clone(), StageStorage::STRIDED);
@@ -301,22 +295,24 @@ mod tests {
     /// A matmul's caller states the Dimension its contraction sums the operand along.
     #[test]
     fn a_factor_stage_holds_the_contraction_its_caller_states() {
-        let stage = factor_stage(Some(K), None).expect("a plain operand should be a factor stage");
-        assert_eq!(stage.contracted, Some(K));
-        assert_eq!(stage.elem_bits, 32);
-        assert_eq!(stage.width, 1);
+        assert_eq!(factor_stage(Some(K), None).contracted, Some(K));
     }
 
     /// An attention's caller states no contraction for its keys and values.
     #[test]
     fn a_factor_stage_holds_no_contraction_where_its_caller_states_none() {
-        let stage = factor_stage(None, None).expect("a plain operand should be a factor stage");
-        assert_eq!(stage.contracted, None);
+        assert_eq!(factor_stage(None, None).contracted, None);
     }
 
-    /// A stage served at a width of its own is not staged as it lies, so it is laid out as stated.
+    /// A plain operand of memory, served at its own width, is copied as it lies.
     #[test]
-    fn a_stage_at_a_width_of_its_own_is_no_factor_stage() {
-        assert_eq!(factor_stage(Some(K), Some(4)), None);
+    fn a_plain_operand_at_its_own_width_is_copied_as_it_lies() {
+        assert!(factor_stage(Some(K), None).source.copied_as_it_lies());
+    }
+
+    /// A stage served at a width of its own is not copied as it lies.
+    #[test]
+    fn a_stage_at_a_width_of_its_own_is_not_copied_as_it_lies() {
+        assert!(!factor_stage(Some(K), Some(4)).source.copied_as_it_lies());
     }
 }
