@@ -3,16 +3,16 @@ use crate::tune::{Bounds, TuneInputs};
 /// Produces the [`Bounds`] a tune of a key is measured against, from the key and the reference
 /// inputs.
 ///
-/// # Assumptions
+/// # Guarantees
 ///
-/// - The bounds answer from the problem the key and the inputs pose, so every tune of one key on
-///   one device is held to the same time limit.
+/// - Every implementation answers from the problem the key and the inputs pose, so every tune of
+///   one key on one device is held to the same time limit.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid bounds generator",
     label = "invalid bounds generator"
 )]
 pub trait BoundsGenerator<K, I: TuneInputs>: Send + Sync + 'static {
-    /// Every implementation answers the bounds of the problem `key` and `inputs` pose.
+    /// The bounds of the problem `key` and `inputs` pose.
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds;
 }
 

@@ -9,7 +9,6 @@ use crate::tune::set::tune_fn::TuneFn;
 use crate::tune::{AutotuneError, TuneInputs};
 
 /// A single candidate for autotune: a named function plus the [groups](TuneGroup) it belongs to.
-/// A tunable is autotuned whenever any of its groups is prioritized.
 ///
 /// `Id` is what the tunables of a set are [identified](Self::identified) by, `()` for a set whose
 /// tunables are [named](Self::new) and nothing more.
@@ -18,6 +17,10 @@ use crate::tune::{AutotuneError, TuneInputs};
 ///
 /// - Its function launches the same kernels for equal inputs: a tune measures it on generated
 ///   inputs and keeps the answer for every call of the key.
+///
+/// # Guarantees
+///
+/// - It is autotuned whenever any of its groups is prioritized.
 pub struct Tunable<K, F: TuneInputs, Output, Id = ()> {
     function: TuneFn<F, Output>,
     /// The groups it joined, in the order it joined them (Arrival Usage).

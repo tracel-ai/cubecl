@@ -5,38 +5,29 @@ use core::hash::Hash;
 /// What a value needs to key an autotune: to be hashed and compared in memory, displayed in the
 /// logs, and, where tunes persist, serialized into the table.
 ///
-/// # Assumptions
+/// # Guarantees
 ///
-/// - Two keys are equal exactly when one winner serves both: a tune measures one problem and
-///   keeps its answer for every equal key.
-/// - A key serialized and read back is equal to the key it was written from.
-#[cfg(serializable)]
+/// - Every implementation's equal keys pose problems one winner is measured for: a tune measures
+///   one of them and keeps its answer for every equal key. The winner may still reject a call of
+///   its key, which another candidate then serves.
+/// - Where tunes persist, a key serialized and read back is equal to the key it was written from.
 pub trait AutotuneKeyable:
-    Clone
-    + Debug
-    + PartialEq
-    + Eq
-    + Hash
-    + Display
-    + serde::Serialize
-    + serde::de::DeserializeOwned
-    + Send
-    + Sync
-    + 'static
+    Clone + Debug + PartialEq + Eq + Hash + Display + Persistable + Send + Sync + 'static
 {
 }
 
-/// What a value needs to key an autotune: to be hashed and compared in memory, and displayed in
-/// the logs.
-///
-/// # Assumptions
-///
-/// - Two keys are equal exactly when one winner serves both: a tune measures one problem and
-///   keeps its answer for every equal key.
+/// What a key needs to be stored in a table, where tunes persist: nothing otherwise.
+#[cfg(serializable)]
+pub trait Persistable: serde::Serialize + serde::de::DeserializeOwned {}
+
+#[cfg(serializable)]
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Persistable for T {}
+
+/// What a key needs to be stored in a table, where tunes persist: nothing otherwise.
 #[cfg(not(serializable))]
-pub trait AutotuneKeyable:
-    Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static
-{
-}
+pub trait Persistable {}
+
+#[cfg(not(serializable))]
+impl<T> Persistable for T {}
 
 impl AutotuneKeyable for String {}

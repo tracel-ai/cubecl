@@ -33,7 +33,8 @@ pub struct LocalTuner<AK: AutotuneKeyable, ID> {
     executor: TuneExecutor<AK, ID>,
 }
 
-/// A [`LocalTuner`] named after the module that declares it, and `$name` when given.
+/// A [`LocalTuner`] named after the module that declares it, and `$name` when given: `$name`
+/// holds no `/`, as [`LocalTuner::new`] assumes.
 #[macro_export]
 macro_rules! local_tuner {
     ($name:expr) => {
@@ -50,6 +51,11 @@ where
     ID: Hash + PartialEq + Eq + Clone,
 {
     /// A tuner whose answers are stored in the table `name` names, for each hardware.
+    ///
+    /// # Assumptions
+    ///
+    /// - `name` holds no `/`: the table is named `hardware/name`, and a `/` would store it under
+    ///   another namespace than readers of the table look in.
     pub const fn new(name: &'static str) -> Self {
         Self {
             executor: TuneExecutor::new(name),
@@ -85,9 +91,10 @@ where
     ///
     /// # Guarantees
     ///
-    /// - It never starts a round, never waits on one in flight, never reads the persistent cache,
-    ///   and never resets the tuner's cache after an environment switch: it answers `None` there
-    ///   until the next `execute`.
+    /// - It never starts a round, never waits for one in flight to measure, never reads the
+    ///   persistent cache, and never resets the tuner's cache after an environment switch: it
+    ///   answers `None` there until the next `execute`. It may wait for the tuner's lock while a
+    ///   tune reads or writes the store.
     /// - An `id` that has not executed `operations` sees none.
     pub fn fastest_identity<I, Out, Id>(
         &self,
@@ -114,12 +121,17 @@ where
     /// # Assumptions
     ///
     /// - `operations` holds a candidate, and some candidate serves `inputs`.
+    /// - Some candidate the plan schedules for the key, at a non-negative priority, executes on
+    ///   the device: it measures, or only its timing fails.
     /// - The elected candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
+    /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
     ///
     /// # Panics
     ///
-    /// When no candidate serves `inputs`, or the elected one rejects them and they have no spare:
-    /// the assumptions above.
+    /// When no candidate serves `inputs`; when a tune measured none and none it scheduled
+    /// executed; when the elected one rejects `inputs` and they have no spare; and under
+    /// `autotune-checks`, when a candidate's output does not match and nothing reports it: the
+    /// assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(
         &self,
         id: &ID,

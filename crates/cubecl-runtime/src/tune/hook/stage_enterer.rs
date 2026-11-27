@@ -14,20 +14,23 @@ use core::any::Any;
 ///
 /// # Assumptions
 ///
+/// - A measuring stage is entered where the set's
+///   [`TuneDeviceAccess`](crate::tune::TuneDeviceAccess) holds the tuned device, on the thread
+///   that runs the candidates.
+///
+/// # Guarantees
+///
 /// - The guard `enter` hands back undoes exactly what `enter` did when it drops, so stages nest
 ///   in any combination.
-/// - A measuring stage is entered where the set's [`TuneDeviceAccess`](crate::tune::TuneDeviceAccess)
-///   holds the tuned device, on the thread that runs the candidates: an implementation never
-///   waits on that device's exclusive access.
+/// - An implementation never waits on the tuned device's exclusive access.
+/// - The guard's `Drop` compiles the kernels a gathering stage leaves queued on other devices, as
+///   the tuner compiles the tuned device's.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid stage enterer",
     label = "invalid stage enterer"
 )]
 pub trait StageEnterer<K, I: TuneInputs>: Send + Sync + 'static {
     /// Enter `stage` of the tune of `key`, with the reference inputs the tune was called with.
-    ///
-    /// Every implementation compiles, in the guard's `Drop`, the kernels a gathering stage leaves
-    /// queued on other devices, as the tuner compiles the tuned device's.
     fn enter<'a>(&self, stage: TuneStage, key: &K, inputs: &I::At<'a>) -> Box<dyn Any>;
 }
 

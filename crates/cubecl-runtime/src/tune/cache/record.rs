@@ -29,7 +29,9 @@ pub struct TuneRecord<K> {
     pub entry: PersistentCacheKey<K>,
     /// The index of the candidate the key runs.
     pub winner: usize,
-    /// The candidates that ran, in the order they ran (Arrival Usage).
+    /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
+    /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
+    /// skipped or that a short circuit left unreached costs zero.
     pub trials: Vec<Trial>,
     /// The candidate that met the time limit and ended the tune before the
     /// rest of the plan ran.

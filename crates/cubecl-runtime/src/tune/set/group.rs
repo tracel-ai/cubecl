@@ -5,14 +5,16 @@ use crate::config::autotune::AutotuneLevel;
 
 /// A priority bucket for tunables, computed from the [autotune key](crate::tune::AutotuneKeyable).
 ///
-/// Higher-priority groups are autotuned first; once any tunable in a group returns a valid
-/// result, no later groups are tried.
-///
 /// # Assumptions
 ///
 /// - Its priority function, and the priority each member joins it with
 ///   ([`Tunable::group`](crate::tune::Tunable::group)), answer from the key alone: a set plans each key
 ///   once and keeps the order it planned.
+///
+/// # Guarantees
+///
+/// - Higher-priority groups are autotuned first; once any tunable in a group returns a valid
+///   result, no later groups are tried.
 pub struct TuneGroup<K> {
     id: GroupId,
     name: Arc<String>,

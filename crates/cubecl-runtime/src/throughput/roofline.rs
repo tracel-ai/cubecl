@@ -23,9 +23,11 @@ impl ResourceBound {
     /// Time `amount` would take running at `peak_per_s`, with no allowance
     /// for anything else the kernel does concurrently.
     ///
-    /// `None` for a `peak_per_s` that is zero, negative, `NaN`, or infinite:
-    /// none of those describe a real ceiling to divide by. `None` too for a
-    /// time no [`Duration`] holds.
+    /// # Guarantees
+    ///
+    /// - `None` for a `peak_per_s` that is zero, subnormal, negative, `NaN`, or
+    ///   infinite: none of those describe a real ceiling to divide by.
+    /// - `None` too for a time no [`Duration`] holds.
     pub fn time_at_peak(&self) -> Option<Duration> {
         if !self.peak_per_s.is_normal() || self.peak_per_s < 0.0 {
             return None;

@@ -56,6 +56,7 @@ impl Batch {
     }
 
     /// A batch that measures every one of `indices`, no group's patience applying.
+    #[cfg(not(target_family = "wasm"))]
     pub fn unconditional(indices: impl IntoIterator<Item = usize>) -> Self {
         Self {
             entries: indices.into_iter().map(BatchEntry::ungrouped_at).collect(),

@@ -43,9 +43,9 @@ impl Anchor {
     ///
     /// # Guarantees
     ///
-    /// - At least `min`, and at most `max` unless `min` is larger.
-    /// - Between them, the smallest power of the scaled base that is at least `value`, rounded up,
-    ///   or `value` itself where the level rounds nothing.
+    /// - Where the level rounds nothing, `value` itself, `min` and `max` set aside.
+    /// - Otherwise at least `min`, and at most `max` unless `min` is larger. Between them, the
+    ///   smallest power of the scaled base, rounded up, that is at least `value`, and `0` for `0`.
     pub fn anchor_value(&self, value: usize) -> usize {
         anchored(value, self.base, self.max, self.min)
     }

@@ -2,16 +2,17 @@ use crate::tune::TuneInputs;
 
 /// Produces an autotune key from a borrowed view of the tuning inputs.
 ///
-/// # Assumptions
+/// # Guarantees
 ///
-/// - The key answers from the inputs alone, and equal inputs give equal keys: a key that changes
-///   for one problem re-tunes it, and one shared by two problems serves one's winner to the other.
+/// - Every implementation answers from the inputs alone, and equal inputs give equal keys: a key
+///   that changes for one problem re-tunes it, and one shared by two problems serves one's winner
+///   to the other.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid key generator",
     label = "invalid key generator"
 )]
 pub trait KeyGenerator<K, I: TuneInputs>: Send + Sync + 'static {
-    /// Every implementation answers the key of the problem `inputs` pose.
+    /// The key of the problem `inputs` pose.
     fn generate(&self, inputs: &I::At<'_>) -> K;
 }
 

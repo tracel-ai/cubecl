@@ -115,6 +115,7 @@ struct ResultReporter<'a, K> {
     key: &'a K,
     results: &'a [AutotuneResult],
     log_context: Option<&'a AutotuneLogContext>,
+    #[cfg_attr(not(std_io), allow(dead_code))]
     decided_index: usize,
 }
 

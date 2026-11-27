@@ -85,14 +85,24 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     }
 
     /// The set with `bounds` setting the time limit a candidate is close enough under.
-    pub fn with_bounds(mut self, bounds: Arc<dyn BoundsGenerator<K, F> + Send + Sync>) -> Self {
-        self.bounds_gen = Some(bounds);
+    pub fn with_bounds(
+        mut self,
+        bounds_generator: Arc<dyn BoundsGenerator<K, F> + Send + Sync>,
+    ) -> Self {
+        self.bounds_gen = Some(bounds_generator);
         self
     }
 
     /// The set with `evictor` running before every measured sample, so the candidates are timed
     /// reading memory rather than the cache the previous sample left warm.
-    pub fn with_eviction(mut self, evictor: Arc<dyn Evictor<K, F> + Send + Sync>) -> Self {
+    ///
+    /// # Guarantees
+    ///
+    /// - The eviction is issued outside the profiled region, so it costs the round time rather
+    ///   than the sample.
+    /// - A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
+    ///   measurement aid, and losing one is not worth failing the tune for.
+    pub fn with_evictor(mut self, evictor: Arc<dyn Evictor<K, F> + Send + Sync>) -> Self {
         self.evictor = Some(evictor);
         self
     }
@@ -114,7 +124,7 @@ impl<K: AutotuneKeyable, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Ou
     }
 
     /// The set with the short circuit, which ends a batch at its first candidate under the
-    /// bounds' time limit, on where `enabled`.
+    /// bounds' time limit, turned on where `enabled`.
     pub fn with_short_circuit(mut self, enabled: bool) -> Self {
         self.short_circuit = enabled;
         self

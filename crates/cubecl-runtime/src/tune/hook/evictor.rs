@@ -20,15 +20,14 @@ use alloc::string::{String, ToString};
 ///
 /// # Assumptions
 ///
-/// - An eviction launches on the stream the sample is profiled on: the tuner orders nothing
-///   between the two, and a launch on another stream can overlap the sample or land after it.
+/// - It runs before a measured sample, outside the profiled region, on the thread that launches
+///   the sample.
 ///
 /// # Guarantees
 ///
-/// - The eviction is issued outside the profiled region, so it costs the round time rather than
-///   the sample.
-/// - A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
-///   measurement aid, and losing one is not worth failing the tune for.
+/// - Every implementation launches on the stream the sample is profiled on: the tuner orders
+///   nothing between the two, and a launch on another stream can overlap the sample or land after
+///   it.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid evictor",
     label = "invalid evictor"
@@ -39,7 +38,7 @@ pub trait Evictor<K, I: TuneInputs>: Send + Sync + 'static {
     ///
     /// # Errors
     ///
-    /// When the eviction could not be queued; the sample is then measured warm.
+    /// When the eviction could not be queued.
     fn evict<'a>(&self, key: &K, inputs: &I::At<'a>) -> Result<(), AutotuneError>;
 }
 

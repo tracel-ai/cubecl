@@ -214,7 +214,8 @@ pub enum TuneCacheResult {
     /// nothing. Callers run the first candidate that serves the problem, which only queues its
     /// kernels too.
     Compiled,
-    /// The key was never tuned.
+    /// Memory holds no decision for the key: it was never tuned, only gathered, or reset by an
+    /// environment switch.
     Miss,
 }
 

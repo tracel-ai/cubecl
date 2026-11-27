@@ -324,7 +324,7 @@ pub fn addition_set_with_eviction(
         calls.fetch_add(1, Ordering::Relaxed);
         op_add.run(inputs)
     }))
-    .with_eviction(Arc::new(move |_key: &String, inputs: &Vec<Handle>| {
+    .with_evictor(Arc::new(move |_key: &String, inputs: &Vec<Handle>| {
         // The generated output is the one byte larger.
         let on_reference = inputs[2].size() == inputs[0].size();
         let counter = if on_reference {

@@ -14,17 +14,19 @@ use crate::tune::TuneInputs;
 /// and the `Fn` blanket below works; borrowed-input families implement this trait
 /// directly.
 ///
-/// # Assumptions
+/// # Guarantees
 ///
-/// - The generated inputs pose the problem the reference inputs pose: the tune measures the one
-///   and keeps its answer for the other.
-/// - Every candidate may write the generated inputs without touching the reference ones.
+/// - Every implementation answers inputs posing the problem the reference inputs pose: the tune
+///   measures the one and keeps its answer for the other.
+/// - Inputs that share buffers with the reference ones, as a clone of device handles does, let a
+///   candidate that writes them write the reference ones too: only a generator that allocates
+///   them keeps the call's state out of the tune.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid input generator",
     label = "invalid input generator"
 )]
 pub trait InputGenerator<K, I: TuneInputs>: Send + Sync + 'static {
-    /// Every implementation answers inputs posing the problem of `key` and `inputs`.
+    /// The inputs the candidates of `key` are measured on, made from the reference `inputs`.
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> I::At<'a>;
 }
 
