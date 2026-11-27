@@ -190,7 +190,7 @@ impl Store {
             ),
             Backing::ReadCall(_) => panic!(
                 "Store::buffer: this tile's backing is read through a call, which has no \
-                 address, it can only be read through its layout (Memory::read_view), so the \
+                 address, it can only be read through its layout (Memory::coordinate_view), so the \
                  slice-shaped paths (a dense run, a re-typed quant storage, a tensor-map load) \
                  are closed to it"
             ),

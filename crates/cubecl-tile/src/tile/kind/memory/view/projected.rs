@@ -29,18 +29,47 @@ pub(crate) trait TileLayout<C: Coordinates>:
 
 impl<C: Coordinates, L> TileLayout<C> for L where L: LogicalLayout + Layout<Coordinates = C> {}
 
-/// Any [`LogicalLayout`] with an operand's [`Projection`] applied under it.
+/// Any [`LogicalLayout`] with an operand's [`Projection`] applied under it, each position read one
+/// count of `walk` past where it is asked ([`walked`](Projected::walked)): where `walk` moves the
+/// map only by constants, a read is the map at the asked position plus those constants, and two
+/// reads that differ only in the walk share the map's evaluation.
+///
+/// # Assumptions
+///
+/// - A walked layout is read unmasked: its bounds are those of the asked position.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
 pub(crate) struct Projected<L: LogicalLayout> {
     inner: L,
     projection: ProjectionInKernel,
+    #[cube(comptime)]
+    walk: WalkUnits,
 }
 
 #[cube]
 impl<L: LogicalLayout> Projected<L> {
     pub(crate) fn new(inner: L, projection: ProjectionInKernel) -> Self {
-        Projected::<L> { inner, projection }
+        Projected::<L> {
+            inner,
+            projection,
+            walk: comptime!(WalkUnits::none()),
+        }
+    }
+
+    /// This layout reading each position one count of `walk` past it.
+    pub(crate) fn walked(self, #[comptime] walk: WalkUnits) -> Self {
+        Projected::<L> {
+            inner: self.inner,
+            projection: self.projection,
+            walk,
+        }
+    }
+
+    /// The source position one count of the walk past `logical`.
+    fn walked_from(&self, logical: CoordsDyn) -> CoordsDyn {
+        let anchor = self.projection.anchor(logical, &self.walk);
+        let once = Coords::constant(comptime!(vec![1; self.walk.dimensions.len()]));
+        self.projection.advance(&anchor, &once, &self.walk)
     }
 }
 
@@ -50,13 +79,16 @@ impl<L: LogicalLayout> Layout for Projected<L> {
     type SourceCoordinates = CoordsDyn;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        self.projection.to_source_pos(self.inner.to_source_pos(pos))
+        self.walked_from(self.inner.to_source_pos(pos))
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
         let (inner_pos, inner_in_bounds) = self.inner.to_source_pos_checked(pos);
-        let (proj_pos, proj_in_bounds) = self.projection.to_source_pos_checked(inner_pos);
-        (proj_pos, inner_in_bounds && proj_in_bounds)
+        let proj_in_bounds = self.projection.is_in_bounds(inner_pos.clone());
+        (
+            self.walked_from(inner_pos),
+            inner_in_bounds && proj_in_bounds,
+        )
     }
 
     fn shape(&self) -> Self::Coordinates {
@@ -158,16 +190,44 @@ impl Tile {
         }
     }
 
-    /// Whether a read can be anchored once per run of `dimension` and advanced by an add: an
-    /// unpacked memory operand with no clamp or backward coefficient, whose `dimension` steps
-    /// additively.
-    pub(crate) fn run_advanceable(&self, #[comptime] dimension: Dimension) -> comptime_type!(bool) {
+    /// The map a read of this tile evaluates in the kernel: a memory window's
+    /// ([`Memory::in_kernel_projection`]), any other tile's own [`projection`](Tile::projection).
+    pub(crate) fn in_kernel_projection(&self) -> comptime_type!(Projection) {
+        match &self.kind {
+            TileKind::Memory(data) => data.in_kernel_projection(),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => self.projection(),
+        }
+    }
+
+    /// Whether a read through this tile's map lands on the pieces of a storage-tiled buffer
+    /// ([`Memory::reads_pieces`]), rather than on its window's coordinates.
+    pub(crate) fn reads_pieces(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::Memory(data) => data.reads_pieces(),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether a read can be anchored once per run of `walk` and advanced from it, with the
+    /// run's two ends bounding every position between them: an unpacked memory operand with no
+    /// clamp, whose map the walk moves only by adds and holds
+    /// ([`Projection::run_bounded_by_ends`]).
+    pub(crate) fn run_anchorable(&self, #[comptime] walk: &WalkUnits) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(data) => {
+                let projection = data.in_kernel_projection();
                 comptime!(
                     matches!(data.store.packing, Packing::Plain)
                         && !data.window.boundaries.contains(&Some(Boundary::Clamp))
-                        && data.projection.advances_forward_by_add(dimension)
+                        && projection.run_bounded_by_ends(walk)
                 )
             }
             TileKind::PlaneTile(_)
@@ -198,7 +258,7 @@ fn procedural_nd<'a, T: Numeric, W: Size>(
     )
 }
 
-/// A gathered operand split into the map evaluated once per run and the physical view it addresses.
+/// An operand split into the map evaluated once per run and the physical view it addresses.
 #[derive(CubeType)]
 pub(crate) struct Gathered<'a, T: Numeric, W: Size> {
     pub map: ProjectionInKernel,
@@ -224,16 +284,20 @@ impl Tile {
     pub(crate) fn nd_split<T: Numeric, W: Size>(&self) -> Gathered<'_, T, W> {
         let space = comptime!(self.place.space.clone());
         match &self.kind {
-            TileKind::Memory(g) => Gathered::new(
-                g.dimension_projection(&space),
-                // A caller that evaluated the map derived its coordinates itself, so both guards
-                // stay on.
-                g.packed::<T, W, CoordsDyn, CompactionStep>(
-                    g.physical_box(),
-                    comptime!(Guard::Checked),
-                ),
-                comptime!(g.projection.physical_rank()),
-            ),
+            TileKind::Memory(g) => {
+                let map = g.dimension_projection(&space);
+                let projection = g.in_kernel_projection();
+                Gathered::new(
+                    map,
+                    // A caller that evaluated the map derived its coordinates itself, so both
+                    // guards stay on.
+                    g.packed::<T, W, CoordsDyn, CompactionStep>(
+                        g.physical_box(),
+                        comptime!(Guard::Checked),
+                    ),
+                    comptime!(projection.physical_rank()),
+                )
+            }
             TileKind::Procedural(_) | TileKind::Lines(_) => Gathered::new(
                 dimension_projection(
                     &space,

@@ -1,7 +1,8 @@
 //! Cell-major gather for expensive procedural filters separable over the contracted dimensions.
 
 use cubecl::prelude::*;
-use cubecl_std::tensor::layout::CoordsDyn;
+
+use cubecl_std::tensor::layout::{Layout, LayoutExpand};
 
 use super::super::super::registers;
 use crate::*;
@@ -30,6 +31,9 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
     let batch_extents = problem.block.batch_extents();
 
     let rhs_reader = rhs.nd_split::<ER, V>();
+    // A column is the last physical coordinate on, where the map reads the window's coordinates;
+    // a map reaching a storage-tiled buffer's pieces is evaluated at each column instead.
+    let pieces = rhs.reads_pieces();
     let rhs_check = comptime!(rhs_reader.view.check);
     let factors = problem
         .factors
@@ -182,17 +186,19 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                             problem.offsets.clone(),
                             problem.factor_reuse.clone(),
                         );
+                        let pos = cell_position(
+                            &batch,
+                            i as u32,
+                            n as u32,
+                            &reduce_coords,
+                            comptime!(Side::Rhs),
+                            problem.clone(),
+                        );
+                        let walk = comptime!(problem.block.reduce_walk());
                         let base = rhs_reader.map.advance(
                             &anchor,
-                            cell_position(
-                                &batch,
-                                i as u32,
-                                n as u32,
-                                &reduce_coords,
-                                comptime!(Side::Rhs),
-                                problem.clone(),
-                            ),
-                            problem.block.reduce.clone(),
+                            &rhs_reader.map.counts_at(&pos, &walk),
+                            &walk,
                         );
                         let value = Vector::<E, V>::cast_from(rhs_reader.view.read(base));
                         // One semiring step, for the reason [`registers::rank1_update`] gives.
@@ -218,26 +224,36 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                         problem.factor_reuse.clone(),
                     ));
 
+                    let pos = cell_position(
+                        &batch,
+                        i as u32,
+                        0u32,
+                        &reduce_coords,
+                        comptime!(Side::Rhs),
+                        problem.clone(),
+                    );
+                    let walk = comptime!(problem.block.reduce_walk());
                     let base = rhs_reader.map.advance(
                         &row_anchor,
-                        cell_position(
-                            &batch,
-                            i as u32,
-                            0u32,
-                            &reduce_coords,
-                            comptime!(Side::Rhs),
-                            problem.clone(),
-                        ),
-                        problem.block.reduce.clone(),
+                        &rhs_reader.map.counts_at(&pos, &walk),
+                        &walk,
                     );
 
                     #[unroll(unroll)]
                     for n in 0..nr {
-                        let value = Vector::<E, V>::cast_from(rhs_reader.view.read(offset_last(
-                            &base,
-                            comptime!(rhs_reader.rank),
-                            n as u32,
-                        )));
+                        let at = if comptime!(pieces) {
+                            rhs_reader.map.to_source_pos(cell_position(
+                                &batch,
+                                i as u32,
+                                n as u32,
+                                &reduce_coords,
+                                comptime!(Side::Rhs),
+                                problem.clone(),
+                            ))
+                        } else {
+                            offset_last(&base, comptime!(rhs_reader.rank), n as u32)
+                        };
+                        let value = Vector::<E, V>::cast_from(rhs_reader.view.read(at));
                         // One semiring step, for the reason [`registers::rank1_update`] gives.
                         c[i * nr + n] = semiring.step::<Vector<E, V>>(weight, value, c[i * nr + n]);
                     }
@@ -266,7 +282,7 @@ fn rhs_anchor(
     row: u32,
     col: u32,
     #[comptime] problem: GatherProblem,
-) -> CoordsDyn {
+) -> Anchor {
     rhs_map.anchor(
         cell_position(
             batch,
@@ -276,7 +292,7 @@ fn rhs_anchor(
             comptime!(Side::Rhs),
             problem.clone(),
         ),
-        problem.block.reduce.clone(),
+        &comptime!(problem.block.reduce_walk()),
     )
 }
 
@@ -288,7 +304,7 @@ fn factor_walk<EL: Numeric>(
     lhs: &Tile,
     rhs: &Tile,
     rhs_map: &ProjectionInKernel,
-    anchor: &CoordsDyn,
+    anchor: &Anchor,
     batch: &Coords<u32>,
     row: u32,
     col: u32,
@@ -335,8 +351,15 @@ fn factor_walk<EL: Numeric>(
                             comptime!(Side::Rhs),
                             problem.clone(),
                         );
-                        let physical_pos =
-                            rhs_map.advance(anchor, rhs_pos, problem.block.reduce.clone());
+                        // A direct operand's window coordinates are its logical ones, where
+                        // its map reaches a storage-tiled buffer's pieces instead.
+                        let walk = comptime!(problem.block.reduce_walk());
+                        let pieces = rhs.reads_pieces();
+                        let physical_pos = if comptime!(pieces) {
+                            rhs_pos
+                        } else {
+                            rhs_map.advance(anchor, &rhs_map.counts_at(&rhs_pos, &walk), &walk)
+                        };
                         select(
                             rhs.separable_physical_tap_in_bounds(
                                 &physical_pos,

@@ -82,7 +82,7 @@ impl MemoryValues {
             }
         }
         let size!(One) = 1usize;
-        let view = self.memory.read_view::<Stored, One>(self.memory.base());
+        let view = self.memory.coordinate_view::<Stored, One>();
         T::cast_from(view.read_checked(position.to_dyn()).extract(0usize))
     }
 }
