@@ -29,8 +29,13 @@ pub(crate) struct RunBlocks {
 
 impl RunBlocks {
     /// The bytes a store of the fill writes, in the order the fill prefers them where each
-    /// deals every unit as many blocks: the widest first, so a unit issues the fewest stores.
-    const PREFERRED_RUN_BYTES: [usize; 3] = StageOrder::STORED_RUN_BYTES;
+    /// deals every unit as many blocks: eight, then four. The compiler pairs two eight-byte
+    /// stores into one instruction, and a block of half a chunk's lines keeps half the registers
+    /// live, so the loads of a split or few-row stage issue together. A chunk-wide store deals
+    /// half the blocks of an eight-byte one, so it balances no units the eight-byte one leaves
+    /// unbalanced, and it measured slower on few rows and no faster elsewhere (gfx1151, f16
+    /// `m × 4096 × 4096`).
+    const PREFERRED_RUN_BYTES: [usize; 2] = [8, 4];
 
     /// The most blocks along the run neighbouring units take ([`across`](Self::across)): four
     /// keep the reads of a group of units within one row of the source whole 128-byte lines.
@@ -450,17 +455,17 @@ mod tests {
         RunBlocks::new(&space, order, 8, 16, &Level::copied_by_cube(units))
     }
 
-    /// Two units take the stage's blocks of eight rows of `k`, a 16-byte store each, two along
+    /// Two units take the stage's blocks of four rows of `k`, an 8-byte store each, four along
     /// `k` before the next source line of a row.
     #[test]
-    fn a_balanced_fill_stores_the_widest_run() {
+    fn a_balanced_fill_stores_eight_bytes_first() {
         let blocks = blocks(2);
-        assert_eq!((blocks.run, blocks.count, blocks.across), (8, 4, 2));
+        assert_eq!((blocks.run, blocks.count, blocks.across), (4, 8, 4));
         assert_eq!(blocks.inner, 2);
     }
 
-    /// Where no chunk-wide run deals every unit as many blocks, the fill narrows its stores until
-    /// one does: eight bytes for eight units, four for sixteen.
+    /// Where no 8-byte run deals every unit as many blocks, the fill narrows its stores to four
+    /// bytes: sixteen units.
     #[test]
     fn the_run_narrows_until_every_unit_takes_as_many_blocks() {
         assert_eq!((blocks(8).run, blocks(8).count), (4, 8));
