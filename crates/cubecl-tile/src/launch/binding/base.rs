@@ -423,7 +423,7 @@ impl Bound {
     ///
     /// # Panics
     ///
-    /// Where a table already places this operand.
+    /// For an operand built over geometry alone, or one a table already places.
     pub fn indexed(self, table: TileTensorLaunch, indexing: Indexing) -> Result<Self, Decline> {
         let vector_size = self.vector_size;
         let launch = self.arg().indexed(table, indexing)?;
