@@ -948,6 +948,7 @@ impl Memory {
         let map = RuntimeMap {
             coefficients: self.map.coefficients.clone(),
             residues,
+            digit_starts: digit_starts_descent(&self.projection, step, &self.map),
         };
         (origin, extent, advances, map)
     }
@@ -1184,7 +1185,30 @@ impl Memory {
     }
 }
 
+/// Where the cut starts along each folded dimension: the window's start plus the cut's.
+#[cube]
+fn digit_starts_descent(
+    #[comptime] projection: &Projection,
+    cut: &Step,
+    map: &RuntimeMap,
+) -> Coords<u32> {
+    let dimensions = projection.digit_dimensions();
+    let mut starts = Coords::<u32>::new();
+    #[unroll]
+    for i in 0..dimensions.len() {
+        let dimension = comptime!(dimensions[i]);
+        let edge = comptime!(cut.level.extent_in(&cut.space, dimension).get() as u32);
+        starts.push(
+            map.digit_starts
+                .at(i)
+                .plus(cut.coord(dimension).cast::<u32>().times(edge.runtime())),
+        );
+    }
+    starts
+}
+
 /// One gathered physical axis's descent: its window move, leftover phase and receptive field.
+/// A digit term moves no window and spans the whole digit ([`digit_starts_descent`]).
 #[cube]
 fn gathered_dimension_descent(
     #[comptime] projection: &Projection,
@@ -1206,6 +1230,12 @@ fn gathered_dimension_descent(
         let term = comptime!(axis_map.terms()[t]);
         let edge = comptime!(cut.level.extent_in(&cut.space, term.dimension).get());
         match term.scale {
+            Scale::Static(s) if term.digit.is_some() => {
+                terms.push(comptime!(0u32).runtime());
+                spans.push(
+                    comptime!((term.largest_coordinate(edge) * s.unsigned_abs()) as u32).runtime(),
+                );
+            }
             Scale::Static(s) => {
                 let step_sign = comptime!(s.signum());
                 let s = comptime!(s.unsigned_abs());
