@@ -15,8 +15,8 @@ use cubecl_core::{
     MemoryConfiguration,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties, PciVendor,
-        PhysicalDevice, TargetProperties, VectorSize,
+        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
+        MmaProperties, PciVendor, PhysicalDevice, StridedRunRead, TargetProperties, VectorSize,
         amd::{AmdMatrixCore, GfxArch},
         features::Plane,
     },
@@ -232,7 +232,7 @@ impl DeviceService for HipServer {
             cubecl_common::device::ServiceId::of::<Self>(device_id),
             "hip",
             device_props,
-            target_properties(matrix_core),
+            target_properties(matrix_core, backend),
             logger,
             policy,
         );
@@ -271,7 +271,10 @@ impl Runtime for HipRuntime {
     }
 
     fn target_properties() -> TargetProperties {
-        target_properties(AMD_MATRIX_CORE.get().copied().flatten())
+        target_properties(
+            AMD_MATRIX_CORE.get().copied().flatten(),
+            HipBackend::default(),
+        )
     }
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
@@ -330,12 +333,22 @@ impl Runtime for HipRuntime {
     }
 }
 
-/// The target properties of a device whose matrix core is `core`: its manual MMA's register
-/// layout. A part without one is laid out as RDNA3, whose plane width it shares.
-fn target_properties(core: Option<AmdMatrixCore>) -> TargetProperties {
+/// The target properties of a device whose matrix core is `core`, compiled by `backend`: its
+/// manual MMA's register layout, and how the backend's fragment load reads a run laid across the
+/// rows of its memory. The LLVM lowering loads such a run one element at a time and a contiguous
+/// one in one access; HIP C++ loads both one element at a time, so neither is slower there. A
+/// part without a matrix core is laid out as RDNA3, whose plane width it shares.
+fn target_properties(core: Option<AmdMatrixCore>, backend: HipBackend) -> TargetProperties {
     let core = core.unwrap_or(AmdMatrixCore::Wmma(AmdWmma::Rdna3));
+    let strided_run_read = match backend {
+        HipBackend::Llvm => StridedRunRead::ElementWise,
+        HipBackend::Cpp => StridedRunRead::Whole,
+    };
     TargetProperties {
-        mma: core.mma_properties(),
+        mma: MmaProperties {
+            strided_run_read,
+            ..core.mma_properties()
+        },
     }
 }
 
@@ -491,5 +504,21 @@ impl DeviceProbe {
             integrated: props.integrated != 0,
             physical,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The LLVM lowering reads a strided run of a fragment element by element; HIP C++ reads
+    /// either run alike.
+    #[test]
+    fn only_the_llvm_backend_reads_a_strided_run_element_wise() {
+        let core = Some(AmdMatrixCore::Wmma(AmdWmma::Rdna3));
+        let llvm = target_properties(core, HipBackend::Llvm).mma;
+        assert_eq!(llvm.strided_run_read, StridedRunRead::ElementWise);
+        let cpp = target_properties(core, HipBackend::Cpp).mma;
+        assert_eq!(cpp.strided_run_read, StridedRunRead::Whole);
     }
 }

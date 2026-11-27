@@ -46,6 +46,28 @@ pub struct MmaProperties {
     /// matrix instruction
     #[cfg_attr(feature = "serde", serde(skip))]
     pub element_positions: OperandFact<Option<ElementPositions>>,
+    /// Whether the compiler's fragment load reads a lane's run of an A or B operand laid across
+    /// the rows of its memory more slowly than one laid along them.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub strided_run_read: StridedRunRead,
+}
+
+/// Whether a compiler's fragment load (`cmma::load`) reads a lane's run of an A or B operand more
+/// slowly where the run lies across the rows of the memory it loads from, stepping by the stride,
+/// than where it lies along a row.
+///
+/// # Guarantees
+///
+/// - It describes the compiler's own fragment load of the fragment API alone, no other load.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, Default)]
+pub enum StridedRunRead {
+    /// No more slowly: the load reads a strided run at the cost of a contiguous one, whether it
+    /// reads both whole or both one element at a time.
+    #[default]
+    Whole,
+    /// One element at a time, where it reads a contiguous run in one access.
+    ElementWise,
 }
 
 /// What a target says of each operand of its manual matrix instructions, by the operand's role and
@@ -150,6 +172,7 @@ impl Default for MmaProperties {
             register_copy_count_acc: 1,
             contiguous_elements: Default::default(),
             element_positions: Default::default(),
+            strided_run_read: StridedRunRead::default(),
         }
     }
 }
