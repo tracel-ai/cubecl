@@ -87,7 +87,17 @@ macro_rules! atomic_binop_to_spirv_dialect {
                 let ptr = op.operand(ctx, 0);
                 let value = op.operand(ctx, 1);
                 let scope = ptr_scope(ctx, ptr);
-                let semantics = semantics_rw(ctx, ptr);
+                // An atomic whose old value nothing reads is emitted relaxed, as the CUDA backend
+                // emits it (`red.relaxed`) and Metal emits every atomic. Drivers lower acquire-release
+                // to fences around each atomic, which costs accumulation kernels dearly. A kernel that
+                // publishes writes through such an atomic fences first (`sync_storage`), as it must on
+                // CUDA and Metal. A read atomic keeps acquire-release, so a kernel can still use its
+                // result to learn that other cubes' writes have landed.
+                let semantics = if self.get_result(ctx).num_uses(ctx) == 0 {
+                    semantics_of(ctx, ptr)
+                } else {
+                    semantics_rw(ctx, ptr)
+                };
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, ptr, scope, semantics, value, $($extra),*);
                 rewriter.append_op(ctx, &new_op);
