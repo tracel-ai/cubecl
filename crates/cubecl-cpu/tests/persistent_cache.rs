@@ -381,7 +381,7 @@ fn a_prune_keeps_only_the_kernel_the_work_launched() {
     use cubecl_server::compiler::WorkLaunchStore;
     use cubecl_server::prune::Prune;
     use cubecl_server::server::Handle;
-    use cubecl_server::tune::{Tunable, TunableSet, TuneCacheResult, Tuner};
+    use cubecl_server::tune::{LocalTuner, Tunable, TunableSet};
 
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new("prune");
@@ -418,16 +418,10 @@ fn a_prune_keeps_only_the_kernel_the_work_launched() {
     let set = TunableSet::<String, Inputs, ()>::new_cloning_inputs(|_: &Inputs| "add".to_string())
         .with(Tunable::new("plus_one", adding(1)))
         .with(Tunable::new("plus_two", adding(2)));
-    let key = "add".to_string();
-    let tuner: Tuner<String> = Tuner::new("pruned", &client.hardware_identity());
+    let tuner = LocalTuner::<String, u8>::new("pruned");
 
-    let answer = tuner.check_tune(&key, &inputs, &set, &client, None);
-    let TuneCacheResult::Hit { fastest_index } = answer else {
-        panic!("the tune answers inline: {answer:?}");
-    };
-    set.fastest(fastest_index)
-        .execute(inputs.clone())
-        .expect("the pick runs");
+    // Tunes the key, then runs the pick as the work.
+    tuner.execute(&0, &client, std::sync::Arc::new(set), inputs.clone());
     // Read back, so the server has loaded the pick's kernel for the work.
     let _ = client.read_one_unchecked(inputs.2.clone());
     let pruned = EnvironmentId::active()

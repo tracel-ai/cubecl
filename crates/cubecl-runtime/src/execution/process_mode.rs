@@ -40,6 +40,11 @@ impl ProcessMode {
             Self::CompileOnly | Self::CompileAndAutotune => StreamMode::Discard,
         }
     }
+
+    /// Whether launches are discarded under this mode, unless a stream's override runs them.
+    pub fn discards_launches(self) -> bool {
+        self.stream_mode() == StreamMode::Discard
+    }
 }
 
 /// Applies a process mode to the whole process while it lives, counting what it
