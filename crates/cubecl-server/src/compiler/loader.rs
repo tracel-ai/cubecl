@@ -15,8 +15,9 @@ use cubecl_runtime::execution::{
 use cubecl_runtime::id::KernelId;
 
 use super::{
-    ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
-    CompilationRecording, CompilationTarget, VariantOf, persistent_store,
+    ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationError,
+    CompilationOutcome, CompilationRecording, CompilationTarget, SpillReport, VariantOf,
+    persistent_store,
 };
 use crate::config::RuntimeConfig;
 use crate::kernel::CubeKernel;
@@ -56,6 +57,9 @@ pub struct KernelLoader<T: CompilationTarget> {
     failed: HashMap<ArtifactId<VariantOf<T>>, LaunchError>,
     /// How many threads compile at once.
     parallelism: usize,
+    /// Whether an artifact whose compiler reported a register spill fails
+    /// rather than loads.
+    refuse_register_spills: bool,
 }
 
 impl<T: CompilationTarget> KernelLoader<T> {
@@ -69,9 +73,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
                 .map(WorkUses::from_store),
             false => None,
         };
-        let parallelism = crate::config::CubeClRuntimeConfig::get()
-            .compilation
-            .parallelism();
+        let config = crate::config::CubeClRuntimeConfig::get();
 
         Self {
             target,
@@ -79,7 +81,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             work,
             queue: KernelQueue::new(),
             failed: HashMap::new(),
-            parallelism,
+            parallelism: config.compilation.parallelism(),
+            refuse_register_spills: config.compilation.refuse_register_spills,
         }
     }
 
@@ -364,9 +367,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
             }
         }
 
+        let refuse_register_spills = self.refuse_register_spills;
         let outcomes: Vec<JobOutcome<T>> = jobs
             .into_iter()
-            .map(|job| job.load(&mut self.target))
+            .map(|job| job.load(&mut self.target, refuse_register_spills))
             .collect();
         batch.close(BatchOutcome {
             kernels: jobs_len,
@@ -799,7 +803,11 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// A waiting job takes what the kernel it waited for stored, now that the
     /// batch has stored it, and finalizes its own only when there is no store
     /// to take it from.
-    fn load(mut self, target: &mut T) -> JobOutcome<T> {
+    ///
+    /// With `refuse_register_spills`, an artifact whose compiler reported a
+    /// spill fails as one the device refused, before the device sees it, and
+    /// is never stored.
+    fn load(mut self, target: &mut T, refuse_register_spills: bool) -> JobOutcome<T> {
         if let Step::Waiting { .. } = self.step {
             let Step::Waiting { lowered, source } =
                 core::mem::replace(&mut self.step, Step::Missing)
@@ -833,7 +841,18 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 outcome,
             } => {
                 let started = Instant::now();
-                match target.load(&self.id, &artifact) {
+                let spill = refuse_register_spills
+                    .then(|| T::Compiler::spill_report(&artifact))
+                    .flatten()
+                    .filter(SpillReport::spills);
+                let loaded = match spill {
+                    Some(report) => Err(CompilationError::RegisterSpill {
+                        kernel: self.kernel.name().into(),
+                        report,
+                    }),
+                    None => target.load(&self.id, &artifact),
+                };
+                match loaded {
                     Ok(loaded) => {
                         self.recording.worked(started.elapsed());
                         // What the store gave is in it already.
@@ -1246,6 +1265,86 @@ mod tests {
             5,
             "the next launch tries again"
         );
+    }
+
+    /// With spills refused, a kernel whose compiler reports one fails with
+    /// the report the compiler gave.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_is_refused_when_spills_are_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert!(matches!(
+            refused,
+            Err(LaunchError::CompilationError(
+                CompilationError::RegisterSpill { report: SPILL, .. }
+            ))
+        ));
+    }
+
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_loads_when_spills_are_accepted() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = false;
+        let logger = ServerLogger::default();
+
+        let loaded = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert_eq!(loaded.unwrap(), SPILLING);
+    }
+
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_refused_kernel_is_not_stored() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert!(refused.is_err());
+        assert!(loader.target.by_source.is_empty(), "nothing was stored");
+    }
+
+    /// An artifact the store gives, here one another kernel finalized from
+    /// the same source, is checked as one just compiled is.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_from_the_store_is_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        loader.target.by_source.insert("shared".into(), SPILLING);
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(1), &id(1), &logger);
+
+        assert!(matches!(
+            refused,
+            Err(LaunchError::CompilationError(
+                CompilationError::RegisterSpill { .. }
+            ))
+        ));
+    }
+
+    /// A compiler that reports nothing, as wgpu's, Metal's and the CPU's,
+    /// never has a kernel refused.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_without_a_report_loads_when_spills_are_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        let logger = ServerLogger::default();
+
+        let loaded = loader.load(&Numbered(UNREPORTED), &id(UNREPORTED), &logger);
+
+        assert_eq!(loaded.unwrap(), UNREPORTED);
     }
 
     /// A failure the next batch finds unreported is dropped, not kept: the
@@ -1703,6 +1802,16 @@ mod tests {
         rejecting: Option<u32>,
     }
 
+    /// The number of the kernel whose compiler reports [`SPILL`].
+    const SPILLING: u32 = 40;
+    /// The number of the kernel whose compiler reports nothing of its spills.
+    const UNREPORTED: u32 = 41;
+    /// What the compiler reports of [`SPILLING`].
+    const SPILL: SpillReport = SpillReport {
+        spill_store_bytes: 4,
+        scratch_bytes: 64,
+    };
+
     #[derive(Debug, Default)]
     struct FakeCompiler {
         lowered: AtomicUsize,
@@ -1775,6 +1884,17 @@ mod tests {
 
         fn source(lowered: &(u32, Option<String>)) -> Option<&str> {
             lowered.1.as_deref()
+        }
+
+        fn spill_report(artifact: &u32) -> Option<SpillReport> {
+            match *artifact {
+                SPILLING => Some(SPILL),
+                UNREPORTED => None,
+                _ => Some(SpillReport {
+                    spill_store_bytes: 0,
+                    scratch_bytes: 64,
+                }),
+            }
         }
 
         fn finalize(

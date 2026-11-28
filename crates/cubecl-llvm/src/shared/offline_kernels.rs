@@ -135,6 +135,80 @@ pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
     )
 }
 
+/// Scales `n` values of each unit's own, held in a local array, once per input, every loop over
+/// the array unrolled: each index is a constant, so the array is vector registers, all of them
+/// live across the loop over the inputs.
+// Cube code indexes: it has no iterators to lower.
+#[cfg(feature = "amdgpu")]
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn scale_held(input: &[f32], output: &mut [f32], #[comptime] n: usize) {
+    let mut held = Array::<f32>::new(n);
+    #[unroll]
+    for i in 0..n {
+        held[i] = input[ABSOLUTE_POS * n + i];
+    }
+    for r in 0..input.len() {
+        let factor = input[r];
+        #[unroll]
+        for i in 0..n {
+            held[i] = held[i] * factor + held[(i + 1) % n];
+        }
+    }
+    #[unroll]
+    for i in 0..n {
+        output[ABSOLUTE_POS * n + i] = held[i];
+    }
+}
+
+#[cfg(feature = "amdgpu")]
+pub(crate) fn scale_held_kernel(n: usize) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    scale_held::ScaleHeld::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        n,
+    )
+}
+
+/// Copies `n` inputs into a local array, then writes the one each unit's own input picks: an
+/// index known only when the kernel runs, so the array lives in scratch memory.
+#[cfg(feature = "amdgpu")]
+#[cube(launch)]
+fn pick_held(input: &[u32], output: &mut [u32], #[comptime] n: usize) {
+    let mut held = Array::<u32>::new(n);
+    #[unroll]
+    for i in 0..n {
+        held[i] = input[i];
+    }
+    let picked = input[ABSOLUTE_POS] as usize % n;
+    output[ABSOLUTE_POS] = held[picked];
+}
+
+#[cfg(feature = "amdgpu")]
+pub(crate) fn pick_held_kernel(n: usize) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    pick_held::PickHeld::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        n,
+    )
+}
+
 /// [`keep_largest`] repeated by a loop of 256 turns, whose counter indexes nothing.
 // Cube code indexes: it has no iterators to lower.
 #[cfg(feature = "nvptx")]

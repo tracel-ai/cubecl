@@ -44,6 +44,7 @@ pub mod plane;
 pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
+pub mod register_spills;
 pub mod relocation;
 pub mod remainder;
 pub mod saturating;

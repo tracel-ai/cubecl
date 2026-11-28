@@ -108,11 +108,15 @@ impl<K: AutotuneKey> TuneTracker<K> {
     ) -> Self {
         #[cfg(persistence)]
         {
+            use crate::config::RuntimeConfig;
             use alloc::string::ToString;
 
             Self::open(TuneTableName {
                 hardware: &hardware.to_string(),
                 tuner: name,
+                refuses_register_spills: crate::config::CubeClRuntimeConfig::get()
+                    .compilation
+                    .refuse_register_spills,
             })
         }
 

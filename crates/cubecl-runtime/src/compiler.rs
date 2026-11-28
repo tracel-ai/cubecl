@@ -61,6 +61,44 @@ pub enum CompilationError {
         #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
+    /// The compiled kernel holds more values than the device has registers for, and its
+    /// compiler moved some of them to scratch memory. Only a server whose configuration
+    /// [refuses register spills](crate::config::compilation::CompilationConfig::refuse_register_spills)
+    /// returns it.
+    #[error(
+        "The kernel `{kernel}` spills registers: its spill stores write {} bytes per unit, within {} bytes of scratch memory per unit",
+        report.spill_store_bytes,
+        report.scratch_bytes
+    )]
+    RegisterSpill {
+        /// The kernel that spills.
+        kernel: String,
+        /// What its compiler reported.
+        report: SpillReport,
+    },
+}
+
+/// What a device compiler reported of the registers one compiled kernel spills.
+///
+/// # Guarantees
+///
+/// Both fields mean the same on every vendor that reports them, counted over the kernel's code
+/// rather than over a run: a spill store in a loop counts once. A kernel whose local arrays live
+/// in scratch memory while its registers all fit has no spill store bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
+pub struct SpillReport {
+    /// The bytes the kernel's spill stores write to scratch memory, per unit.
+    pub spill_store_bytes: u64,
+    /// The scratch memory each unit reserves, for spills, local arrays and its stack together.
+    pub scratch_bytes: u64,
+}
+
+impl SpillReport {
+    /// Whether the compiler moved any register to scratch memory.
+    pub fn spills(&self) -> bool {
+        self.spill_store_bytes > 0
+    }
 }
 
 impl CompilationError {
@@ -135,4 +173,32 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// What a [`PrecompiledSource`](crate::kernel::PrecompiledSource) has to
     /// name to be accepted by this compiler.
     fn lang_tag(&self) -> &'static str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_report_without_spill_stores_does_not_spill() {
+        let report = SpillReport {
+            spill_store_bytes: 0,
+            scratch_bytes: 2048,
+        };
+
+        assert!(!report.spills());
+    }
+
+    #[test]
+    fn a_register_spill_is_a_refusal() {
+        let refused = CompilationError::RegisterSpill {
+            kernel: "matmul".into(),
+            report: SpillReport {
+                spill_store_bytes: 1188,
+                scratch_bytes: 1224,
+            },
+        };
+
+        assert!(refused.is_refusal());
+    }
 }

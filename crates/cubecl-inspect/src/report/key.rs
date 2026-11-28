@@ -200,6 +200,7 @@ mod tests {
         let namespace = cubecl_runtime::tune::TuneTableName {
             hardware: "cuda_ptx-sm89_NVIDIA-L4_par58",
             tuner: "matmul-tune-gemm",
+            refuses_register_spills: false,
         }
         .namespace();
         let table = AutotuneTable::new(namespace.as_str()).expect("parses");
