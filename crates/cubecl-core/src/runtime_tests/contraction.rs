@@ -45,6 +45,20 @@ pub fn kernel_mul_add_through_folds<N: Size>(
     output[1] = constant + c[1] * d[1];
 }
 
+/// `a * b + c * d` and `c * d + a * b`, two runtime products of which a one-lane kernel fuses
+/// the left one. A wider vector must fuse the same product.
+#[cube(launch_unchecked)]
+pub fn kernel_mul_add_of_two_products<N: Size>(
+    a: &[Vector<f32, N>],
+    b: &[Vector<f32, N>],
+    c: &[Vector<f32, N>],
+    d: &[Vector<f32, N>],
+    output: &mut [Vector<f32, N>],
+) {
+    output[0] = a[0] * b[0] + c[0] * d[0];
+    output[1] = c[1] * d[1] + a[1] * b[1];
+}
+
 /// Two vectors of `value`, one per output.
 fn operand(value: f32, vector_size: usize) -> Vec<f32> {
     alloc::vec![value; 2 * vector_size]
@@ -52,11 +66,11 @@ fn operand(value: f32, vector_size: usize) -> Vec<f32> {
 
 /// The outputs of a two-output kernel at `vector_size`, launched by `launch` on a buffer of
 /// [`operand`]s per value and an output of two vectors.
-fn run(
+fn run<const OPERANDS: usize>(
     client: &Client,
-    values: [f32; 3],
+    values: [f32; OPERANDS],
     vector_size: usize,
-    launch: impl FnOnce([BufferArg; 3], BufferArg),
+    launch: impl FnOnce([BufferArg; OPERANDS], BufferArg),
 ) -> Vec<f32> {
     let outputs = 2 * vector_size;
     let operands = values.map(|value| {
@@ -141,6 +155,50 @@ pub fn test_every_vector_size_fuses_the_same_products(client: Client) {
     );
 }
 
+/// Both sums of `kernel_mul_add_of_two_products` for every lane of a vector of `vector_size`.
+fn mul_adds_of_two_products(client: &Client, vector_size: usize) -> Vec<f32> {
+    run(
+        client,
+        [FACTOR, FACTOR, ADDEND, 1.0],
+        vector_size,
+        |[a, b, c, d], output| {
+            // SAFETY: the kernel reads and writes indices 0 and 1 only, and every buffer holds two
+            // vectors of `vector_size`.
+            unsafe {
+                kernel_mul_add_of_two_products::launch_unchecked(
+                    client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    vector_size,
+                    a,
+                    b,
+                    c,
+                    d,
+                    output,
+                )
+            }
+        },
+    )
+}
+
+pub fn test_every_vector_size_fuses_the_same_runtime_product(client: Client) {
+    let one_lane = mul_adds_of_two_products(&client, 1);
+    assert_eq!(one_lane.len(), 2, "the one-lane kernel wrote {one_lane:?}");
+    let expected: Vec<u32> = one_lane
+        .iter()
+        .flat_map(|value| core::iter::repeat_n(value.to_bits(), LANES))
+        .collect();
+    let lanes = mul_adds_of_two_products(&client, LANES);
+    assert_eq!(
+        lanes
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        expected,
+        "{LANES} lanes gave {lanes:?}, one lane {one_lane:?}",
+    );
+}
+
 pub fn test_no_contraction_rounds_each_operation(client: Client) {
     // WGSL has no way to keep the driver from fusing, and wgpu compiles MSL with fast math,
     // which fuses whatever the source asks.
@@ -182,6 +240,14 @@ macro_rules! testgen_contraction {
         fn test_every_vector_size_fuses_the_same_products() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::contraction::test_every_vector_size_fuses_the_same_products(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_every_vector_size_fuses_the_same_runtime_product() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::contraction::test_every_vector_size_fuses_the_same_runtime_product(
                 client,
             );
         }
