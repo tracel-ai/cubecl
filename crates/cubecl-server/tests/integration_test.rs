@@ -4072,17 +4072,18 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
 
 /// A prune keeps this build's kernels its work launched, every variant of
 /// them, and removes those only a race launched, those another build compiled
-/// with the records of what its work launched, and the build records; the
-/// autotune answers stay. The launches are written here as the loader records
-/// them: what this tests is the prune, the recording being the runtimes'.
+/// with the records of what its work launched, those written before the
+/// records had a root of their own, and the build records; the autotune
+/// answers stay. The launches are written here as the loader records them:
+/// what this tests is the prune, the recording being the runtimes'.
 #[test_log::test]
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn a_prune_keeps_what_the_work_loaded() {
     use cubecl_environment::environment::BuildStamp;
-    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions, UsedContent};
     use cubecl_environment::persistence::{Database, Namespace, Origin};
-    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey, WorkLaunchStore};
+    use cubecl_server::compiler::{ArtifactRoot, KernelCacheKey};
     use cubecl_server::prune::Prune;
 
     let root = tempfile::tempdir().unwrap();
@@ -4120,16 +4121,14 @@ fn a_prune_keeps_what_the_work_loaded() {
         database.insert(artifacts.as_str(), key, b"binary", Origin::Local);
     }
     let (this_build, other_build) = (
-        WorkLaunchStore::namespace(build),
-        WorkLaunchStore::namespace(other),
+        UsedContent::Kernels.namespace(build),
+        UsedContent::Kernels.namespace(other),
     );
+    let legacy = Namespace::scoped("launched", format!("{build}"));
     database.insert(this_build.as_str(), &cbor(&work), &cbor(&()), Origin::Local);
-    database.insert(
-        other_build.as_str(),
-        &cbor(&race),
-        &cbor(&()),
-        Origin::Local,
-    );
+    for namespace in [&other_build, &legacy] {
+        database.insert(namespace.as_str(), &cbor(&race), &cbor(&()), Origin::Local);
+    }
     database.insert(
         cubecl_environment::records::ROOT,
         b"record",
@@ -4169,6 +4168,12 @@ fn a_prune_keeps_what_the_work_loaded() {
             .any(|namespace| namespace == other_build.as_str()),
         "another build's launches go with its kernels"
     );
+    assert!(
+        !namespaces
+            .iter()
+            .any(|namespace| namespace == legacy.as_str()),
+        "the launches recorded before the records had a root of their own go"
+    );
     let present = |key: &[u8]| database.get(artifacts.as_str(), key).is_some();
     assert!(
         present(&stored[0]) && present(&stored[1]),
@@ -4187,6 +4192,65 @@ fn a_prune_keeps_what_the_work_loaded() {
             .is_some(),
         "an answer no tuner reads any more stays too"
     );
+}
+
+/// A prune asked to keep only the used tunes keeps those a tune stored,
+/// removes the rest of their table, and leaves whole a table this build
+/// never used: the tuner itself records each tune it stores as the work's.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_prune_keeping_the_used_tunes_removes_the_rest_of_their_table() {
+    use cubecl_environment::environment::{EnvironmentId, PruneOptions, TunePruning};
+    use cubecl_environment::persistence::{Database, Origin};
+    use cubecl_server::prune::Prune;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let client = test_client(&DummyDevice);
+    let set = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &set);
+    ProcessTuner::new("pruned-tunes").tune(&set, &client, &handles);
+    let database = Database::open_active().unwrap();
+    let autotune = || -> Vec<String> {
+        database
+            .namespaces()
+            .into_iter()
+            .filter(|namespace| namespace.starts_with("autotune/"))
+            .collect()
+    };
+    let [tunes] = autotune().try_into().unwrap();
+    let tuned = autotune_rows(&database, &tunes);
+    let unused = b"a tune to an older candidate list";
+    database.insert(&tunes, unused, b"value", Origin::Local);
+    let elsewhere = format!("{tunes}-on-other-hardware");
+    database.insert(&elsewhere, b"key", b"value", Origin::Local);
+
+    let pruned = EnvironmentId::active()
+        .prune(PruneOptions::new().tunes(TunePruning::KeepUsed))
+        .unwrap();
+
+    assert_eq!(
+        (pruned.tunes.kept, pruned.tunes.removed),
+        (tuned, 1),
+        "the stored tunes stay and the unused one goes"
+    );
+    assert!(database.get(&tunes, unused).is_none());
+    assert!(
+        database.get(&elsewhere, b"key").is_some(),
+        "a table this build never used stays whole"
+    );
+}
+
+/// How many rows `namespace` holds.
+#[cfg(all(feature = "std", persistence))]
+fn autotune_rows(database: &cubecl_environment::persistence::Database, namespace: &str) -> u64 {
+    let mut rows = 0;
+    database.scan(namespace, &mut |_, _| rows += 1);
+    rows
 }
 
 /// An application keeps its data in the environment beside the compilers',

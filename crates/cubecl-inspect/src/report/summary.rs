@@ -104,11 +104,11 @@ impl Summary {
         self.namespaces.iter().map(|row| row.entries).sum()
     }
 
-    /// The autotune answers the file holds, one per key and candidate list.
-    pub fn autotune_answers(&self) -> u64 {
+    /// The tunes the file holds, one per key and candidate list.
+    pub fn tunes(&self) -> u64 {
         self.namespaces
             .iter()
-            .filter(|row| row.root().content() == NamespaceContent::AutotuneAnswers)
+            .filter(|row| row.root().content() == NamespaceContent::Tunes)
             .map(|row| row.entries)
             .sum()
     }

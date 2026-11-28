@@ -2,14 +2,23 @@
 //!
 //! A tune races every candidate it measures, at the shape it tunes for, and
 //! each candidate compiles kernels for that shape; the work then launches the
-//! pick's kernels, for every shape it runs. What decides a kernel's fate is
+//! pick's kernels, for every shape it runs. What decides whether a kernel stays is
 //! therefore not the tune but the work: the
 //! [loader](crate::compiler::KernelLoader) records each kernel the work
-//! launches ([`WorkLaunchStore`](crate::compiler::WorkLaunchStore)), whatever shape or variant it was launched
-//! for, and never one only a race launched. A prune keeps what this build
-//! recorded and removes the rest of this build's compiled kernels, every
-//! kernel another build compiled with the records of what its work launched,
-//! and the build records the caller does not keep. The autotune answers stay.
+//! launches among the work's uses
+//! ([`WorkUses`](cubecl_environment::environment::WorkUses)), whatever shape
+//! or variant it was launched for, and never one only a race launched. A
+//! prune keeps what this build recorded and removes the rest of this build's
+//! compiled kernels, every kernel another build compiled with the records of
+//! what its work launched, and the build records the caller does not keep.
+//!
+//! The tunes stay unless the caller asks
+//! ([`TunePruning::KeepUsed`](cubecl_environment::environment::TunePruning::KeepUsed))
+//! for those this build's work did not use to go. Each tuner records the
+//! tunes the work loads or stores among the work's uses, per table: such a
+//! prune keeps those, and removes the rest of each table this build used,
+//! with other builds' records of it. A table this build never used stays
+//! whole.
 //!
 //! "Build" is the compiled program, as its [`BuildStamp`](cubecl_environment::environment::BuildStamp) names it: a kernel is
 //! stored under the build that compiled it, and another build's is loaded
@@ -25,6 +34,8 @@
 
 mod base;
 #[cfg(compilation_cache)]
-mod launches;
+mod environment;
+#[cfg(compilation_cache)]
+mod kernels;
 
 pub use base::*;
