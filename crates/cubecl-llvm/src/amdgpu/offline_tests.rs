@@ -1,10 +1,13 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
+use crate::amdgpu::code_object::CodeObject;
 use crate::shared::offline_kernels::{
-    Wait, bf16_math_kernel, cdna_manual_product_kernel, cdna_quantized_product_kernel,
-    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, nested_calls_with_source_kernel,
-    peer_tally_kernel, plane_moves_kernel, relay_kernel, scale_kernel, tally_kernel,
-    tile_product_in_plane, tile_product_kernel,
+    Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
+    cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
+    fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, pick_held_kernel, plane_moves_kernel,
+    register_lines_kernel, relay_kernel, scale_held_kernel, scale_kernel, tally_kernel,
+    tile_product_in_plane, tile_product_kernel, transposed_stage_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -12,7 +15,10 @@ use crate::{
     amdgpu::codegen::{Assembly, compile_to_object},
 };
 use cubecl_core::Compiler;
-use cubecl_core::ir::{AddressType, amd::GfxArch};
+use cubecl_core::ir::{
+    AddressType, FragmentPositions, MmaProperties, TargetProperties,
+    amd::{AmdMatrixCore, AmdMfma, AmdWmma, GfxArch},
+};
 use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
@@ -63,6 +69,51 @@ fn a_1d_cube_ignores_the_y_and_z_work_item_ids() {
     assert!(!asm.contains("v_bfe_u32"), "no id is unpacked:\n{asm}");
 }
 
+/// The code object of a kernel whose values fit its registers reports no spill.
+#[test]
+fn a_kernel_within_its_registers_reports_no_spill() {
+    let module = module_of(scale_held_kernel(64), &GfxArch::parse("gfx1151"));
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
+
+    assert_eq!(report.spill_store_bytes, 0);
+}
+
+/// A local array indexed by a value the kernel reads lives in scratch memory, and that is no
+/// spill.
+#[test]
+fn a_dynamically_indexed_array_is_no_spill() {
+    let module = module_of(pick_held_kernel(256), &GfxArch::parse("gfx1151"));
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
+
+    assert!(
+        report.scratch_bytes > 0,
+        "the array is in scratch: {report:?}"
+    );
+    assert!(!report.spills(), "{report:?}");
+}
+
+/// A local array of more values than a unit has VGPRs, all live across a loop, spills, and the
+/// code object reports it.
+#[test]
+fn a_kernel_past_its_registers_reports_its_spill() {
+    let module = module_of(
+        scale_held_kernel(SPILLING_ARRAY_LEN),
+        &GfxArch::parse("gfx1151"),
+    );
+    let report = CodeObject::from_bytes(&module.code_object)
+        .spill_report()
+        .expect("the code object counts spills");
+
+    assert!(report.spills(), "{report:?}");
+}
+
+/// The length of a local array that cannot fit in one unit's 256 VGPRs.
+const SPILLING_ARRAY_LEN: usize = 320;
+
 /// A loop of a constant trip count that indexes a local array is unrolled, so every index is a
 /// constant and the array becomes VGPRs rather than scratch memory.
 #[test]
@@ -110,8 +161,37 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
     }
 }
 
+/// A `B` stage laid with each column's `k` contiguous, filled by blocks transposed in registers,
+/// is stored in lines of `k` and read by its fragment in whole runs: no 2-byte value crosses
+/// shared memory, and no register spills. RDNA reads a lane's 16 values of `k` 16 bytes at a time,
+/// CDNA its four 8 bytes at a time.
+#[test]
+fn a_k_contiguous_b_stage_loads_and_stores_whole_runs() {
+    for (arch, read, narrow_read, narrow_write) in [
+        ("gfx1151", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx1201", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx942", "ds_read_b64", "ds_read_u16", "ds_write_b16"),
+    ] {
+        let asm = asm_of(transposed_stage_product_kernel(&GfxArch::parse(arch)), arch);
+        keep_asm(&asm, &format!("transposed_stage_product_{arch}"));
+        assert!(asm.contains(read), "{arch}: the runs load whole:\n{asm}");
+        assert!(
+            !asm.contains(narrow_read),
+            "{arch}: no run loads element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains(narrow_write),
+            "{arch}: no column stores element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains("scratch_") && !asm.contains("buffer_store"),
+            "{arch}: no register spills:\n{asm}"
+        );
+    }
+}
+
 /// RDNA4 multiplies `e4m3` (`fp8`) and `e5m2` (`bf8`) operands into `f32`, each side its own
-/// format.
+/// format, the instruction given B as its A.
 #[test]
 fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
     use cubecl_core::{e4m3, e5m2};
@@ -124,12 +204,12 @@ fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
         tile_product_kernel::<e4m3, e5m2, f32>((16, 16, 16)),
         "gfx1201",
     );
-    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_bf8"), "{asm}");
+    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_fp8"), "{asm}");
     let asm = asm_of(
         tile_product_kernel::<e5m2, e4m3, f32>((16, 16, 16)),
         "gfx1201",
     );
-    assert!(asm.contains("v_wmma_f32_16x16x16_bf8_fp8"), "{asm}");
+    assert!(asm.contains("v_wmma_f32_16x16x16_fp8_bf8"), "{asm}");
     let asm = asm_of(
         tile_product_kernel::<e5m2, e5m2, f32>((16, 16, 16)),
         "gfx1201",
@@ -137,14 +217,38 @@ fn fp8_tiles_multiply_on_rdna4_matrix_cores() {
     assert!(asm.contains("v_wmma_f32_16x16x16_bf8_bf8"), "{asm}");
 }
 
+/// A byte permute is one instruction, its selectors masked ahead of it.
+#[test]
+fn a_byte_permute_is_one_instruction() {
+    for arch in ["gfx90a", "gfx942", "gfx1151", "gfx1201"] {
+        let asm = asm_of(byte_permutes_kernel(), arch);
+        assert_eq!(asm.matches("v_perm_b32").count(), 1, "{arch}:\n{asm}");
+    }
+}
+
+/// RDNA4 converts `e4m3` itself, an instruction a code decoded and one a pair encoded; RDNA3 has no
+/// conversion and CDNA3's are of another format, so there it is the software codec.
+#[test]
+fn e4m3_converts_on_the_part_where_it_is_ocp() {
+    let count = |asm: &str, op: &str| asm.matches(op).count();
+    let asm = asm_of(e4m3_decode_kernel(), "gfx1201");
+    assert_eq!(count(&asm, "v_cvt_f32_fp8"), 4, "one a code:\n{asm}");
+    let asm = asm_of(e4m3_encode_kernel(), "gfx1201");
+    assert_eq!(count(&asm, "v_cvt_pk_fp8_f32"), 2, "one a pair:\n{asm}");
+    for arch in ["gfx1151", "gfx942"] {
+        let asm = asm_of(e4m3_encode_kernel(), arch);
+        assert_eq!(count(&asm, "fp8"), 0, "{arch}, the software codec:\n{asm}");
+    }
+}
+
 /// An 8-bit integer product tells the instruction which operand is signed through `neg_lo`, and
-/// an unsigned pair sets none.
+/// an unsigned pair sets none. RDNA4 is given B as its A.
 #[test]
 fn int8_tiles_carry_each_operands_sign() {
-    for arch in ["gfx1151", "gfx1201"] {
+    for (arch, a_signed) in [("gfx1151", "neg_lo:[1,0,0]"), ("gfx1201", "neg_lo:[0,1,0]")] {
         let asm = asm_of(tile_product_kernel::<i8, u8, i32>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
-        assert!(asm.contains("neg_lo:[1,0,0]"), "{arch}: a signed:\n{asm}");
+        assert!(asm.contains(a_signed), "{arch}: a signed:\n{asm}");
         let asm = asm_of(tile_product_kernel::<u8, u8, i32>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_i32_16x16x16_iu8"), "{arch}:\n{asm}");
         assert!(!asm.contains("neg_lo"), "{arch}: both unsigned:\n{asm}");
@@ -153,6 +257,23 @@ fn int8_tiles_carry_each_operands_sign() {
 
 /// A tile 32 deep is two 16-deep instructions: neither generation has a 32-deep form for these
 /// operands.
+/// A manual 16-bit sum multiplies on the WMMA that accumulates in its own type: on RDNA3, which
+/// holds each sum in the low half of a 32-bit register, as on RDNA4, which packs them.
+#[test]
+fn a_manual_half_precision_sum_multiplies_in_its_own_type() {
+    use half::{bf16, f16};
+    for (arch, core) in [
+        ("gfx1151", AmdMatrixCore::Wmma(AmdWmma::Rdna3)),
+        ("gfx1201", AmdMatrixCore::Wmma(AmdWmma::Rdna4)),
+    ] {
+        let shape = (16, 16, 16);
+        let asm = asm_of(manual_product_kernel::<f16, f16, f16>(core, shape), arch);
+        assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+        let asm = asm_of(manual_product_kernel::<bf16, bf16, bf16>(core, shape), arch);
+        assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
+    }
+}
+
 #[test]
 fn a_tile_two_instructions_deep_issues_two() {
     use cubecl_core::e4m3;
@@ -205,11 +326,81 @@ fn int8_tiles_multiply_on_mfma() {
     assert_eq!(asm.matches("v_mfma_i32_16x16x16").count(), 2, "{asm}");
 }
 
+/// The target properties of `core` with its fragments' positions stated, as the HIP runtime
+/// states them for its LLVM backend.
+fn stating_positions(core: AmdMatrixCore) -> TargetProperties {
+    TargetProperties {
+        mma: MmaProperties {
+            fragment_positions: FragmentPositions::AsElementPositions,
+            ..core.mma_properties()
+        },
+    }
+}
+
+/// A sum copied out of its fragment into registers compiles on RDNA3, RDNA4 and MI300, the
+/// product still one matrix instruction and no register spilled to scratch: an `f32` sum on
+/// each, and RDNA3's 16-bit sum, which its accumulator holds padded.
+#[test]
+fn a_fragment_copies_into_registers_on_every_matrix_core() {
+    let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+    let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+    let parts = [
+        ("gfx1151", rdna3, 32, "v_wmma_f32_16x16x16_f16"),
+        ("gfx1201", rdna4, 32, "v_wmma_f32_16x16x16_f16"),
+        (MI300, CDNA3, MI300_PLANE_DIM, "v_mfma_f32_16x16x16_f16"),
+    ];
+    for (arch, core, plane_dim, product) in parts {
+        let kernel = fragment_registers_kernel::<f32>(stating_positions(core), plane_dim);
+        let asm = asm_of(kernel, arch);
+        assert!(asm.contains(product), "{arch}:\n{asm}");
+        assert!(!asm.contains("scratch_"), "{arch}:\n{asm}");
+    }
+    let kernel = fragment_registers_kernel::<half::f16>(stating_positions(rdna3), 32);
+    let asm = asm_of(kernel, "gfx1151");
+    assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{asm}");
+    assert!(!asm.contains("scratch_"), "{asm}");
+}
+
+/// A destination bound four `f32` values a line takes a sum out of its registers in 16-byte
+/// stores, through no shared memory, barrier or scratch: as an RDNA4 lane holds its lines, and on
+/// RDNA3 and CDNA, whose lanes hold columns, after a regroup by DPP moves within each quad.
+#[test]
+fn a_sum_drains_in_b128_lines_from_registers() {
+    let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+    let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+    for (arch, core, lines, store, moves) in [
+        ("gfx1201", rdna4, 2, "global_store_b128", 0),
+        ("gfx1151", rdna3, 2, "global_store_b128", 8),
+        (MI300, CDNA3, 1, "global_store_dwordx4", 4),
+    ] {
+        let kernel = register_lines_kernel(&GfxArch::parse(arch), stating_positions(core));
+        let asm = asm_of(kernel, arch);
+        keep_asm(&asm, &format!("register_lines_{arch}"));
+        assert_eq!(
+            asm.matches("quad_perm").count(),
+            moves,
+            "{arch}: one move within a quad of lanes a cell:\n{asm}"
+        );
+        assert_eq!(
+            asm.matches(store).count(),
+            lines,
+            "{arch}: {lines} lines of four cells a lane:\n{asm}"
+        );
+        assert!(
+            !asm.contains("ds_") && !asm.contains("s_barrier") && !asm.contains("scratch_"),
+            "{arch}: no cell moves through shared memory or scratch:\n{asm}"
+        );
+    }
+}
+
 /// The architecture the MI300 tests compile for.
 const MI300: &str = "gfx942";
 
 /// The lanes of one MI300 plane.
 const MI300_PLANE_DIM: u32 = 64;
+
+/// MI300's matrix cores.
+const CDNA3: AmdMatrixCore = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
 
 /// Keeps `asm` as `<what>.s` in `CUBECL_OFFLINE_ASM_DIR`, where it is set, for reading.
 fn keep_asm(asm: &str, what: &str) {
@@ -328,9 +519,12 @@ fn every_mi300_form_compiles_for_a_wave64_plane() {
             MI300,
         );
         bf16_mfmas.check(&asm, &format!("cmma_bf16_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<f16, f16, f32>(shape), MI300);
+        let asm = asm_of(manual_product_kernel::<f16, f16, f32>(CDNA3, shape), MI300);
         f16_mfmas.check(&asm, &format!("manual_f16_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<bf16, bf16, f32>(shape), MI300);
+        let asm = asm_of(
+            manual_product_kernel::<bf16, bf16, f32>(CDNA3, shape),
+            MI300,
+        );
         bf16_mfmas.check(&asm, &format!("manual_bf16_k{k}"));
     }
     for (k, instructions) in [(32, 1), (64, 2)] {
@@ -344,7 +538,7 @@ fn every_mi300_form_compiles_for_a_wave64_plane() {
             MI300,
         );
         mfmas.check(&asm, &format!("cmma_i8_k{k}"));
-        let asm = asm_of(cdna_manual_product_kernel::<i8, i8, i32>(shape), MI300);
+        let asm = asm_of(manual_product_kernel::<i8, i8, i32>(CDNA3, shape), MI300);
         mfmas.check(&asm, &format!("manual_i8_k{k}"));
     }
 }
@@ -412,6 +606,33 @@ fn a_peer_buffer_is_promised_nothing() {
         "an atomic of a peer kernel may touch remote memory:\n{}",
         module.ir
     );
+}
+
+/// The cube barrier orders shared memory alone: it waits for the cube's own accesses to it, and
+/// neither for the stores to global memory ahead of it nor for a cache to be invalidated.
+#[test]
+fn a_cube_barrier_waits_for_shared_memory_alone() {
+    let asm = asm_of(cube_meeting_kernel(), "gfx1201");
+    let mut lines = asm.lines().map(str::trim_start);
+    let meeting: Vec<&str> = lines
+        .by_ref()
+        .skip_while(|line| !line.starts_with("ds_store"))
+        .take_while(|line| !line.starts_with("ds_load"))
+        .collect();
+    assert!(
+        meeting.iter().any(|line| line.starts_with("s_barrier")),
+        "the cube meets:\n{asm}"
+    );
+    assert!(
+        meeting.iter().any(|line| line.starts_with("s_wait_dscnt")),
+        "the store to shared memory is waited for:\n{asm}"
+    );
+    for global in ["s_wait_storecnt", "s_wait_loadcnt", "global_inv"] {
+        assert!(
+            !meeting.iter().any(|line| line.starts_with(global)),
+            "{global} at a barrier on shared memory:\n{asm}"
+        );
+    }
 }
 
 /// A release fence before a flag is a write-back of the caches and an acquire after it an

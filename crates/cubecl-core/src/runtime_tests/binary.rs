@@ -1,5 +1,6 @@
 #![allow(clippy::approx_constant)]
 
+use alloc::vec::Vec;
 use core::fmt::Display;
 use cubecl_common::powi_portable;
 use cubecl_runtime::runtime::Runtime;
@@ -1149,6 +1150,60 @@ pub fn test_dp4a<R: Runtime>(client: Client) {
     assert_eq!(i32::from_bytes(&actual), expected);
 }
 
+#[cube(launch)]
+fn kernel_byte_permute<N: Size>(selectors: &[Vector<u32, N>], output: &mut [Vector<u32, N>]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = byte_permute(
+            Vector::new(BYTE_PERMUTE_LOW),
+            Vector::new(BYTE_PERMUTE_HIGH),
+            selectors[ABSOLUTE_POS],
+        );
+    }
+}
+
+const BYTE_PERMUTE_LOW: u32 = 0x4433_2211;
+const BYTE_PERMUTE_HIGH: u32 = 0x8877_6655;
+
+/// Every value of a selector at each of its four places, the low three bits of each one read.
+fn check_byte_permute(client: Client, vector_size: VectorSize) {
+    let selectors: Vec<u32> = (0..=u8::MAX)
+        .map(|at| [0, 85, 170, 255].map(|places| at.wrapping_add(places)))
+        .map(u32::from_le_bytes)
+        .collect();
+    let bytes = (u64::from(BYTE_PERMUTE_HIGH) << 32 | u64::from(BYTE_PERMUTE_LOW)).to_le_bytes();
+    let expected: Vec<u32> = selectors
+        .iter()
+        .map(|word| {
+            word.to_le_bytes()
+                .map(|selector| bytes[selector as usize % 8])
+        })
+        .map(u32::from_le_bytes)
+        .collect();
+
+    let count = selectors.len();
+    let handle = client.create_from_slice(u32::as_bytes(&selectors));
+    let output = client.empty(count * size_of::<u32>());
+    kernel_byte_permute::launch(
+        &client,
+        CubeCount::new_1d((count / vector_size) as u32),
+        CubeDim::new_1d(1),
+        vector_size,
+        unsafe { BufferArg::from_raw_parts(handle, count) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), count) },
+    );
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(u32::from_bytes(&actual), expected);
+}
+
+pub fn test_byte_permute<R: Runtime>(client: Client) {
+    check_byte_permute(client, 1);
+}
+
+pub fn test_byte_permute_vector<R: Runtime>(client: Client) {
+    check_byte_permute(client, 4);
+}
+
 /// A runtime operand must not be rewritten through a constant zero or a
 /// reflexive identity. Each of these was a partial fold in the float dialect:
 /// `v % 1.0` is `0.5` for `2.5` (not `v`), `v - v` is `NaN` for `NaN` and
@@ -1340,6 +1395,8 @@ macro_rules! testgen_binary_untyped {
 
             add_test!(test_mulhi);
             add_test!(test_dp4a);
+            add_test!(test_byte_permute);
+            add_test!(test_byte_permute_vector);
             add_test!(test_powi_int);
             add_test!(test_powi_unsigned);
             add_test!(test_powi_negative_near_one);

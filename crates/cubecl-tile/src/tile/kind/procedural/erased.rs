@@ -3,7 +3,9 @@
 use core::marker::PhantomData;
 use std::sync::Arc;
 
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ElemType, ExpandValue, Scope};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
@@ -81,9 +83,27 @@ pub(crate) struct ErasedRecipe;
 pub(crate) struct ErasedRecipeExpand {
     state: Arc<dyn RecipeCall>,
     separable: Option<Arc<dyn SeparableCall>>,
-    /// Whether the recipe is zero everywhere ([`Procedural::zero`](super::Procedural::zero)): what
-    /// a read may skip.
-    zero: bool,
+    /// The identity the recipe is everywhere, where it is one: what an op it is handed to may
+    /// skip.
+    pub(crate) identity: Option<Identity>,
+}
+
+/// A value an operation leaves its other operand unchanged by.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Identity {
+    /// Of a sum ([`Procedural::zero`](super::Procedural::zero)).
+    Zero,
+    /// Of a product ([`Procedural::one`](super::Procedural::one)).
+    One,
+}
+
+impl Identity {
+    fn value(self) -> i64 {
+        match self {
+            Self::Zero => 0,
+            Self::One => 1,
+        }
+    }
 }
 
 impl ErasedRecipe {
@@ -97,18 +117,21 @@ impl ErasedRecipe {
                 _computes: PhantomData,
             }),
             separable: None,
-            zero: false,
+            identity: None,
         }
     }
 
-    /// A recipe zero everywhere, computing at `T`: it reads as zeros and says it is zero.
-    pub(crate) fn __expand_zero<T: Numeric>(scope: &Scope) -> ErasedRecipeExpand {
-        let zero = ConstantExpand::<T> {
-            value: T::from_int(0).into_expand(scope),
+    /// A recipe that is `identity` everywhere, computing at `T`, and says so.
+    pub(crate) fn __expand_identity<T: Numeric>(
+        scope: &Scope,
+        identity: Identity,
+    ) -> ErasedRecipeExpand {
+        let everywhere = ConstantExpand::<T> {
+            value: T::from_int(identity.value()).into_expand(scope),
         };
         ErasedRecipeExpand {
-            zero: true,
-            ..Self::__expand_new::<T, Constant<T>>(scope, zero)
+            identity: Some(identity),
+            ..Self::__expand_new::<T, Constant<T>>(scope, everywhere)
         }
     }
 
@@ -126,7 +149,7 @@ impl ErasedRecipe {
         ErasedRecipeExpand {
             state: recipe.clone(),
             separable: Some(recipe),
-            zero: false,
+            identity: None,
         }
     }
 
@@ -140,8 +163,8 @@ impl ErasedRecipe {
         unexpanded!()
     }
 
-    /// Whether this recipe is zero everywhere.
-    pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
+    /// The identity this recipe is everywhere, where it is one.
+    pub(crate) fn identity(&self) -> comptime_type!(Option<Identity>) {
         unexpanded!()
     }
 
@@ -177,8 +200,8 @@ impl ErasedRecipeExpand {
             .map(|separable| separable.call_factors(scope))
     }
 
-    pub(crate) fn __expand_is_zero_method(&self, _scope: &Scope) -> bool {
-        self.zero
+    pub(crate) fn __expand_identity_method(&self, _scope: &Scope) -> Option<Identity> {
+        self.identity
     }
 
     pub(crate) fn __expand_factor_method<E: Numeric>(
@@ -225,8 +248,11 @@ impl ExpandTypeClone for ErasedRecipeExpand {
         self.clone()
     }
 }
-impl IntoMut for ErasedRecipeExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for ErasedRecipeExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }

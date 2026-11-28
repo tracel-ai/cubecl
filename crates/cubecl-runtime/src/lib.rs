@@ -10,6 +10,14 @@
 //! contract — memory pools, streams, drivers, the compilation pipeline — lives
 //! in `cubecl-server`, so that user code never depends on it.
 //!
+//! A [`LocalTuner`](tune::LocalTuner) autotunes one call site: it runs the
+//! [`Tunable`](tune::Tunable)s of a [`TunableSet`](tune::TunableSet), ranked by their
+//! [`TuneGroup`](tune::TuneGroup)s, on inputs the [`TuneInputs`](tune::TuneInputs) family
+//! names, and keys each answer by sizes an [`Anchor`](tune::Anchor) rounds.
+//!
+//! A [`HostRange`](storage::HostRange) is host memory a device imports, which its kernels read
+//! in place.
+//!
 //! # Error handling
 //!
 //! A failure belongs to the memory that work left unwritten and travels the
@@ -49,7 +57,9 @@ pub mod device;
 #[cfg(persistence)]
 mod namespace_version;
 
-/// Autotune module
+#[cfg(feature = "std")]
+mod panic_message;
+
 pub mod tune;
 
 /// Memory management value types: reports, configuration and the managed

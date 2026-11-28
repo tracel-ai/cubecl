@@ -140,7 +140,7 @@ impl CollectiveDriver for Hip {
         stream: StreamSignal<Self>,
         queued_on: StreamSignal<Self>,
     ) -> Result<(), ServerError> {
-        Fence::new(queued_on).wait_async(stream)
+        Fence::new(queued_on).sync_device(stream)
     }
 
     fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
@@ -176,7 +176,6 @@ impl CollectiveDriver for Hip {
         rccl_dtype(dtype)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_reduce(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -200,7 +199,6 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_gather(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -217,7 +215,6 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn reduce_scatter(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -241,7 +238,6 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn broadcast(
         comm: &Self::Communicator,
         src: Option<&GpuResource>,
@@ -261,7 +257,6 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn all_to_all(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -310,7 +305,6 @@ impl CollectiveDriver for Hip {
         queued.and(closed).map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn send(
         comm: &Self::Communicator,
         src: &GpuResource,
@@ -327,7 +321,6 @@ impl CollectiveDriver for Hip {
         .map_err(rccl_error)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn recv(
         comm: &Self::Communicator,
         dst: &GpuResource,

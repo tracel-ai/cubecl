@@ -4,7 +4,9 @@
 //! [`StreamCaptureState`], which also publishes it to the device's captures.
 
 use super::allocation_planner::{AllocationPlanner, Divergence, Placement};
-use crate::memory_management::{AllocationKind, ManagedMemoryBinding, MemoryLocation, PageUpdate};
+use crate::memory_management::{
+    AllocationKind, ManagedMemoryBinding, MemoryLocation, PageUpdate, SharedMemoryBindings,
+};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::vec::Vec;
@@ -58,6 +60,10 @@ pub struct StreamCapture {
     /// dereferences the same addresses, so the memory must stay in place on
     /// its owner for as long as the graph lives.
     retained_peers: Vec<BufferBinding>,
+    /// The memory of this device's other streams the recorded launches bind, held while the
+    /// window is open and handed to the graph it seals into. Every replay reads it again, and an
+    /// event recorded inside the window cannot tell its owner when the reads are done.
+    retained_shared: SharedMemoryBindings,
     /// What planning the work found, and the plan the recorded run follows: which of its
     /// allocations are outputs, kept off the room the stream's graphs share.
     planner: AllocationPlanner,
@@ -86,6 +92,7 @@ impl StreamCapture {
             primed: Vec::new(),
             retained_host: Vec::new(),
             retained_peers: Vec::new(),
+            retained_shared: SharedMemoryBindings::default(),
             planner: AllocationPlanner::default(),
             retained_outputs: Vec::new(),
             failed: None,
@@ -373,6 +380,24 @@ impl StreamCapture {
         core::mem::take(&mut self.retained_peers)
     }
 
+    /// Hold `bindings`, memory of the device's other streams a recorded launch binds, for as
+    /// long as the graph the window seals into lives, leaving `bindings` empty.
+    ///
+    /// Only meaningful while recording, as [`retain_host`](Self::retain_host).
+    pub fn retain_shared(&mut self, bindings: &mut SharedMemoryBindings) {
+        debug_assert!(
+            self.state.is_recording(),
+            "shared memory is the window's to retain only while it records"
+        );
+        self.retained_shared.append(bindings);
+    }
+
+    /// The memory of the device's other streams the recorded launches bind, taken as the
+    /// window closes, as [`take_retained_host`](Self::take_retained_host).
+    pub fn take_retained_shared(&mut self) -> SharedMemoryBindings {
+        core::mem::take(&mut self.retained_shared)
+    }
+
     /// The memory the recorded run placed as outputs, drained as the window closes, onto the
     /// graph when it seals, or dropped when it does not, as
     /// [`take_retained_host`](Self::take_retained_host).
@@ -501,6 +526,7 @@ impl StreamCapture {
         self.primed.clear();
         self.retained_host.clear();
         self.retained_peers.clear();
+        self.retained_shared.clear();
         self.retained_outputs.clear();
         self.failed = None;
     }

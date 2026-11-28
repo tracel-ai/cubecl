@@ -9,8 +9,8 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, FloatKind};
 use cubecl_server::{
     command::{
-        CollectiveDriver, CollectiveServer, Collectives, Command, DeviceResource, Elements,
-        StreamSignal,
+        CollectiveDriver, CollectiveServer, Collectives, Command, DeviceResource, DeviceStream,
+        Elements, StreamSignal,
     },
     device_events::{EventApi, EventProfiler},
     driver::DriverError,
@@ -19,7 +19,7 @@ use cubecl_server::{
         BufferBinding, CommunicationId, CommunicationTiming, ComputeWait, CopyDescriptor, Handle,
         ReduceOperation, Reduction, SendOutcome, ServerError,
     },
-    stream::{FailureStore, MultiStream},
+    stream::{FailureStore, MultiStream, StreamCapture, WriteScoped},
 };
 use fake::{Fake, FakeBackend};
 use std::cell::Cell;
@@ -259,6 +259,10 @@ impl EventApi for FakeEvents {
         Ok(())
     }
 
+    fn event_query(_event: &Self::Event) -> Result<bool, DriverError> {
+        Ok(true)
+    }
+
     fn event_elapsed(
         start: &Self::Event,
         end: &Self::Event,
@@ -332,6 +336,20 @@ impl CollectiveServer for FakeServer {
 
     fn connect_element(&self) -> &DeviceResource<Fake> {
         unreachable!("only transfers run here")
+    }
+}
+
+impl WriteScoped for FakeServer {
+    type Streams = MultiStream<FakeBackend>;
+
+    fn write_streams(&mut self) -> &mut Self::Streams {
+        &mut self.streams
+    }
+
+    fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
+        self.streams
+            .try_stream_mut(&stream)
+            .map(DeviceStream::capturing)
     }
 }
 
@@ -770,4 +788,131 @@ fn a_timing_left_untaken_fails_the_next_one() {
     let mut collectives = Collectives::<Fake, FakeEvents>::new(DeviceId::new(0, 72));
     collectives.time_next(CommunicationTiming::default());
     collectives.time_next(CommunicationTiming::default());
+}
+
+/// Opens a recording window on `stream`, as `begin_capture` does once the work is planned.
+fn recording(server: &mut FakeServer, stream: StreamId) {
+    let capture = server
+        .capturing(stream)
+        .expect("the stream should exist before recording");
+    capture.prepare(stream).unwrap();
+    capture.begin().unwrap();
+}
+
+fn reduction() -> Reduction {
+    Reduction {
+        dtype: ElemType::Float(FloatKind::F32),
+        op: ReduceOperation::Sum,
+    }
+}
+
+#[test_log::test]
+fn a_collective_recorded_in_a_graph_is_in_its_write_set() {
+    let (mut server, device) = joined_alone(82);
+    let (src, dst) = (server.allocated(), server.allocated());
+    recording(&mut server, STREAM);
+
+    server
+        .all_reduce(
+            src.to_binding(),
+            dst.to_binding(),
+            reduction(),
+            STREAM,
+            vec![device],
+            ComputeWait::Now,
+        )
+        .unwrap();
+
+    let capture = server.capturing(STREAM).unwrap();
+    capture.end(STREAM).unwrap();
+    let written: Vec<_> = capture
+        .take_recorded()
+        .iter()
+        .map(|binding| binding.memory.id())
+        .collect();
+    assert_eq!(written, vec![dst.to_binding().memory.id()]);
+}
+
+#[test_log::test]
+fn a_collective_refused_in_a_graph_dooms_it() {
+    let (mut server, device) = joined_alone(83);
+    let src = server.allocated();
+    let dst = Handle::new(server.service, STREAM, SIZE / 2);
+    let mut command = server.command(STREAM, [].into_iter()).unwrap();
+    command.allocate(SIZE / 2, dst.memory.clone()).unwrap();
+    drop(command);
+    recording(&mut server, STREAM);
+
+    server
+        .all_reduce(
+            src.binding(),
+            dst.binding(),
+            reduction(),
+            STREAM,
+            vec![device],
+            ComputeWait::Now,
+        )
+        .unwrap_err();
+
+    let capture = server.capturing(STREAM).unwrap();
+    capture.end(STREAM).unwrap();
+    assert!(capture.take_failure().is_some());
+}
+
+#[test_log::test]
+fn a_recv_recorded_in_a_graph_is_in_its_write_set() {
+    let (src, dst) = devices(84);
+    let (report, outcome) = SendOutcome::channel();
+
+    let (written, received) = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut source = FakeServer::new(src);
+            let sent = source.allocated();
+            source.send(descriptor(sent), STREAM, dst, report).unwrap();
+        });
+        scope
+            .spawn(move || {
+                let mut destination = FakeServer::new(dst);
+                let _stream = destination.allocated();
+                let received = destination.unallocated();
+                recording(&mut destination, STREAM);
+                destination
+                    .recv(received.clone(), STREAM, src, outcome)
+                    .unwrap();
+                let capture = destination.capturing(STREAM).unwrap();
+                capture.end(STREAM).unwrap();
+                let written: Vec<_> = capture
+                    .take_recorded()
+                    .iter()
+                    .map(|binding| binding.memory.id())
+                    .collect();
+                (written, received.to_binding().memory.id())
+            })
+            .join()
+            .unwrap()
+    });
+
+    assert_eq!(written, vec![received]);
+}
+
+#[test_log::test]
+fn a_recv_refused_in_a_graph_dooms_it() {
+    let (src, dst) = devices(86);
+    let (mut source, mut destination) = (FakeServer::new(src), FakeServer::new(dst));
+    let refused = source.out_of_memory("out of device memory");
+    let _stream = destination.allocated();
+    let received = destination.unallocated();
+    let (report, outcome) = SendOutcome::channel();
+    source
+        .send(descriptor(refused), STREAM, dst, report)
+        .unwrap_err();
+    recording(&mut destination, STREAM);
+
+    destination
+        .recv(received, STREAM, src, outcome)
+        .unwrap_err();
+
+    let capture = destination.capturing(STREAM).unwrap();
+    capture.end(STREAM).unwrap();
+    assert!(capture.take_failure().is_some());
 }

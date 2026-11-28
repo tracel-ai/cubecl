@@ -96,8 +96,11 @@ impl<C: Coordinates, S: Coordinates> ExpandTypeClone for VirtualLayoutExpand<C, 
     }
 }
 
-impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<C: Coordinates, S: Coordinates> PlaceExpand for VirtualLayoutExpand<C, S> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }

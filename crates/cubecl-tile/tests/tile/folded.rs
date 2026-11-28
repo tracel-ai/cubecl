@@ -2,8 +2,8 @@
 //! `k`, `B` spanning the axes `a` and `c` on either side of `k`, its coordinate split across them.
 //! The dimensions run in the order of their innermost axes, `[K, B]`, so lines run along `c`.
 
-use crate::support::{HostData, HostDataType, TestInput};
-use cubecl::{prelude::*, zspace::shape};
+use crate::support::{HostData, HostDataType, TestInput, TileInput};
+use cubecl::{prelude::*, std::tensor::TensorHandle, zspace::shape};
 
 use super::{Form, implied};
 use cubecl_tile::launch::Decline;
@@ -12,9 +12,9 @@ use cubecl_tile::*;
 const B: Dimension = Dimension(0);
 const K: Dimension = Dimension(1);
 
-/// Every region of `input` copied into `out`, one value a line.
+/// Copy each region using the line width of the two bindings.
 #[cube(launch)]
-fn copy_values_kernel(
+fn copy_lines_kernel<N: Size>(
     input: &TileTensor<'_>,
     out: &mut TileTensor<'_>,
     space: Partitioning,
@@ -24,30 +24,9 @@ fn copy_values_kernel(
     let o = out.tile_mut(&space);
     for region in space.over(&level) {
         let window = x.at(&region);
-        let lines = window.flat::<f32, Const<1>>();
+        let lines = window.flat::<f32, N>();
         let mut written = o.at(&region);
-        let mut cells = written.flat_mut::<f32, Const<1>>();
-        for i in 0..lines.shape() {
-            cells.write(i, lines.read(i));
-        }
-    }
-}
-
-/// Every region of `input` copied into `out`, four values a line.
-#[cube(launch)]
-fn copy_lines_kernel(
-    input: &TileTensor<'_>,
-    out: &mut TileTensor<'_>,
-    space: Partitioning,
-    #[comptime] level: Level,
-) {
-    let x = input.tile(&space);
-    let o = out.tile_mut(&space);
-    for region in space.over(&level) {
-        let window = x.at(&region);
-        let lines = window.flat::<f32, Const<4>>();
-        let mut written = o.at(&region);
-        let mut cells = written.flat_mut::<f32, Const<4>>();
+        let mut cells = written.flat_mut::<f32, N>();
         for i in 0..lines.shape() {
             cells.write(i, lines.read(i));
         }
@@ -93,26 +72,16 @@ fn folded_copy(a: usize, k: usize, c: usize, rows: usize, width: usize, b_last: 
     };
     let input = bound(input.binding());
     let output = bound(out.clone().binding());
-    match width {
-        1 => copy_values_kernel::launch(
-            &client,
-            launcher.cube_count(),
-            launcher.cube_dim(),
-            input.arg(),
-            output.arg(),
-            launcher.partitioning_arg(),
-            launcher.partitioning().level(0),
-        ),
-        _ => copy_lines_kernel::launch(
-            &client,
-            launcher.cube_count(),
-            launcher.cube_dim(),
-            input.arg(),
-            output.arg(),
-            launcher.partitioning_arg(),
-            launcher.partitioning().level(0),
-        ),
-    }
+    copy_lines_kernel::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        width,
+        input.arg(),
+        output.arg(),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+    );
     let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
     for i in 0..a {
         for j in 0..k {
@@ -164,7 +133,7 @@ fn dimensions_out_of_axis_order_are_refused() {
     );
     let refused = launcher
         .arg(input.binding(), f32_ty)
-        .gathered(Projection::tiled(&[B, K], &[B, K, B]))
+        .gathered(Projection::tiled(&[B, K], &[(B, 0), (K, 0), (B, 1)]))
         .vectorize(4)
         .build()
         .err();
@@ -172,4 +141,56 @@ fn dimensions_out_of_axis_order_are_refused() {
         matches!(refused, Some(Decline::DimensionsOutOfAxisOrder { .. })),
         "{refused:?}"
     );
+}
+
+#[test]
+fn stride_order_preserves_a_folded_broadcast_coordinate() {
+    assert_eq!(
+        copy_stride_ordered_fold([2, 3], [1, 0], &[10.0, 20.0], 1),
+        [10.0, 10.0, 10.0, 20.0, 20.0, 20.0]
+    );
+}
+
+#[test]
+fn stride_order_vectorizes_a_fold_with_a_trailing_singleton() {
+    let values = [10.0, 20.0, 30.0, 40.0];
+    assert_eq!(copy_stride_ordered_fold([4, 1], [1, 1], &values, 2), values);
+}
+
+fn copy_stride_ordered_fold(
+    shape: [usize; 2],
+    strides: [usize; 2],
+    values: &[f32],
+    width: usize,
+) -> Vec<f32> {
+    let client = cubecl::test_device().client();
+    let dtype = f32::elem_type_native();
+    let values = client.create_from_slice(f32::as_bytes(values));
+    let input = TensorHandle::new(values, shape, strides, dtype);
+    let space = Space::new(&[(B, shape.iter().product())]);
+    let out = TileInput::builder(&client, space.clone()).untiled().zeros();
+    let launcher = implied(
+        &client,
+        Partitioning::new(space, Levels::leaf(&[(B, width)]).walk_every(&[B]).build()),
+        Form::Static,
+    );
+    let input = launcher
+        .arg(input.binding(), dtype)
+        .dimensions(&[B, B])
+        .in_stride_order()
+        .vectorize(width)
+        .build()
+        .unwrap();
+    copy_lines_kernel::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        width,
+        input.arg(),
+        out.arg(&launcher, width),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+    );
+    let bytes = client.read_one_unchecked_tensor(out.handle().into_copy_descriptor());
+    f32::from_bytes(&bytes).to_vec()
 }

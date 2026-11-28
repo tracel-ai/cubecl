@@ -1,5 +1,5 @@
 #[cfg(feature = "amdgpu")]
-use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxMatrixCore};
+use crate::amdgpu::{abi::AmdGpuLowering, matrix::set_matrix_core};
 #[cfg(feature = "nvptx")]
 use crate::nvptx::{
     abi::NvptxLowering,
@@ -54,7 +54,7 @@ use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass, resolve_pending::ResolvePendingPass, sccp::SCCPPass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass, stack_move::RemoveStackMoves,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
@@ -292,13 +292,14 @@ impl PlironCompiler {
         ctx.set_grid_constants(false);
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
-        ctx.set_matrix_core(arch.matrix_core());
+        let matrix = arch.matrix_core();
+        set_matrix_core(&mut ctx, matrix);
 
         let Lowered {
             io,
             atomic_reads,
             peers,
-        } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
+        } = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim, matrix })?;
 
         let shared_memory_size = ctx.shared_memory_size();
 
@@ -497,6 +498,8 @@ fn lower(
     func_passes.add_pass(BranchToSCFPass::default());
     func_passes.add_pass(DCEPass);
     func_passes.add_pass(Mem2RegPass);
+    func_passes.add_pass(RemoveStackMoves);
+    func_passes.add_pass(DCEPass);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(DCEPass);
 
@@ -506,6 +509,7 @@ fn lower(
     after_pre_func_passes.add_pass(DCEPass);
     after_pre_func_passes.add_pass(CanonicalizePass::default());
     after_pre_func_passes.add_pass(DCEPass);
+    after_pre_func_passes.add_pass(RemoveStackMoves);
 
     let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
 

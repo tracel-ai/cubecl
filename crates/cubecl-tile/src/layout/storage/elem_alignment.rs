@@ -25,8 +25,8 @@ pub struct ElemAlignment(Widths);
 enum Widths {
     /// Every width dividing this one.
     Dividing(usize),
-    /// This width alone: a storage-tiled buffer stores its read as a piece, which a reader takes
-    /// whole.
+    /// This width, or one value: a storage-tiled buffer stores its read as a piece, which a reader
+    /// takes whole or a value at a time.
     Exactly(usize),
 }
 
@@ -37,6 +37,12 @@ impl ElemAlignment {
 
     /// The alignment of a buffer of `shape` at `strides`, its axes taken in the order the buffer
     /// steps them, whatever order the view names them in.
+    ///
+    /// Using this alignment to choose a binding's width assumes every axis can be reordered
+    /// independently. For an untiled binding with folded dimensions or fixed leading batch axes,
+    /// pass only the trailing axis labels to [`Geometry::in_stride_order`]. Check the width with
+    /// [`Geometry::serves`] on the returned geometry using the returned labels.
+    /// For storage-tiled buffers, check the original geometry with its physical-axis labels.
     pub fn in_stride_order(shape: &[usize], strides: &[usize]) -> Self {
         let mut axes: Vec<(usize, usize)> =
             shape.iter().copied().zip(strides.iter().copied()).collect();
@@ -63,7 +69,7 @@ impl ElemAlignment {
             .filter(|&(&extent, _)| extent != 1)
             .unzip();
         let divides = match (shape.split_last(), strides.split_last()) {
-            (Some((&extent, _)), Some((&1, coarser))) => {
+            (Some((&extent, _)), Some((&1, coarser))) if extent > 0 => {
                 coarser.iter().fold(extent, |acc, &stride| gcd(acc, stride))
             }
             _ => 1,
@@ -109,8 +115,8 @@ impl ElemAlignment {
 impl From<&TensorBinding> for ElemAlignment {
     /// The alignment of a bound matrix operand: its geometry's, or, for a storage-tiled one, the
     /// piece its storage partitioning states as the finest along its columns, and a piece one
-    /// element wide where none does: no partitioning describes it, or its tiles step down a
-    /// column first, which the matmul kernels refuse before reading this.
+    /// element wide where none does: no partitioning describes it, its batch axes are not ahead,
+    /// or its tiles step down a column first, which the matmul kernels refuse before reading this.
     fn from(binding: &TensorBinding) -> Self {
         if !binding.tiling.is_tiled() {
             return Self::new(&binding.shape, &binding.strides);
@@ -118,7 +124,8 @@ impl From<&TensorBinding> for ElemAlignment {
         const ROWS: Dimension = Dimension(0);
         const COLS: Dimension = Dimension(1);
         let geometry = Geometry::from(binding);
-        let storage = StoragePartitioning::new(&geometry, &geometry.labels(&[ROWS, COLS]));
+        let labels = geometry.labels(&[ROWS, COLS]).ok();
+        let storage = labels.and_then(|labels| StoragePartitioning::new(&geometry, &labels));
         match storage.as_ref().and_then(|storage| storage.tiles().first()) {
             Some(&(COLS, read)) => Self::stored_piece(read),
             _ => Self::stored_piece(1),
@@ -150,6 +157,25 @@ mod tests {
         let (_, dimensions) =
             Geometry::new(&[(k, 1), (1, 1)]).in_stride_order(&[Dimension(2), Dimension(1)]);
         assert_eq!(dimensions, [Dimension(1), Dimension(2)]);
+    }
+
+    #[test]
+    fn stride_order_alignment_depends_on_whether_the_axes_are_folded() {
+        let k = Dimension(0);
+        let n = Dimension(1);
+        let geometry = Geometry::new(&[(2, 1), (3, 0)]);
+        assert!(ElemAlignment::in_stride_order(geometry.shape(), geometry.strides()).admits(2));
+
+        for (labels, expected) in [([k, n], true), ([k, k], false)] {
+            let (ordered, labels) = geometry.in_stride_order(&labels);
+            assert_eq!(ordered.serves(&[(k, 2)], &labels).is_ok(), expected);
+        }
+    }
+
+    #[test]
+    fn an_empty_innermost_axis_admits_only_scalar_access() {
+        let alignment = ElemAlignment::in_stride_order(&[3, 0], &[0, 1]);
+        assert_eq!(alignment, ElemAlignment::ONE);
     }
 
     /// A col weight's rows run along `k`, a pitch apart, whichever way the view names them.

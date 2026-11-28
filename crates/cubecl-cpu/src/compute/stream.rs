@@ -1,5 +1,6 @@
 use crate::compute::{
     alloc_controller::CpuAllocController,
+    relocation_copier::CpuRelocationCopier,
     schedule::ScheduleTask,
     threadpool::{Threadpool, completion_counter::LaunchProgress},
 };
@@ -11,7 +12,7 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_server::memory_management::relocation::{
-    HostCopies, RelocatableStream, RelocationNeed, RelocationReason,
+    RelocationReason, StreamRelocationState, StreamRelocator, StreamsSubmitted,
 };
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
@@ -57,27 +58,24 @@ impl StreamMemory for CpuStream {
     }
 }
 
-impl RelocatableStream for CpuStream {
-    /// Never: the CPU records no graphs.
-    fn recording(&self) -> bool {
-        false
+impl StreamRelocator for CpuStream {
+    /// Never recording: the CPU records no graphs.
+    fn relocation_state(&self) -> StreamRelocationState {
+        StreamRelocationState {
+            need: self.memory_management.relocation_need(),
+            allocated_bytes: self.memory_management.bytes_allocated(),
+        }
     }
 
-    fn has_outdated(&self) -> bool {
-        self.memory_management.has_outdated()
-    }
-
-    fn relocation_need(&self) -> RelocationNeed {
-        self.memory_management.relocation_need()
-    }
-
-    fn bytes_allocated(&self) -> u64 {
-        self.memory_management.bytes_allocated()
-    }
-
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+    fn relocate(
+        &mut self,
+        reason: RelocationReason,
+        submitted: &StreamsSubmitted,
+        failures: &mut ErrorGraph,
+    ) {
+        let mut copier = CpuRelocationCopier::new(&mut self.progress, submitted);
         self.memory_management
-            .relocate(&mut HostCopies, reason, failures);
+            .relocate(&mut copier, reason, failures);
     }
 
     fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {
@@ -209,9 +207,7 @@ impl CpuStream {
         new: ManagedMemoryHandle,
         failures: &mut ErrorGraph,
     ) {
-        self.memory_management
-            .bind(reserved, new, 0, failures)
-            .unwrap();
+        self.memory_management.bind(reserved, new, 0, failures);
     }
 
     pub fn read_async(

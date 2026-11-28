@@ -5,7 +5,9 @@ use crate::{
         ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings, release_or_leak,
     },
     server::{BufferBinding, ServerError},
-    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, base},
+    stream::{
+        FailureStore, Failures, StreamCapture, StreamFactory, StreamMemory, StreamPool, base,
+    },
 };
 use core::any::Any;
 use cubecl_environment::collections::HashMap;
@@ -53,6 +55,8 @@ pub trait EventStreamBackend: 'static {
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError>;
     /// Wait for the given event synching the CPU.
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError>;
+    /// Where `stream` is in the graph-capture lifecycle, and the memory its recording holds.
+    fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture;
 }
 
 /// Manages multiple streams with synchronization logic based on shared bindings.
@@ -282,6 +286,11 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
         }
 
         let stream = self.streams.get_mut(&self.current);
+        let capture = B::capturing(&mut stream.stream);
+        if capture.is_recording() {
+            capture.retain_shared(&mut self.analysis.pinned);
+            return;
+        }
         let event_origin = B::flush(&mut stream.stream, self.failures);
 
         let stream_gc = &mut unsafe { self.streams.get_special(0) }.stream;
@@ -348,7 +357,6 @@ impl<B: EventStreamBackend> MultiStream<B> {
     ///
     /// Returns a [`ServerError`] when the stream, or the stream that releases memory shared
     /// between streams, has to be created and cannot be, e.g. on a poisoned device.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
@@ -521,7 +529,8 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 pub(crate) struct SharedBindingAnalysis {
     slices: HashMap<usize, Vec<ManagedMemoryId>>,
     /// Every cross-stream binding of the task, kept alive until the consumer
-    /// stream's work completes (released by the GC thread after its event).
+    /// stream's work completes (released by the GC thread after its event), or, on a
+    /// recording stream, for the life of the graph it seals into.
     ///
     /// The origin stream's pools consider a slice free once no handle/binding
     /// references its descriptor, but the consumer's kernel may still be
@@ -557,6 +566,7 @@ impl SharedBindingAnalysis {
 mod tests {
     use crate::server::Handle;
     use core::sync::atomic::{AtomicBool, Ordering};
+    use cubecl_runtime::server::DeviceCaptures;
 
     use super::*;
 
@@ -742,6 +752,34 @@ mod tests {
         wait_until_free(&observer);
     }
 
+    #[test_log::test]
+    fn recording_stream_hands_cross_stream_binding_to_its_capture() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let gate = Arc::new(AtomicBool::new(true));
+        let mut ms = MultiStream::new(logger, GatedBackend { gate }, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter()).unwrap();
+        ms.resolve(stream_2, [].into_iter()).unwrap();
+        let capture = &mut ms.streams.get_mut(&stream_2).stream.capturing;
+        capture.prepare(stream_2).unwrap();
+        capture.begin().unwrap();
+
+        let handle = Handle::new(service(), stream_1, 10);
+        let observer = handle.memory.clone();
+        let binding = handle.binding();
+        drop(ms.resolve(stream_2, [&binding].into_iter()).unwrap());
+        drop(binding);
+
+        let capture = &mut ms.streams.get_mut(&stream_2).stream.capturing;
+        capture.end(stream_2).unwrap();
+        let retained = capture.take_retained_shared();
+        assert!(!retained.is_empty(), "the capture holds the binding");
+        drop(retained);
+        assert!(observer.is_free(), "the GC thread held nothing of it");
+    }
+
     fn wait_until_free(observer: &crate::memory_management::ManagedMemoryHandle) {
         let start = std::time::Instant::now();
         while !observer.is_free() {
@@ -759,8 +797,10 @@ mod tests {
 
     struct TestBackend;
 
-    #[derive(Debug, Default)]
-    struct TestStream;
+    #[derive(Debug)]
+    struct TestStream {
+        capturing: StreamCapture,
+    }
 
     #[derive(Debug)]
     struct TestEvent {}
@@ -771,9 +811,10 @@ mod tests {
         gate: Arc<AtomicBool>,
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct GatedStream {
         gate: Arc<AtomicBool>,
+        capturing: StreamCapture,
     }
 
     #[derive(Debug)]
@@ -821,6 +862,7 @@ mod tests {
         fn create_stream(&self) -> Result<Self::Stream, ServerError> {
             Ok(GatedStream {
                 gate: self.gate.clone(),
+                capturing: StreamCapture::new(&DeviceCaptures::default()),
             })
         }
 
@@ -841,6 +883,10 @@ mod tests {
             Ok(())
         }
 
+        fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+            &mut stream.capturing
+        }
+
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
@@ -851,7 +897,9 @@ mod tests {
         type Event = TestEvent;
 
         fn create_stream(&self) -> Result<Self::Stream, ServerError> {
-            Ok(TestStream)
+            Ok(TestStream {
+                capturing: StreamCapture::new(&DeviceCaptures::default()),
+            })
         }
 
         fn flush(_stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
@@ -864,6 +912,10 @@ mod tests {
 
         fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
             Ok(())
+        }
+
+        fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+            &mut stream.capturing
         }
 
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {

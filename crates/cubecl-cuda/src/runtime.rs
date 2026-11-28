@@ -15,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
-        PhysicalDevice, TargetProperties, Type, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, OperandFact,
+        PciVendor, PhysicalDevice, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
@@ -232,6 +232,13 @@ impl DeviceService for CudaServer {
             },
         );
         register_supported_types(&mut device_props);
+        // SAFETY: as above, read-only queries of a valid device.
+        device_props.features.host_memory_import = unsafe {
+            use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
+            let supports = |attribute| get_attribute(device_ptr, attribute).is_ok_and(|on| on != 0);
+            supports(CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY)
+                && supports(CU_DEVICE_ATTRIBUTE_HOST_REGISTER_SUPPORTED)
+        };
         for kind in [ComplexKind::C32, ComplexKind::C64] {
             let ty = ElemType::Complex(kind);
             device_props.register_type_usage(ty, TypeUsage::Conversion | TypeUsage::Buffer);
@@ -522,14 +529,15 @@ impl Runtime for CudaRuntime {
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
-                const_plane_size: 32,
+                const_plane_lane_count: 32,
                 register_layout_a: MatrixLayout::RowMajor,
                 register_layout_b: MatrixLayout::ColMajor,
                 register_layout_acc: MatrixLayout::RowMajor,
-                register_duplication_a: 1,
-                register_duplication_b: 1,
-                register_duplication_acc: 1,
                 contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
+                element_positions: OperandFact::new(|ctx, _, matrix| {
+                    Some(SmArch::element_positions(ctx, &matrix.deref(ctx)))
+                }),
+                ..MmaProperties::default()
             },
         }
     }

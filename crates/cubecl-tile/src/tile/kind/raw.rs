@@ -5,7 +5,9 @@
 use std::marker::PhantomData;
 
 use cubecl::define_size;
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ElemType, ExpandValue, Scope, VectorSize};
 use cubecl::prelude::*;
 use cubecl::unexpanded;
@@ -322,8 +324,11 @@ macro_rules! expand_value {
                 self.clone()
             }
         }
-        impl$(<$param: $bound>)? IntoMut for $ty {
-            fn into_mut(self, _: &Scope) -> Self {
+        impl$(<$param: $bound>)? PlaceExpand for $ty {
+            fn create_mut_place(self, _: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _: &Scope) -> Self {
                 self
             }
         }
@@ -346,18 +351,11 @@ expand_value!(RawCallExpand<IO>, IO: 'static);
 
 #[cfg(test)]
 mod tests {
-    use cubecl::ir::{AddressType, settings};
     use half::f16;
 
     use super::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(settings::KernelSettings::new(
-            settings::Dim3::new_single(),
-            settings::ExecutionMode::Checked,
-            AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     /// A slice of shared memory held at `H`, then named at `N`.
     #[cube]

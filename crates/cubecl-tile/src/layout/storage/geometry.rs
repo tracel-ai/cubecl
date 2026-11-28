@@ -6,7 +6,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use crate::{Dimension, Space, StoragePartitioning, TileMisfit};
+use crate::{Decline, Dimension, Space, StoragePartitioning, TileMisfit};
 
 use crate::Coords;
 
@@ -67,36 +67,99 @@ impl Geometry {
         self.tiling
     }
 
-    /// Its trailing axes, coarsest first, each named by the dimension it is a piece of:
-    /// `dimensions` name the trailing logical axes in the tensor's order, each once per piece its
-    /// tiling stores it as, in [`StoragePartitioning::labels`]' order. The axes ahead of them are
-    /// batch axes, one each.
+    /// Its trailing axes, each named by the dimension it is a piece of: the names of its
+    /// [`pieces`](Self::pieces).
+    ///
+    /// # Errors
+    ///
+    /// As [`pieces`](Self::pieces).
     ///
     /// # Panics
     ///
-    /// When the tiling does not fit the rank, when the buffer stands for fewer logical axes than
-    /// `dimensions` name, or when it tiles a batch axis, which is stored one axis.
-    pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
+    /// As [`pieces`](Self::pieces).
+    pub fn labels(&self, dimensions: &[Dimension]) -> Result<Vec<Dimension>, Decline> {
+        Ok(names_of_pieces(self.pieces(dimensions)?))
+    }
+
+    /// Its trailing axes, each the dimension it is a piece of and how many of that dimension's
+    /// pieces are coarser. `dimensions` name the trailing logical axes in the tensor's order: each
+    /// is as many axes as the tiling stores it as, wherever it lists them. The axes ahead of them
+    /// are batch axes, one each. An untiled buffer is named axis by axis, a dimension that names
+    /// several its coarsest piece first.
+    ///
+    /// # Errors
+    ///
+    /// [`Decline::RankBelowLabels`] for a buffer that stands for fewer logical axes than
+    /// `dimensions` name, and [`Decline::BatchAxesInPieces`] for a tiling that stores a batch axis
+    /// anywhere but ahead, one axis.
+    ///
+    /// # Panics
+    ///
+    /// When the tiling does not fit the rank.
+    pub fn pieces(&self, dimensions: &[Dimension]) -> Result<Vec<(Dimension, usize)>, Decline> {
         if !self.tiling.is_tiled() {
-            return dimensions.to_vec();
+            return Ok(pieces_named(dimensions));
         }
-        let logical_rank = self
-            .tiling
+        let logical_rank = self.tiled_logical_rank();
+        let batches =
+            logical_rank
+                .checked_sub(dimensions.len())
+                .ok_or(Decline::RankBelowLabels {
+                    rank: logical_rank,
+                    block: dimensions.len(),
+                })?;
+        let axes = self.tiling.physical_dims(logical_rank);
+        let ahead = &axes[..batches];
+        if !ahead.iter().flatten().copied().eq(0..batches) {
+            return Err(Decline::BatchAxesInPieces(self.tiling));
+        }
+        let named_axes = &self.tiled_axes()[batches..];
+        let name = |&(logical, piece): &(usize, usize)| (dimensions[logical - batches], piece);
+        Ok(named_axes.iter().map(name).collect())
+    }
+
+    /// For each of its trailing axes, which `labels` name, how many of the named dimension's pieces
+    /// are coarser.
+    pub(crate) fn pieces_of_axes(
+        &self,
+        labels: &[Dimension],
+    ) -> SmallVec<[usize; Space::MAX_RANK]> {
+        match self.tiling.is_tiled() {
+            true => self.pieces_of_tiled_axes(labels.len()),
+            false => pieces_named(labels)
+                .into_iter()
+                .map(|(_, piece)| piece)
+                .collect(),
+        }
+    }
+
+    /// [`pieces_of_axes`](Self::pieces_of_axes) of the trailing `labelled` axes of a tiled buffer.
+    fn pieces_of_tiled_axes(&self, labelled: usize) -> SmallVec<[usize; Space::MAX_RANK]> {
+        let unlabelled = self.rank().saturating_sub(labelled);
+        self.tiled_axes()[unlabelled..]
+            .iter()
+            .map(|&(_, piece)| piece)
+            .collect()
+    }
+
+    /// For each axis of a tiled buffer, the logical axis it is a piece of and how many of that
+    /// logical axis's pieces are coarser.
+    fn tiled_axes(&self) -> SmallVec<[(usize, usize); Space::MAX_RANK]> {
+        let mut axes = SmallVec::from_elem((0, 0), self.rank());
+        let logical_axes = self.tiling.physical_dims(self.tiled_logical_rank());
+        for (logical, pieces) in logical_axes.into_iter().enumerate() {
+            for (piece, axis) in pieces.into_iter().enumerate() {
+                axes[axis] = (logical, piece);
+            }
+        }
+        axes
+    }
+
+    /// How many logical axes a tiled buffer stands for.
+    fn tiled_logical_rank(&self) -> usize {
+        self.tiling
             .logical_rank(self.rank())
-            .unwrap_or_else(|e| panic!("Geometry::labels: {e:?}"));
-        assert!(
-            logical_rank >= dimensions.len(),
-            "Geometry::labels: the buffer stands for {logical_rank} axes but {} dimensions name them",
-            dimensions.len()
-        );
-        let fragments = self.tiling.fragments(logical_rank);
-        let (batches, block) = fragments.split_at(logical_rank - dimensions.len());
-        assert!(
-            batches.iter().all(|&n| n == 1),
-            "Geometry::labels: batch axes are stored one axis each, so {batches:?} pieces over \
-             them cannot be named"
-        );
-        StoragePartitioning::level_major(dimensions, block)
+            .unwrap_or_else(|e| panic!("Geometry: the tiling does not fit the rank: {e:?}"))
     }
 
     /// The extents, coarsest first.
@@ -114,23 +177,28 @@ impl Geometry {
         self.shape.len()
     }
 
-    /// This geometry with its trailing `labels.len()` axes and labels reordered by stride, coarsest
-    /// first; leading (batch) axes stay put.
+    /// Reorder an untiled buffer's trailing labelled axes by stride, keeping leading batch axes in place.
+    /// A folded dimension is ordered by its innermost non-singleton axis. Its singleton
+    /// pieces move outward, preserving the coordinate order of the remaining pieces.
     pub fn in_stride_order(&self, labels: &[Dimension]) -> (Geometry, Vec<Dimension>) {
         let batch_axes = self.rank() - labels.len();
-        let mut trailing: Vec<(usize, (usize, usize))> =
-            self.axes().enumerate().skip(batch_axes).collect();
-        trailing.sort_by_key(|&(_, axis)| stride_order(axis));
-        let axes: Vec<(usize, usize)> = self
+        let labelled_axes = || labels.iter().copied().zip(self.axes().skip(batch_axes));
+        let mut ordered: Vec<_> = labelled_axes().collect();
+        ordered.sort_by_cached_key(|&(label, (extent, _))| {
+            // On a tie max_by_key takes the last piece, the finest in coordinate order.
+            let (_, finest) = labelled_axes()
+                .filter(|&(dimension, _)| dimension == label)
+                .max_by_key(|&(_, (extent, _))| extent != 1)
+                .expect("a labelled axis should belong to its dimension");
+            (stride_order(finest), extent != 1)
+        });
+        let axes: Vec<_> = self
             .axes()
             .take(batch_axes)
-            .chain(trailing.iter().map(|&(_, axis)| axis))
+            .chain(ordered.iter().map(|&(_, axis)| axis))
             .collect();
-        let ordered = trailing
-            .iter()
-            .map(|&(axis, _)| labels[axis - batch_axes])
-            .collect();
-        (Geometry::new(&axes), ordered)
+        let labels = ordered.into_iter().map(|(label, _)| label).collect();
+        (Geometry::new(&axes), labels)
     }
 
     pub fn axes(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
@@ -139,6 +207,8 @@ impl Geometry {
 
     /// Whether this buffer can be read a `tile` at a time, `tile` finest first over the dimensions
     /// `labels` name, right-aligned to the axes.
+    /// A plain line wider than one must fit its dimension's innermost physical axis:
+    /// the axis has unit stride and its extent is a positive multiple of the line width.
     pub fn serves(
         &self,
         tile: &[(Dimension, usize)],
@@ -152,31 +222,15 @@ impl Geometry {
             return Err(LineMisfit::NoAxes);
         }
         let storage = StoragePartitioning::new(self, labels).ok_or(LineMisfit::NotPartitioned)?;
+        let plain_line = plain_line_dimension(self.tiling(), tile).map(|dim| (dim, values));
+        let tile = plain_line.as_ref().map_or(tile, core::slice::from_ref);
         storage
             .holds(tile, &self.extents(labels))
             .map_err(LineMisfit::Tile)?;
-        // The run, from the finest axis up: each axis it takes steps by what it has taken so far.
-        let mut by_stride: SmallVec<[(usize, (usize, usize)); 8]> = self
-            .axes()
-            .enumerate()
-            .filter(|&(_, (extent, stride))| extent > 1 && stride > 0)
-            .collect();
-        by_stride.sort_by_key(|&(axis, (_, stride))| (stride, core::cmp::Reverse(axis)));
-        let mut inside: SmallVec<[usize; 8]> = SmallVec::new();
-        let mut run = 1;
-        for &(axis, (extent, stride)) in &by_stride {
-            if run >= values {
-                break;
-            }
-            if stride != run {
-                return Err(match run {
-                    1 => LineMisfit::InnermostStrided(stride),
-                    _ => LineMisfit::Gap(stride),
-                });
-            }
-            inside.push(axis);
-            run *= extent;
-        }
+        let inside = match plain_line {
+            Some((dimension, width)) => plain_line_axes(self, labels, dimension, width)?,
+            None => self.stored_run_axes(labels.len(), values)?,
+        };
         // An axis of one element steps nowhere, so its stride lands no value inside a line.
         match self.axes().enumerate().find(|&(axis, (extent, stride))| {
             extent > 1 && !inside.contains(&axis) && !stride.is_multiple_of(values)
@@ -226,6 +280,79 @@ impl Geometry {
         axes.sort_by_key(|&(_, (_, stride))| core::cmp::Reverse(stride));
         axes
     }
+}
+
+impl Geometry {
+    fn stored_run_axes(
+        &self,
+        labelled: usize,
+        values: usize,
+    ) -> Result<SmallVec<[usize; Space::MAX_RANK]>, LineMisfit> {
+        let unlabelled = self.rank().saturating_sub(labelled);
+        let mut inside = SmallVec::new();
+        let mut run = 1;
+        for (axis, (extent, stride)) in self
+            .addressing_axes_by_stride()
+            .into_iter()
+            .rev()
+            .filter(|(axis, _)| *axis >= unlabelled)
+        {
+            if run >= values {
+                break;
+            }
+            if stride != run {
+                return Err(match run {
+                    1 => LineMisfit::InnermostStrided(stride),
+                    _ => LineMisfit::Gap(stride),
+                });
+            }
+            inside.push(axis);
+            run *= extent;
+        }
+        Ok(inside)
+    }
+}
+
+/// All non-singleton factors of a plain line advance the same logical coordinate.
+fn plain_line_dimension(tiling: Tiling, tile: &[(Dimension, usize)]) -> Option<Dimension> {
+    if tiling.is_tiled() {
+        return None;
+    }
+    let mut dimensions = tile
+        .iter()
+        .filter(|(_, count)| *count != 1)
+        .map(|&(dim, _)| dim);
+    let dimension = dimensions.next()?;
+    dimensions
+        .all(|other| other == dimension)
+        .then_some(dimension)
+}
+
+fn plain_line_axes(
+    geometry: &Geometry,
+    labels: &[Dimension],
+    dimension: Dimension,
+    width: usize,
+) -> Result<SmallVec<[usize; Space::MAX_RANK]>, LineMisfit> {
+    let axis = labels
+        .iter()
+        .rev()
+        .zip((0..geometry.rank()).rev())
+        .find_map(|(&label, axis)| (label == dimension).then_some(axis))
+        .ok_or(LineMisfit::Tile(TileMisfit::RunsOut { wanted: dimension }))?;
+    let stride = geometry.strides()[axis];
+    if stride != 1 {
+        return Err(LineMisfit::InnermostStrided(stride));
+    }
+    let extent = geometry.shape()[axis];
+    if extent < width || !extent.is_multiple_of(width) {
+        return Err(LineMisfit::Tile(TileMisfit::Unwhole {
+            dimension,
+            extent,
+            tile: width,
+        }));
+    }
+    Ok(SmallVec::from_slice(&[axis]))
 }
 
 /// Why a [`Geometry`] cannot be read a tile at a time ([`Geometry::serves`]).
@@ -323,12 +450,28 @@ impl RuntimeGeometry {
     }
 }
 
-/// Where an axis of `(extent, stride)` sorts among a buffer's axes in stride order: by stride,
-/// coarsest first, and on a tie an axis of one element before the others. It steps nowhere, so its
-/// stride places it nowhere: a column `[k, 1]` at strides `[1, 1]` runs along `k`, and its lines
-/// run along `k` too, not along the axis one element long.
-pub(crate) fn stride_order((extent, stride): (usize, usize)) -> (core::cmp::Reverse<usize>, bool) {
-    (core::cmp::Reverse(stride), extent != 1)
+/// The dimension each of `pieces` is a piece of.
+pub(crate) fn names_of_pieces(
+    pieces: impl IntoIterator<Item = (Dimension, usize)>,
+) -> Vec<Dimension> {
+    pieces.into_iter().map(|(dimension, _)| dimension).collect()
+}
+
+/// The [`pieces`](Geometry::pieces) of an untiled buffer's axes, which `labels` name.
+pub(crate) fn pieces_named(labels: &[Dimension]) -> Vec<(Dimension, usize)> {
+    let named = |(axis, &label): (usize, &Dimension)| {
+        let coarser = labels[..axis].iter().filter(|&&other| other == label);
+        (label, coarser.count())
+    };
+    labels.iter().enumerate().map(named).collect()
+}
+
+/// A broadcast axis steps nowhere and belongs outside a vector read. Order the remaining axes
+/// by decreasing stride, with singleton axes first on ties so the line runs along a varying axis.
+pub(crate) fn stride_order(
+    (extent, stride): (usize, usize),
+) -> (bool, core::cmp::Reverse<usize>, bool) {
+    (stride != 0, core::cmp::Reverse(stride), extent != 1)
 }
 
 #[cfg(test)]
@@ -347,6 +490,80 @@ mod tests {
         assert_eq!(Geometry::row_major(&[3, 4]).span(), 12);
         assert_eq!(Geometry::new(&[(3, 5), (4, 1)]).span(), 14);
         assert_eq!(Geometry::new(&[(0, 5), (4, 1)]).span(), 0);
+    }
+
+    /// A line along a labelled axis takes no step of an axis no label names.
+    #[test]
+    fn an_unlabelled_axis_holds_no_value_of_a_line() {
+        let batched = Geometry::new(&[(8, 1), (64, 8)]);
+        assert_eq!(
+            batched.serves(&[(N, 4)], &[N]),
+            Err(LineMisfit::InnermostStrided(8))
+        );
+    }
+
+    #[test]
+    fn singleton_tile_extents_do_not_change_a_plain_line() {
+        let geometry = Geometry::row_major(&[1, 2, 2]);
+        for tile in [&[(N, 4)][..], &[(N, 4), (K, 1)], &[(K, 1), (N, 4)]] {
+            assert_eq!(
+                geometry.serves(tile, &[K, N, N]),
+                Err(LineMisfit::Tile(TileMisfit::Unwhole {
+                    dimension: N,
+                    extent: 2,
+                    tile: 4,
+                })),
+                "{tile:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_factors_use_the_full_plain_line_width() {
+        let labels = [K, K];
+        for tile in [&[(K, 4)][..], &[(K, 2), (K, 2)]] {
+            assert!(
+                Geometry::new(&[(2, 1), (2, 0)])
+                    .serves(tile, &labels)
+                    .is_err()
+            );
+            assert_eq!(
+                Geometry::row_major(&[2, 2]).serves(tile, &labels),
+                Err(LineMisfit::Tile(TileMisfit::Unwhole {
+                    dimension: K,
+                    extent: 2,
+                    tile: 4
+                }))
+            );
+            assert_eq!(Geometry::row_major(&[2, 4]).serves(tile, &labels), Ok(()));
+        }
+    }
+
+    #[test]
+    fn a_multidimensional_tile_cannot_span_a_folded_broadcast_piece() {
+        let (geometry, labels) =
+            Geometry::new(&[(2, 0), (2, 1), (4, 2)]).in_stride_order(&[K, K, N]);
+        assert_eq!(geometry.serves(&[(K, 2), (N, 2)], &labels), Ok(()));
+        assert_eq!(
+            geometry.serves(&[(K, 4), (N, 2)], &labels),
+            Err(LineMisfit::Tile(TileMisfit::Interleaved {
+                wanted: K,
+                found: N,
+            }))
+        );
+    }
+
+    #[test]
+    fn a_dense_operand_declines_a_zero_width() {
+        let geometry = Geometry::row_major(&[1]);
+        assert_eq!(
+            geometry.serves(&[(K, 0)], &[K]),
+            Err(LineMisfit::Tile(TileMisfit::Unwhole {
+                dimension: K,
+                extent: 1,
+                tile: 0
+            })),
+        );
     }
 
     #[test]
@@ -383,6 +600,15 @@ mod tests {
                 Geometry::new(&[(4, 2048), (4, 512), (16, 32), (32, 1)]),
                 vec![K, N, K, N],
             ),
+            // Folding a broadcast piece into K repeats each scalar before K advances.
+            (Geometry::new(&[(2, 1), (3, 0)]), vec![K, K]),
+            // A plain vector must fit the final physical piece, even in a dense fold.
+            (Geometry::row_major(&[2, 2]), vec![K, K]),
+            (Geometry::row_major(&[4, 1]), vec![K, K]),
+            // The folded axis along the line is empty.
+            (Geometry::new(&[(4, 2), (0, 1)]), vec![K, K]),
+            // An empty outer dimension still permits a pair along the inner axis.
+            (Geometry::new(&[(0, 3), (2, 1)]), vec![M, N]),
             (Geometry::new(&[(6, 1)]), vec![N]),
             // A row viewed out of a column: its single row keeps the column's stride.
             (Geometry::new(&[(1, 1), (8, 1)]), vec![M, N]),
@@ -405,16 +631,58 @@ mod tests {
             .tile(&[(N, 8), (K, 32)])
             .grid(&[N, K]);
         let geometry = storage.physical(&[(K, 64), (N, 64)]).unwrap();
-        let labels = geometry.labels(&[K, N]);
+        let labels = geometry.labels(&[K, N]).unwrap();
         assert_eq!(geometry.serves(&[(N, 4)], &labels), Ok(()));
         assert_eq!(geometry.serves(&[(N, 32), (K, 32)], &labels), Ok(()));
         assert!(geometry.serves(&[(N, 2)], &labels).is_err());
         assert!(geometry.serves(&[(N, 8)], &labels).is_err());
     }
 
-    /// The one-axis line rule: a line of `width` is served where the innermost axis is contiguous
-    /// and its extent and every outer stride are multiples of `width`; an outer axis of one
-    /// element steps nowhere, so its stride counts for nothing.
+    /// Each axis is the piece the tiling states, behind batch axes of their own.
+    #[test]
+    fn pieces_are_those_the_tiling_states() {
+        let tiling = Tiling::from_physical_dims(&[&[0][..], &[1, 5, 3], &[2, 4, 6]]).unwrap();
+        let geometry = Geometry::row_major(&[7, 3, 5, 8, 8, 2, 2]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Ok(vec![(M, 0), (K, 0), (M, 2), (K, 1), (M, 1), (K, 2)])
+        );
+    }
+
+    #[test]
+    fn a_batch_axis_among_the_pieces_is_declined() {
+        let tiling = Tiling::from_physical_dims(&[&[1][..], &[0, 3], &[2, 4]]).unwrap();
+        let geometry = Geometry::row_major(&[3, 7, 5, 8, 8]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Err(Decline::BatchAxesInPieces(tiling))
+        );
+    }
+
+    /// With no dimension named, every logical axis is a batch axis, and a tiled one is stored as
+    /// several axes.
+    #[test]
+    fn a_tiled_buffer_named_by_no_dimension_is_declined() {
+        let tiling = Tiling::from_physical_dims(&[&[0][..], &[1, 2]]).unwrap();
+        let geometry = Geometry::row_major(&[3, 5, 8]).with_tiling(tiling);
+        assert_eq!(
+            geometry.pieces(&[]),
+            Err(Decline::BatchAxesInPieces(tiling))
+        );
+    }
+
+    #[test]
+    fn more_dimensions_than_a_tiled_buffer_stands_for_are_declined() {
+        let geometry = Geometry::row_major(&[5, 8])
+            .with_tiling(Tiling::new(&[2]).expect("two pieces should be a tiling"));
+        assert_eq!(
+            geometry.pieces(&[M, K]),
+            Err(Decline::RankBelowLabels { rank: 1, block: 2 })
+        );
+    }
+
+    /// A vector line requires a contiguous innermost axis whose extent is a positive multiple
+    /// of `width`. Each outer axis with more than one element must step by whole lines.
     fn line_rule_serves(geometry: &Geometry, width: usize) -> bool {
         if width == 1 {
             return true;
@@ -423,10 +691,11 @@ mod tests {
             return false;
         };
         geometry.strides()[last] == 1
+            && geometry.shape()[last] >= width
             && geometry.shape()[last].is_multiple_of(width)
             && geometry.strides()[..last]
                 .iter()
                 .zip(geometry.shape())
-                .all(|(s, &extent)| extent == 1 || s.is_multiple_of(width))
+                .all(|(s, &extent)| extent <= 1 || s.is_multiple_of(width))
     }
 }

@@ -68,16 +68,14 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
                 ("key", Align::Left),
             ]));
             for key in diff.with(change) {
-                let answer = key.after.as_ref().or(key.before.as_ref());
+                let tune = key.after.as_ref().or(key.before.as_ref());
                 table.row(place.cells(
                     key,
                     vec![
-                    key.tuner.clone(),
-                    answer
-                        .map(|answer| answer.winner.clone())
-                        .unwrap_or_default(),
-                    KeyText(&key.key).to_string(),
-                ],
+                        key.tuner.clone(),
+                        tune.map(|tune| tune.winner.clone()).unwrap_or_default(),
+                        KeyText(&key.key).to_string(),
+                    ],
                 ));
             }
             section(f, title, table)?;

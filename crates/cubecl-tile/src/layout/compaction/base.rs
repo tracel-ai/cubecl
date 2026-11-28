@@ -22,6 +22,11 @@ impl Compaction {
         extent_of: impl Fn(Dimension) -> usize,
     ) -> Compaction {
         projection.refuse_backward("Compaction");
+        assert!(
+            projection.digit_dimensions().is_empty(),
+            "Compaction: a folded operand's window covers every value of each digit, not the cells a tile \
+             reads, so it is staged dense (`StageStorage::Tiled`)"
+        );
         let rank = projection.physical_rank();
         let mut steps = SmallVec::new();
         let mut extents = SmallVec::new();
@@ -51,12 +56,22 @@ impl Compaction {
                     .sum();
                 // A window starts on a multiple of its own extent, the windows tiling the
                 // dimension: one dimension at coefficient one, whole cells of a static divisor wide
-                // and not offset, starts on a cell and reads its extent's cells. Otherwise it may
+                // and shifted by whole cells alone, starts on a cell and reads its extent's cells.
+                // Otherwise it may
                 // start partway into one and straddle one more; a dynamic divisor's cells are wider
                 // than its bound, so they may too.
+                let shifted_by_cells =
+                    terms
+                        .iter()
+                        .filter(|t| extent_of(t.dimension) == 1)
+                        .all(|t| match t.scale {
+                            Scale::Static(s) => s.unsigned_abs().is_multiple_of(d),
+                            Scale::Dynamic { .. } => false,
+                        });
                 let whole_cells = match moving.as_slice() {
                     [term] => {
                         term.scale.bound() == 1
+                            && shifted_by_cells
                             && matches!(stage_map.divisor(), Divisor::Static(_))
                             && extent_of(term.dimension).is_multiple_of(d)
                             && axis_map.offset() == Offset::Static(0)
@@ -241,6 +256,18 @@ mod tests {
         assert_eq!(c.extents(), &[10, 16]);
         assert_eq!(c.projection().scale(0, OH), 1);
         assert_eq!(c.projection().scale(0, RH), 1);
+    }
+
+    /// A window shifted partway into a divided cell by a dimension it holds one of straddles one more.
+    #[test]
+    fn a_window_shifted_into_a_cell_straddles_one_more() {
+        const CELL: usize = 4;
+        let shifted = Projection::new(
+            &[OH, RH],
+            &[PhysicalAxisMap::affine(&[(OH, 1), (RH, 1)]).over(CELL)],
+        );
+        let c = Compaction::new(&shifted, 1, extents(2 * CELL, 1, 16));
+        assert_eq!(c.extents(), &[3]);
     }
 
     /// `{0, 1}` at stride 3 reaches `{0, 1, 3, 4, 6, 7}`: gcd 1, holes kept as padding.

@@ -92,7 +92,8 @@ impl EventStreamBackend for HipStreamBackend {
             checked("hipStreamCreateWithFlags", stream_status)?;
             stream
         };
-        let storage = GpuStorage::new();
+        // SAFETY: the backend never destroys a stream it created, so `stream` outlives the storage.
+        let storage = unsafe { GpuStorage::on_stream(stream) };
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
@@ -122,7 +123,7 @@ impl EventStreamBackend for HipStreamBackend {
             capturing: StreamCapture::new(&self.captures),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
-                max_bytes_count: match self.is_integrated {
+                max_staged_count: match self.is_integrated {
                     // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
                     // Flushing more frequently prevents the GPU from reaching 100%
                     // utilization, which avoids transient voltage droops and IOMMU
@@ -146,16 +147,20 @@ impl EventStreamBackend for HipStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) -> Result<(), ServerError> {
-        event.wait_async(stream.sys)
+        event.sync_device(stream.sys)
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
-        event.wait_sync()
+        event.sync_host()
+    }
+
+    fn capturing(stream: &mut Self::Stream) -> &mut StreamCapture {
+        &mut stream.capturing
     }
 
     fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
-        // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
+        // to decide whether to wait. A binding never placed falls back to `u64::MAX`,
         // which conservatively forces a wait.
         stream
             .memory_management_gpu

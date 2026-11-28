@@ -3,7 +3,7 @@ use core::fmt::Debug;
 use crate::{
     self as cubecl, Assign, IntoRuntime,
     frontend::{CanReadValue, IntoExpand, RuntimeAssign, ScalarPartialEq},
-    prelude::{Const, CubeDebug, IntoMut, Size},
+    prelude::{Const, CubeDebug, PlaceExpand, Size},
     unexpanded,
 };
 use cubecl_ir::EnumSet;
@@ -98,8 +98,8 @@ pub trait ConstRuntimeAssign<T = <Self as IntoExpand>::Expand>: RuntimeAssign<T>
 }
 
 pub trait CubePrimitiveExpand {
-    type Scalar: Clone + IntoMut + CubeDebug + Assign;
-    type WithScalar<S: Scalar>: Clone + IntoMut + CubeDebug + Assign;
+    type Scalar: Clone + PlaceExpand + CubeDebug + Assign;
+    type WithScalar<S: Scalar>: Clone + PlaceExpand + CubeDebug + Assign;
 }
 
 impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {

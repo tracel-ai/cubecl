@@ -3,7 +3,7 @@
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment::{
     self, BuildStamp, EnvironmentBundle, EnvironmentError, EnvironmentId, EnvironmentOrigin,
-    EnvironmentSummary, SaveOptions,
+    EnvironmentSummary, SaveOptions, SavedContent, UsedContent, WorkUses,
 };
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -406,16 +406,61 @@ fn bytes_that_are_no_bundle_do_not_read() {
     ));
 }
 
+/// A save of the used tunes holds the tunes this build's work used,
+/// and nothing else of the environment: no other tune, no kernel, no
+/// record of the work. Merged elsewhere, they read as they were stored.
+#[test]
+#[serial_test::serial]
+fn a_save_of_the_used_tunes_holds_only_them() {
+    let _root = rooted();
+    let tuned = EnvironmentId::create("tuned", EnvironmentOrigin::Empty).unwrap();
+    plant(&tuned);
+    let table = Namespace::scoped("autotune", "hardware/tuner");
+    let mut tunes: Store<String, u32> = Store::new(StoreOptions::new().storage(table.clone()));
+    tunes.insert("used".to_string(), 1).unwrap();
+    tunes.insert("idle".to_string(), 2).unwrap();
+    let uses = UsedContent::Entries {
+        namespace: table.as_str().into(),
+    };
+    let mut record = WorkUses::from_store(Store::<String, ()>::new(
+        StoreOptions::new().storage(uses.namespace(BuildStamp::current())),
+    ));
+    record.record(&"used".to_string());
+    environment::activate(environment::DEFAULT);
+
+    let saved = tuned
+        .save(SaveOptions::new().content(SavedContent::UsedTunes))
+        .unwrap();
+    let carried = EnvironmentId::create("carried", EnvironmentOrigin::Bundle(saved)).unwrap();
+
+    carried.activate().unwrap();
+    let mut carried_tunes: Store<String, u32> =
+        Store::new(StoreOptions::new().storage(table).cache(CacheOption::Lazy));
+    let held = (
+        carried.summary().unwrap(),
+        carried_tunes.get_mut(&"used".to_string()).copied(),
+        carried_tunes.get_mut(&"idle".to_string()).copied(),
+    );
+    environment::activate(environment::DEFAULT);
+    let only_the_used_tune = EnvironmentSummary {
+        kernels: 0,
+        tunes: 1,
+        records: 0,
+    };
+    assert_eq!(held, (only_the_used_tune, Some(1), None));
+}
+
 /// What [`plant`] writes, counted.
 const PLANTED: EnvironmentSummary = EnvironmentSummary {
     kernels: 3,
-    autotune_answers: 2,
+    tunes: 2,
     records: 1,
 };
 
 /// Activates `id` and writes an entry or more under every root a summary
 /// tells apart: compiled kernels, a compiler's source map, autotune answers,
-/// records, the work's launches, and an application's own namespace.
+/// records, a record of what the work used, and an application's own
+/// namespace.
 fn plant(id: &EnvironmentId) {
     id.activate().unwrap();
     for (root, entries) in [
@@ -424,7 +469,7 @@ fn plant(id: &EnvironmentId) {
         ("cuda-second-line", 2),
         ("autotune", 2),
         ("records", 1),
-        ("launched", 4),
+        ("used", 4),
         ("my-application", 5),
     ] {
         let mut store: Store<String, u32> =

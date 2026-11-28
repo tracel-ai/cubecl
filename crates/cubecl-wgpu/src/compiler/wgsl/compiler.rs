@@ -39,6 +39,7 @@ use cubecl_ir::{
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     mem2reg::Mem2RegPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    stack_move::RemoveStackMoves,
 };
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel;
@@ -163,6 +164,8 @@ impl WgslCompiler {
         func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(DCEPass);
+        func_passes.add_pass(RemoveStackMoves);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
 

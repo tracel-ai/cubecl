@@ -147,6 +147,11 @@ pub enum Expression {
         index: Box<Expression>,
         span: Span,
     },
+    IndexRef {
+        expr: Box<Expression>,
+        index: Box<Expression>,
+        span: Span,
+    },
     IndexMut {
         expr: Box<Expression>,
         index: Box<Expression>,
@@ -209,6 +214,9 @@ pub enum Expression {
     AssertConstant {
         inner: Box<Expression>,
     },
+    ReadPlace {
+        inner: Box<Expression>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -240,6 +248,7 @@ impl Expression {
             Expression::CompilerIntrinsic { .. } => true,
             Expression::Match { arms, .. } => arms.iter().all(|it| it.expr.is_const()),
             Expression::AssertConstant { .. } => true,
+            Expression::ReadPlace { inner } => inner.is_const(),
             _ => false,
         }
     }
@@ -261,6 +270,13 @@ impl Expression {
             Expression::FieldAccess { base, .. } => base.is_always_pure(),
             _ => false,
         }
+    }
+
+    pub fn is_place(&self) -> bool {
+        matches!(
+            self,
+            Expression::FieldAccess { .. } | Expression::Index { .. }
+        )
     }
 
     pub fn as_const_primitive(&self, _context: &mut Context) -> Option<TokenStream> {
@@ -308,6 +324,7 @@ impl Expression {
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),
+            Expression::ReadPlace { inner } => inner.as_const(context),
             _ => None,
         }
     }
@@ -375,7 +392,7 @@ mod tests {
         }
     }
     fn index(inner: Expression) -> Expression {
-        Expression::Index {
+        Expression::IndexRef {
             expr: Box::new(inner),
             index: Box::new(lit()),
             span: Span::call_site(),

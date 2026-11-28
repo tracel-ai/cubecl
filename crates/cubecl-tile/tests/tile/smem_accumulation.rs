@@ -7,7 +7,7 @@
 //! atomically ([`SmemAccumulation`]) or in cyclic rounds ([`SmemCyclicAccumulation`]).
 #![allow(non_snake_case)]
 
-use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
+use crate::support::{HostData, HostDataType, HostDataVec, TestInput, ValidationResult};
 use cubecl::{
     features::AtomicUsage,
     ir::{ElemType, FloatKind, Type},
@@ -465,6 +465,7 @@ fn fragment_matmul_into_a_short_window<E: Numeric>(
             comptime!(StageStorage::Tiled {
                 block: vec![(M, 16), (N, 16), (K, 16)],
                 chunks: RowChunks::InOrder,
+                order: StageOrder::AsSource,
             }),
             1usize,
             None,
@@ -507,17 +508,26 @@ fn contracts_f16_fragments(client: &cubecl::client::Client) -> bool {
 /// past the edge are never written, so the output reads the product and nothing else.
 #[test]
 fn a_fragment_drains_into_a_window_the_edge_cuts_short() {
-    short_window_matmul(false);
+    short_window_matmul(false, 1);
+}
+
+/// The same product drained into an output bound four values a line: where the target states its
+/// fragments' positions, each unit writes whole lines out of its registers, regrouped across
+/// units where each holds a column; elsewhere it bounces, reading its scratch back a line at a
+/// time.
+#[test]
+fn a_fragment_drains_into_a_wide_window_the_edge_cuts_short() {
+    short_window_matmul(false, 4);
 }
 
 /// The same product stored with `copy_from`, which bounces a fragment into a short window just as
 /// the drain does.
 #[test]
 fn a_fragment_copies_into_a_window_the_edge_cuts_short() {
-    short_window_matmul(true);
+    short_window_matmul(true, 1);
 }
 
-fn short_window_matmul(copies: bool) {
+fn short_window_matmul(copies: bool, out_width: usize) {
     let client = cubecl::test_device().client();
     if !contracts_f16_fragments(&client) {
         return;
@@ -553,10 +563,11 @@ fn short_window_matmul(copies: bool) {
     );
     // Bound through the launcher, which reads the overhang off the partitioning and masks the
     // output's writes past its edge.
-    let bind = |binding, element, dimensions: &'static [Dimension]| {
+    let bind = |binding, element, dimensions: &'static [Dimension], width| {
         launcher
             .arg(binding, element)
             .dimensions(dimensions)
+            .vectorize(width)
             .build()
             .unwrap()
     };
@@ -564,9 +575,9 @@ fn short_window_matmul(copies: bool) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        bind(a_handle.clone().binding(), input, &[M, K]).arg(),
-        bind(b_handle.clone().binding(), input, &[K, N]).arg(),
-        bind(out.clone().binding(), out.dtype, &[M, N]).arg(),
+        bind(a_handle.clone().binding(), input, &[M, K], 1).arg(),
+        bind(b_handle.clone().binding(), input, &[K, N], 1).arg(),
+        bind(out.clone().binding(), out.dtype, &[M, N], out_width).arg(),
         launcher.partitioning_arg(),
         copies,
         f32::elem_type_native(),
@@ -574,6 +585,164 @@ fn short_window_matmul(copies: bool) {
 
     let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
     assert_matches(&got, m, n, k);
+}
+
+/// A dimension of the output one cell wide, which the accumulator does not hold.
+const J: Dimension = Dimension(3);
+
+/// `c = a · b` in `16×16×16` fragments over boxes that overhang the output, the sum opened over
+/// `held`, which lists the output's rows and columns alone, and drained into `c`, which lists a
+/// one-wide dimension between them: the bounce the edge calls for addresses `c` as the
+/// accumulator lists it.
+#[cube(launch)]
+fn fragment_matmul_into_a_window_listing_another_dimension<E: Numeric>(
+    a: &TileTensor<'_>,
+    b: &TileTensor<'_>,
+    held: &TileTensor<'_>,
+    c: &mut TileTensor<'_>,
+    space: Partitioning,
+    #[define(E)] _output: ElemType,
+) {
+    let a = a.tile(&space);
+    let b = b.tile(&space);
+    let held = held.tile(&space);
+    let c = c.tile_mut(&space);
+    for cube in &space {
+        let a_cube = a.at(&cube);
+        let b_cube = b.at(&cube);
+        let c_cube = c.at(&cube);
+        let mut acc = held
+            .at(&cube)
+            .accumulator::<E>(&a_cube, &b_cube, Semiring::SumProd);
+        acc.zero();
+        let walk = cube.walk();
+        let mut stages = Stages::smem(
+            &walk,
+            &a_cube,
+            &b_cube,
+            comptime!(StageStorage::Tiled {
+                block: vec![(M, 16), (N, 16), (K, 16)],
+                chunks: RowChunks::InOrder,
+                order: StageOrder::AsSource,
+            }),
+            1usize,
+            None,
+        );
+        stages.pipelined(walk, |slot, stage| {
+            slot.consume(|a_stage, b_stage| {
+                let mut acc_stage = acc.at(stage);
+                acc_stage.mma(a_stage, b_stage);
+            });
+        });
+        acc.drained_into(&c_cube);
+    }
+}
+
+/// A `20 × 24` product drained into an output listed `[M, J, N]` by an accumulator listed
+/// `[M, N]`: every box overhangs, so each fragment bounces through the scratch, or is written out
+/// of its registers where the target states its cells' positions, and its rows land on the
+/// output's rows rather than on the one-wide `J`, whose rows past the first the edge's mask would
+/// drop.
+#[test]
+fn a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists() {
+    fragment_matmul_past_a_one_wide_dimension(false);
+}
+
+/// [`a_bounced_fragment_lands_its_rows_whatever_order_the_window_lists`] with the accumulator
+/// listed `[M, J, N]` too: the one-wide `J` it holds between its rows and columns is not the
+/// fragment's rows either.
+#[test]
+fn a_bounced_fragment_lands_its_rows_past_a_one_wide_dimension_it_holds() {
+    fragment_matmul_past_a_one_wide_dimension(true);
+}
+
+/// A `20 × 24 × 32` product drained into an output listed `[M, J, N]`, `J` one wide, by an
+/// accumulator listed `[M, J, N]` where `held_lists_j`, `[M, N]` otherwise, checked cell by cell.
+fn fragment_matmul_past_a_one_wide_dimension(held_lists_j: bool) {
+    let client = cubecl::test_device().client();
+    if !contracts_f16_fragments(&client) {
+        return;
+    }
+    let (m, n, k) = (20usize, 24usize, 32usize);
+    let input = half::f16::elem_type_native();
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 - 3.0).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 5) as f32 - 2.0).collect();
+    let (a_handle, _) = TestInput::builder(client.clone(), shape![m, k])
+        .dtype(input)
+        .custom(a)
+        .generate_with_f32_host_data();
+    let (b_handle, _) = TestInput::builder(client.clone(), shape![k, n])
+        .dtype(input)
+        .custom(b)
+        .generate_with_f32_host_data();
+    let held_shape = match held_lists_j {
+        true => shape![m, 1, n],
+        false => shape![m, n],
+    };
+    let held_dimensions: &'static [Dimension] = match held_lists_j {
+        true => &[M, J, N],
+        false => &[M, N],
+    };
+    let held = TestInput::builder(client.clone(), held_shape)
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+    let out = TestInput::builder(client.clone(), shape![m, 1, n])
+        .dtype(f32::elem_type_native())
+        .zeros()
+        .generate_without_host_data();
+
+    let launcher = implied(
+        &client,
+        Partitioning::new(
+            Space::new(&[(M, m), (J, 1), (N, n), (K, k)]),
+            Levels::leaf(&[(M, 16), (J, 1), (N, 16), (K, 16)])
+                .walk(&[(M, 1), (J, 1), (N, 1)])
+                .walk_every(&[K])
+                .cubes(&[M, J, N])
+                .build(),
+        ),
+        Form::Static,
+    );
+    let bind = |binding, element, dimensions: &'static [Dimension]| {
+        launcher
+            .arg(binding, element)
+            .dimensions(dimensions)
+            .build()
+            .unwrap()
+    };
+    fragment_matmul_into_a_window_listing_another_dimension::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        bind(a_handle.clone().binding(), input, &[M, K]).arg(),
+        bind(b_handle.clone().binding(), input, &[K, N]).arg(),
+        bind(held.clone().binding(), held.dtype, held_dimensions).arg(),
+        bind(out.clone().binding(), out.dtype, &[M, J, N]).arg(),
+        launcher.partitioning_arg(),
+        f32::elem_type_native(),
+    );
+
+    let got = HostData::from_tensor_handle(&client, out, HostDataType::F32);
+    let read_back = match &got.data {
+        HostDataVec::F32(cells) => cells.len(),
+        HostDataVec::F64(_) | HostDataVec::I32(_) => 0,
+    };
+    assert!(
+        read_back >= m * n,
+        "the output should read back whole: {read_back} cells"
+    );
+    let want = reference(m, n, k);
+    for i in 0..m {
+        for j in 0..n {
+            let have = got.get_f32(&[i, 0, j]);
+            assert!(
+                (have - want[i * n + j]).abs() < 1e-3,
+                "at ({i}, {j}): got {have}, want {}",
+                want[i * n + j]
+            );
+        }
+    }
 }
 
 // -- A fragment taller than its box -------------------------------------------------------------

@@ -257,25 +257,17 @@ fn quant_mask(size_quant: usize) -> u32 {
 /// the test would pass with both of them wrong.
 pub(crate) fn assert_supported(scheme: &QuantScheme) {
     assert!(
-        scheme.num_levels() <= 1,
+        scheme.levels().count() <= 1,
         "two-level quantization is not supported by the reference quantizer, got {scheme:?}"
     );
 }
 
 /// The scheme's per-axis block edges over `shape`: the number of elements each scale covers
-/// along each axis. A scheme with no block level has one scale for the whole tensor, so its
-/// block spans everything.
+/// along each axis.
 pub(crate) fn block_axes(scheme: &QuantScheme, shape: &[usize]) -> Vec<usize> {
     assert_supported(scheme);
 
-    match scheme.block_size() {
-        Some(block) => block
-            .to_dim_vec(shape.len())
-            .into_iter()
-            .map(usize::from)
-            .collect(),
-        None => shape.to_vec(),
-    }
+    scheme.finest().size.values(shape)
 }
 
 /// The block scale grid: each dimension divided by its block extent, so one entry per block.

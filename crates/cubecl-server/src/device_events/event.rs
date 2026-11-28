@@ -33,12 +33,21 @@ impl<A: EventApi> Event<A> {
         A::event_record(&self.sys, stream)
     }
 
+    /// Whether the device has reached this event, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`], the fault the query revealed on the stream.
+    pub fn is_reached(&self) -> Result<bool, DriverError> {
+        A::event_query(&self.sys)
+    }
+
     /// Block until the device has reached this event.
     ///
     /// # Errors
     ///
     /// [`DriverError`], the fault the wait revealed on the stream.
-    pub fn wait(&self) -> Result<(), DriverError> {
+    pub fn sync_host(&self) -> Result<(), DriverError> {
         A::event_wait(&self.sys)
     }
 
@@ -47,7 +56,7 @@ impl<A: EventApi> Event<A> {
     /// # Errors
     ///
     /// [`DriverError`] when the driver refuses the dependency.
-    pub fn wait_async(&self, stream: A::Stream) -> Result<(), DriverError> {
+    pub fn sync_device(&self, stream: A::Stream) -> Result<(), DriverError> {
         A::stream_wait_event(stream, &self.sys)
     }
 

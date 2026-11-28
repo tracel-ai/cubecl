@@ -2,49 +2,18 @@ use cubecl_core::{
     cmma::{MatrixIdent, MatrixType},
     ir::{
         ElemType, FloatKind, IntKind, UIntKind,
-        dialect::matrix::{ColIndexOp, RowIndexOp},
         features::{MmaConfig, ScaledMmaConfig},
         interfaces::TypedExt,
         prelude::*,
     },
-    prelude::*,
 };
 use itertools::Itertools;
 use pliron::r#type::TypedHandle;
 
-use cubecl_core::prelude::polyfills::mma::{col_index, row_index};
-
 use crate::{
     cuda::arch::{CudaArchitecture, CudaToolkitVersion},
-    shared::{
-        Architecture, SupportedMmaCombinations, SupportedScaledMmaCombinations, lowering::LowerOp,
-    },
-    target::Cuda,
+    shared::{Architecture, SupportedMmaCombinations, SupportedScaledMmaCombinations},
 };
-
-#[op_interface_impl]
-impl LowerOp<Cuda> for RowIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let matrix = *self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let elems_per_reg = 32 / matrix.unpacked_elem_size_bits(scope.ctx());
-        let lane_id = self.lane_id(scope.ctx());
-        let i = self.i(scope.ctx());
-        let out = row_index::expand(scope, lane_id.into(), i.into(), elems_per_reg, matrix.ident);
-        vec![out.value(scope)]
-    }
-}
-
-#[op_interface_impl]
-impl LowerOp<Cuda> for ColIndexOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let matrix = *self.matrix_ty(scope.ctx()).deref(scope.ctx());
-        let elems_per_reg = 32 / matrix.unpacked_elem_size_bits(scope.ctx());
-        let lane_id = self.lane_id(scope.ctx());
-        let i = self.i(scope.ctx());
-        let out = col_index::expand(scope, lane_id.into(), i.into(), elems_per_reg, matrix.ident);
-        vec![out.value(scope)]
-    }
-}
 
 pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
     if !arch.tensor_cores {

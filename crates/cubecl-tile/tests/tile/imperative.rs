@@ -36,7 +36,7 @@ fn ring_matmul(
 
     // The cube's walk: one block of K per region, both operands staged for it.
     let walk = space.walk();
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let c_block = c.at(region);
         slot.consume(|a_s, b_s| {
@@ -67,7 +67,7 @@ fn role_split_matmul(
     c.zero();
 
     let walk = space.walk();
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
+    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, 1usize, None);
 
     match stages.role() {
         Role::Fill => {
@@ -80,7 +80,7 @@ fn role_split_matmul(
                 stages.fill(0usize, &region);
                 stages.slot_mut(0usize).publish();
                 let c_block = c.at(&region);
-                stages.consume(0usize, |a_s, b_s| {
+                stages.consume(0usize, &region, |a_s, b_s| {
                     for cell in &region {
                         let mut c_cell = c_block
                             .at(&cell)

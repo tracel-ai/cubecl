@@ -6,7 +6,7 @@ use cubecl_std::tensor::{ViewOperations, ViewOperationsExpand, layout::CoordsDyn
 
 use crate::*;
 
-use super::{ErasedRecipe, FactorReads, RecipeCoords, Separable, SeparableExpand};
+use super::{ErasedRecipe, FactorReads, Identity, RecipeCoords, Separable, SeparableExpand};
 
 /// Runtime state of a procedural source. `origin` tracks regions selected by `Tile::at`. Its
 /// recipe computes at its own element; a read names the element it wants.
@@ -145,9 +145,16 @@ impl Procedural {
         self.recipe.factorization()
     }
 
+    /// The identity this source is everywhere, where it is one ([`zero`](Self::zero),
+    /// [`one`](Self::one)).
+    pub(crate) fn identity(&self) -> comptime_type!(Option<Identity>) {
+        self.recipe.identity()
+    }
+
     /// Whether this source is zero everywhere ([`zero`](Self::zero)).
     pub(crate) fn is_zero(&self) -> comptime_type!(bool) {
-        self.recipe.is_zero()
+        let identity = self.identity();
+        comptime!(identity == Some(Identity::Zero))
     }
 
     #[allow(dead_code)] // Reached through its expand, from [`Tile::factor_dependencies`].
@@ -344,6 +351,12 @@ impl Procedural {
         )
     }
 
+    /// A tile that is one everywhere, along no dimension ([`one`](Self::one)).
+    #[allow(dead_code)] // Reached through its expand, from [`Tile::factor`].
+    pub(crate) fn one_tile() -> Tile {
+        Procedural::one::<f32>(comptime!(Space::new(&[]))).tile::<f32>()
+    }
+
     /// This source as a tile at the root of `partitioning`, windowed by its regions like an
     /// operand bound to it: its space must be the partitioning's, or some of its dimensions.
     pub fn tile_in<T: Numeric>(self, partitioning: &Partitioning) -> Tile {
@@ -386,7 +399,22 @@ impl Procedural {
         Self::__expand_erased(
             scope,
             space.clone(),
-            ErasedRecipe::__expand_zero::<T>(scope),
+            ErasedRecipe::__expand_identity::<T>(scope, Identity::Zero),
+        )
+    }
+
+    /// A source over `space` that is one everywhere, computing at `T`: what a tile with nothing to
+    /// take apart is multiplied by ([`Tile::factor`](crate::Tile::factor)). Multiplying by it
+    /// ([`Tile::mul`](crate::Tile::mul)) changes nothing and reads nothing.
+    pub fn one<T: Numeric>(_space: Space) -> Self {
+        unexpanded!()
+    }
+
+    pub fn __expand_one<T: Numeric>(scope: &Scope, space: Space) -> ProceduralExpand {
+        Self::__expand_erased(
+            scope,
+            space.clone(),
+            ErasedRecipe::__expand_identity::<T>(scope, Identity::One),
         )
     }
 
@@ -421,6 +449,11 @@ impl Procedural {
 }
 
 impl ProceduralExpand {
+    /// Whether this source is `identity` everywhere, and says so.
+    pub(crate) fn states(&self, identity: Identity) -> bool {
+        self.recipe.identity == Some(identity)
+    }
+
     pub fn __expand_normalized_method(
         mut self,
         scope: &Scope,
@@ -438,18 +471,12 @@ impl ProceduralExpand {
 
 #[cfg(test)]
 mod tests {
-    use cubecl::ir::{ExpandValue, Scope};
+    use cubecl::ir::ExpandValue;
 
     use crate::tile::kind::procedural::constant::{Constant, ConstantExpand};
     use crate::*;
 
-    fn test_scope() -> Scope {
-        Scope::root(cubecl::ir::settings::KernelSettings::new(
-            cubecl::ir::settings::Dim3::new_single(),
-            cubecl::ir::settings::ExecutionMode::Checked,
-            cubecl::ir::AddressType::U32,
-        ))
-    }
+    use crate::test_scope::test_scope;
 
     #[test]
     #[should_panic(expected = "the recipe states no separable factorization")]

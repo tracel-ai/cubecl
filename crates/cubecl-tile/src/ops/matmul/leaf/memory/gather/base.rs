@@ -396,7 +396,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
     let lw = lhs.vector_size();
     let rw = rhs.vector_size();
     let aw = comptime!(acc.store.vector_size);
-    // `step_served` refused anything but a matched pair or scalar sink, so this divides exactly.
+    // Anything but a matched pair or a scalar sink is refused, so this divides exactly.
     comptime!(assert!(
         rw == aw || aw == 1,
         "contract gather: a rhs staged wider than its sink spreads its units across scalar cells, \
@@ -436,7 +436,7 @@ pub(crate) fn contract<E: Numeric, EL: Numeric, ER: Numeric>(
         // A separable lhs serves one value a step; the block is the accumulator's width.
         comptime!(assert!(
             contracted_per_step == 1 && lw == 1,
-            "contract gather: a separable lhs needs scalar weights contracted_per_step one value a step"
+            "contract gather: a separable lhs needs scalar weights, one value a step"
         ));
         let size!(V) = rw;
         let size!(A) = aw;

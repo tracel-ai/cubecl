@@ -15,12 +15,12 @@ pub enum NamespaceContent {
     /// each entry names a kernel stored under the compiler's own root, and is
     /// not a kernel itself.
     KernelSources,
-    /// The answers autotune measured, one per key and candidate list.
-    AutotuneAnswers,
+    /// The tunes autotune decided, one per key and candidate list.
+    Tunes,
     /// How the environment was built.
     Records,
-    /// Anything else: the throughput measurements, the work's launches, an
-    /// application's own data.
+    /// Anything else: the throughput measurements, the records of what the
+    /// work used, an application's own data.
     Other,
 }
 
@@ -52,7 +52,7 @@ impl<'a> NamespaceRoot<'a> {
     /// What the namespace's entries are.
     pub fn content(self) -> NamespaceContent {
         match self.0 {
-            Self::AUTOTUNE => NamespaceContent::AutotuneAnswers,
+            Self::AUTOTUNE => NamespaceContent::Tunes,
             crate::records::EVERY_LAYOUT => NamespaceContent::Records,
             root => ArtifactRoot::content_of(root),
         }
@@ -134,7 +134,8 @@ mod tests {
     use super::*;
 
     /// Only a compiler's namespace holds artifacts: the measurements, the
-    /// records, the work's launches and an application's data never do.
+    /// records, the records of what the work used and an application's data
+    /// never do.
     #[test]
     fn only_a_compilers_namespace_holds_artifacts() {
         for root in ArtifactRoot::ALL {
@@ -145,7 +146,7 @@ mod tests {
             "autotune/0.12.0/matmul",
             "throughput/0.12.0/probe",
             "records/v1/sessions",
-            "launched/0.12.0/00ff",
+            "used/0.12.0/00ff/kernels",
             "my-application/0.1.0/settings",
         ] {
             assert!(

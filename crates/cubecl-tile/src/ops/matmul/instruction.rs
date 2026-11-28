@@ -1,16 +1,18 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::MatrixIdent;
+use cubecl::cmma::{MatrixIdent, MatrixLayout, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
-    DeviceProperties, ElemType, FloatKind, TargetProperties, features::ScaledMmaConfig,
+    DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
+    features::ScaledMmaConfig,
 };
 
 use cubecl::quant::scheme::QuantValue;
 
+use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
-use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
+use crate::{CellLines, ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
 
 /// What one plane contracts through: a software matmul or a hardware fragment form.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -52,6 +54,68 @@ impl Instruction {
             Self::Registers { .. } | Self::Mma { .. } => true,
             Self::Cmma | Self::Wgmma => false,
         }
+    }
+
+    /// Whether a sum this instruction contracts hides which unit holds which of its cells on
+    /// `target`: a cmma fragment's does where the target's compiler keeps its fragments' positions
+    /// to itself ([`FragmentPositions::Hidden`]).
+    ///
+    /// # Guarantees
+    ///
+    /// - `true` exactly for [`Instruction::Cmma`] on a target whose fragment positions are
+    ///   [`FragmentPositions::Hidden`].
+    pub fn hides_cell_positions(self, target: &TargetProperties) -> bool {
+        match self {
+            Self::Cmma => target.mma.fragment_positions == FragmentPositions::Hidden,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// Whether a sum this instruction contracts is backed by a scratch: a cmma fragment's is, so
+    /// it is scaled through that scratch, and reaches a destination that adds, overhangs or casts
+    /// out of place through it wherever its units do not write it out of their registers.
+    pub(crate) fn takes_scratch(self) -> bool {
+        match self {
+            Self::Cmma => true,
+            Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
+        }
+    }
+
+    /// The widest line along the rows (`m`) and along the columns (`n`) of an `m × n` sum held in
+    /// `sum` that this instruction's units write out of their registers on `target`, where the
+    /// sum bounces no cell: a cmma fragment whose positions the target states writes the lines
+    /// its units hold, alone or regrouped across units in registers ([`CellLines::widest`]). One
+    /// along each side for every other case: a fragment that hides its positions bounces, and
+    /// the other forms write their cells one at a time.
+    ///
+    /// # Guarantees
+    ///
+    /// - A destination bound at a width dividing the side its lines run along is written out of
+    ///   registers, with no scratch.
+    pub fn widest_line(
+        self,
+        target: &TargetProperties,
+        [m, n]: [usize; 2],
+        sum: ElemType,
+    ) -> [usize; 2] {
+        let positions =
+            match self {
+                Self::Cmma if !self.hides_cell_positions(target) => target
+                    .mma
+                    .element_positions_of(MatrixIdent::Accumulator, (m, n, m).into(), sum),
+                Self::Cmma | Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => None,
+            };
+        let lanes = target.mma.const_plane_lane_count as usize;
+        let elems = target.mma.elems_per_lane(MatrixIdent::Accumulator, m * n);
+        let widest = |layout| {
+            positions.as_ref().map_or(1, |positions| {
+                CellLines::widest(positions, lanes, elems, layout)
+            })
+        };
+        [
+            widest(MatrixLayout::ColMajor),
+            widest(MatrixLayout::RowMajor),
+        ]
     }
 }
 
@@ -206,6 +270,10 @@ pub(crate) enum OpenedBy {
     /// [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator): a sum drained into an
     /// output whose rows are scaled between its products, as an online softmax's output is.
     RescaledAccumulator,
+    /// [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator): a
+    /// [`StageAccumulator`](Self::StageAccumulator) of products whose first factor the planes hold
+    /// in registers.
+    HeldFactorAccumulator,
 }
 
 impl Instruction {
@@ -262,6 +330,30 @@ impl Instruction {
         )
     }
 
+    /// What the sum [`Tile::held_factor_accumulator`](crate::Tile::held_factor_accumulator) opens
+    /// contracts through: [`for_stage_accumulator`](Self::for_stage_accumulator)'s rule through this
+    /// crate's transport alone, which is what loads a factor once for every product. `None` where
+    /// the device offers no call of it.
+    pub fn for_held_factor_accumulator(
+        device: &DeviceProperties,
+        target: &TargetProperties,
+        lhs: FragmentSource,
+        rhs: FragmentSource,
+        sum: ElemType,
+        shape: [usize; 3],
+    ) -> Option<ShapedInstruction> {
+        Self::for_plane(
+            device,
+            target,
+            ComputeScope::Plane,
+            lhs,
+            rhs,
+            sum,
+            shape,
+            OpenedBy::HeldFactorAccumulator,
+        )
+    }
+
     /// What the sum [`Tile::rescaled_accumulator`](crate::Tile::rescaled_accumulator) opens
     /// contracts through, a sum whose rows are scaled between its products:
     /// [`for_accumulator`](Self::for_accumulator)'s rule, except that this crate's transport comes
@@ -289,7 +381,8 @@ impl Instruction {
     }
 
     /// The rule behind [`for_accumulator`](Self::for_accumulator),
-    /// [`for_stage_accumulator`](Self::for_stage_accumulator) and
+    /// [`for_stage_accumulator`](Self::for_stage_accumulator),
+    /// [`for_held_factor_accumulator`](Self::for_held_factor_accumulator) and
     /// [`for_rescaled_accumulator`](Self::for_rescaled_accumulator):
     /// - held by a plane group (`holder`): the plane group MMA;
     /// - an operand already held in fragments: their instruction, which reads them as they lie;
@@ -298,6 +391,7 @@ impl Instruction {
     /// - an operand the TMA engine lands, codes kept beside their scales, which this crate's
     ///   transport decodes in lane runs as it loads, or a sum contracted again where the target
     ///   lays a fragment's `A` like its accumulator: this crate's transport first;
+    /// - a sum of products of a factor held in registers: this crate's transport alone;
     /// - a sum whose rows are scaled between its products, where this crate's transport offers the
     ///   call the fragment API would take: this crate's transport, the same call;
     /// - a product of 8-bit floats, whose scales its sum applies cell by cell: this crate's
@@ -398,7 +492,7 @@ impl Instruction {
             let [cmma_call, mma_call] = calls;
             let picks = [
                 cmma_call
-                    .filter(|_| !cells_scaled)
+                    .filter(|_| !cells_scaled && opened_by != OpenedBy::HeldFactorAccumulator)
                     .map(|call| call.picked(Instruction::Cmma)),
                 mma_call.map(|call| call.picked(mma)),
             ];
@@ -476,7 +570,9 @@ struct Offered {
 /// laying a fragment's `A` otherwise than its accumulator, or for values wider than 16 bits,
 /// whose `A` lays its cells otherwise (`accumulators_as_a`); and for 8-bit values other than
 /// `e4m3`. The held cells are cast to the values' element, and `e5m2`'s two bits of mantissa are
-/// too coarse for an attention's probabilities.
+/// too coarse for an attention's probabilities. An `A` is a run of them where the target's
+/// registers lay the two alike ([`rereads`]). A run of RDNA4's held cells is one cell deep
+/// ([`deepest_run`]).
 fn held_run(
     device: &DeviceProperties,
     target: &TargetProperties,
@@ -490,8 +586,9 @@ fn held_run(
         return None;
     };
     let element = rhs.element(rhs)?;
-    let read_as_a = element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
-    if !accumulator_is_a(target) || !read_as_a {
+    let holds_probabilities =
+        element.size_bits() == 16 || element == ElemType::Float(FloatKind::E4M3);
+    if !accumulator_is_a(target) || !holds_probabilities {
         return None;
     }
     let runs: Vec<&MmaConfig> = device
@@ -503,6 +600,8 @@ fn held_run(
         .filter(|s| s.m as usize == held_rows && m.is_multiple_of(held_rows))
         .filter(|s| n.is_multiple_of(s.n as usize))
         .filter(|s| (s.k as usize).is_multiple_of(held_width) && k.is_multiple_of(s.k as usize))
+        .filter(|s| s.k as usize <= deepest_run(held_width))
+        .filter(|s| rereads(target, [held_rows, held_width], s))
         .collect();
     let depth = runs
         .iter()
@@ -523,12 +622,53 @@ fn held_run(
     })
 }
 
+/// Whether `call`'s `A` is a run of accumulators of `m × n` cells as `target` lays the two in a
+/// lane's vectors ([`KeyOrder::rereading`]).
+fn rereads(target: &TargetProperties, [m, n]: [usize; 2], call: &MmaConfig) -> bool {
+    let element = call.a_type;
+    let vectors = |ident, shape: MatrixShape, copies: usize| {
+        let width = target.mma.vector_size(ident, shape, element);
+        let cells = shape.num_elems(ident) * copies / target.mma.const_plane_lane_count as usize;
+        LaneVectors {
+            width,
+            count: cells / width,
+        }
+    };
+    let acc = vectors(
+        MatrixIdent::Accumulator,
+        (m, n, n).into(),
+        target.mma.register_copy_count_acc,
+    );
+    let a = vectors(
+        MatrixIdent::A,
+        (call.m as usize, call.n as usize, call.k as usize).into(),
+        target.mma.register_copy_count_a,
+    );
+    KeyOrder::rereading(element.size(), acc, a).is_some()
+}
+
+/// The width of RDNA's WMMA accumulator, `16 × 16`: each half of its lanes holds half of a cell's
+/// columns.
+const RDNA_WMMA_WIDTH: usize = 16;
+
+/// The deepest run of held cells `held_width` wide one call reads as its `A`. A call deeper than
+/// its instruction is cut from each lane's run of `k`, each half of RDNA's lanes holding a half of
+/// the whole run; its held cells hold a half of each cell's columns instead, so two of them side
+/// by side are not that `A`. There a run is one cell deep, an instruction a cell; elsewhere
+/// (`mma.sync`'s `16 × 8`, whose `A` holds its cells' columns in order) any depth.
+fn deepest_run(held_width: usize) -> usize {
+    match held_width {
+        RDNA_WMMA_WIDTH => held_width,
+        _ => usize::MAX,
+    }
+}
+
 /// Whether `target` lays a manual-mma fragment's `A` as it lays its accumulator, so a sum held in
 /// registers is the `A` of the next product as it lies.
 fn accumulator_is_a(target: &TargetProperties) -> bool {
     let layout = &target.mma;
     layout.register_layout_a == layout.register_layout_acc
-        && layout.register_duplication_a == layout.register_duplication_acc
+        && layout.register_copy_count_a == layout.register_copy_count_acc
 }
 
 /// The form of the device's block-scaled instruction of `m × n × k` that reads both operands as
@@ -669,9 +809,9 @@ fn best_call<'a>(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
-        DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize, features::Features,
+        ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
+        features::Features,
     };
     use cubecl::profile::TimingMethod;
 
@@ -755,17 +895,27 @@ pub(crate) mod tests {
     pub(crate) fn sum_is_next_a() -> TargetProperties {
         let mut target = TargetProperties::default();
         target.mma.register_layout_a = target.mma.register_layout_acc;
-        target.mma.register_duplication_a = target.mma.register_duplication_acc;
+        target.mma.register_copy_count_a = target.mma.register_copy_count_acc;
         target
     }
 
-    /// A target whose `A` lies otherwise than its accumulator, as on RDNA.
+    /// A target whose `A` lies otherwise than its accumulator, as on RDNA3.
     pub(crate) fn sum_is_not_next_a() -> TargetProperties {
         let mut target = sum_is_next_a();
         target.mma.register_layout_a = match target.mma.register_layout_acc {
             MatrixLayout::RowMajor => MatrixLayout::ColMajor,
             _ => MatrixLayout::RowMajor,
         };
+        target
+    }
+
+    /// A target whose `A` and accumulator lie alike, a lane's vectors of each as long as given.
+    fn sum_is_next_a_in(a: VectorSize, acc: VectorSize) -> TargetProperties {
+        let mut target = sum_is_next_a();
+        target.mma.contiguous_elements = ContiguousElements::new(move |_, ident, _| match ident {
+            MatrixIdent::A | MatrixIdent::B => a,
+            MatrixIdent::Accumulator => acc,
+        });
         target
     }
 
@@ -800,6 +950,70 @@ pub(crate) mod tests {
     fn an_accumulators_sum_goes_through_cmma() {
         assert_eq!(picked(&metal(), HALF, [8, 8, 8]), Some(Instruction::Cmma));
         assert_eq!(picked(&cuda(), HALF, [16, 16, 16]), Some(Instruction::Cmma));
+    }
+
+    /// A target whose compiler states which lane holds which cell of a fragment.
+    fn stated_positions() -> TargetProperties {
+        let mut target = TargetProperties::default();
+        target.mma.fragment_positions = FragmentPositions::AsElementPositions;
+        target
+    }
+
+    /// A cmma sum hides its cells only on a target whose compiler hides them, and no other form
+    /// hides its cells on any target.
+    #[test]
+    fn a_cmma_fragment_hides_its_cells_only_where_the_target_does() {
+        let hidden = TargetProperties::default();
+        let stated = stated_positions();
+        assert!(Instruction::Cmma.hides_cell_positions(&hidden));
+        assert!(!Instruction::Cmma.hides_cell_positions(&stated));
+        assert!(!mma().hides_cell_positions(&hidden));
+        assert!(!Instruction::Wgmma.hides_cell_positions(&hidden));
+    }
+
+    /// A cmma sum is backed by a scratch even where its target states its cells' positions, so a
+    /// drain that bounces it still has one; the forms whose cells are each unit's own take none.
+    #[test]
+    fn a_cmma_sum_takes_a_scratch_even_where_its_cells_are_stated() {
+        assert!(Instruction::Cmma.takes_scratch());
+        assert!(!mma().takes_scratch());
+        assert!(!Instruction::Wgmma.takes_scratch());
+    }
+
+    /// `core`'s target with its fragments' positions stated as `stated` says.
+    fn amd(core: cubecl_ir::amd::AmdMatrixCore, stated: FragmentPositions) -> TargetProperties {
+        let mut mma = core.mma_properties();
+        mma.fragment_positions = stated;
+        TargetProperties { mma }
+    }
+
+    /// A cmma fragment whose positions the target states writes lines as wide as its lanes hold
+    /// them, along a row as RDNA4's lanes do, or regrouped where each lane holds a column, as
+    /// RDNA3's and CDNA's do; one cell a line where its target hides them, and for the manual
+    /// MMA, whose lines this crate does not widen yet.
+    #[test]
+    fn a_stated_fragment_writes_the_lines_its_lanes_hold() {
+        use FragmentPositions::{AsElementPositions, Hidden};
+        use cubecl_ir::amd::{AmdMatrixCore, AmdMfma, AmdWmma};
+        let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+        let cdna3 = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
+        let widest =
+            |instruction: Instruction, target| instruction.widest_line(&target, [16, 16], F32);
+        assert_eq!(
+            widest(Instruction::Cmma, amd(rdna4, AsElementPositions)),
+            [8, 8]
+        );
+        assert_eq!(
+            widest(Instruction::Cmma, amd(rdna3, AsElementPositions)),
+            [1, 8]
+        );
+        assert_eq!(
+            widest(Instruction::Cmma, amd(cdna3, AsElementPositions)),
+            [4, 4]
+        );
+        assert_eq!(widest(Instruction::Cmma, amd(rdna3, Hidden)), [1, 1]);
+        assert_eq!(widest(mma(), amd(rdna4, AsElementPositions)), [1, 1]);
     }
 
     /// What a rescaled sum over `shape` contracts through on `device`.
@@ -989,6 +1203,31 @@ pub(crate) mod tests {
         assert_eq!(pick(metal(), [8, 8, 8]), Some(Instruction::Cmma));
     }
 
+    /// A sum of a factor held in registers goes through the crate's transport where the fragment
+    /// API offers the same calls too, and nowhere else.
+    #[test]
+    fn a_held_factors_sum_goes_through_mma_alone() {
+        let pick = |device: &DeviceProperties, shape| {
+            Instruction::for_held_factor_accumulator(
+                device,
+                &sum_is_next_a(),
+                HALF,
+                HALF,
+                F32,
+                shape,
+            )
+            .map(|pick| pick.instruction)
+        };
+        assert_eq!(pick(&metal(), [8, 8, 8]), Some(mma()));
+        let mut fragment_api_alone = plain();
+        fragment_api_alone
+            .features
+            .matmul
+            .cmma
+            .insert(shape(16, 16, 16));
+        assert_eq!(pick(&fragment_api_alone, [16, 16, 16]), None);
+    }
+
     /// Where the accumulator is not the next `A`, keeping the sum in registers buys nothing.
     #[test]
     fn a_stage_accumulators_sum_needs_to_be_the_next_a() {
@@ -1123,7 +1362,7 @@ pub(crate) mod tests {
         let pick = |kind| {
             Instruction::for_accumulator(
                 &device,
-                &sum_is_next_a(),
+                &sum_is_next_a_in(4, 2),
                 ComputeScope::Plane,
                 held,
                 FragmentSource::Values(fp8(kind)),
@@ -1134,6 +1373,63 @@ pub(crate) mod tests {
         };
         assert_eq!(pick(FloatKind::E4M3), Some((mma(), [16, 8], 32)));
         assert_eq!(pick(FloatKind::E5M2), None);
+    }
+
+    /// Held `16 × 16` cells, as RDNA's, are reread one cell a call even where the device offers a
+    /// deeper call: a run of two would pair the halves of two cells.
+    #[test]
+    fn held_cells_16_wide_are_reread_a_cell_a_call() {
+        let mut device = rdna();
+        device.features.matmul.mma.insert(shape(16, 16, 32));
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 16],
+        };
+
+        let pick = Instruction::for_accumulator(
+            &device,
+            &sum_is_next_a(),
+            ComputeScope::Plane,
+            held,
+            HALF,
+            F32,
+            [16, 64, 32],
+        )
+        .map(|p| p.depth());
+
+        assert_eq!(pick, Some(16));
+    }
+
+    /// Held `16 × 16` cells are reread as an `e4m3` `A` where a lane's vectors of the two are as
+    /// long, as RDNA4's are, and not where an `A` vector is four accumulator vectors long.
+    #[test]
+    fn held_cells_meet_e4m3_values_as_the_registers_lay_them() {
+        let mut device = rdna();
+        let fp8 = ElemType::Float(FloatKind::E4M3);
+        device.features.matmul.mma.insert(MmaConfig {
+            a_type: fp8,
+            b_type: fp8,
+            ..shape(16, 16, 16)
+        });
+        let held = FragmentSource::Fragments {
+            instruction: mma(),
+            cell: [16, 16],
+        };
+        let pick = |target| {
+            Instruction::for_accumulator(
+                &device,
+                &target,
+                ComputeScope::Plane,
+                held,
+                FragmentSource::Values(fp8),
+                F32,
+                [16, 32, 64],
+            )
+            .map(|p| (p.instruction, p.cell(), p.depth()))
+        };
+
+        assert_eq!(pick(sum_is_next_a_in(8, 8)), Some((mma(), [16, 16], 16)));
+        assert_eq!(pick(sum_is_next_a_in(8, 2)), None);
     }
 
     /// Plane groups of four issue the plane group MMA.

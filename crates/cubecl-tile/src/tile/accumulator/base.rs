@@ -1,5 +1,6 @@
 //! The plane-resident accumulator an output opens ([`Tile::accumulator`]).
 
+use cubecl::cmma::{MatrixIdent, MatrixLayout};
 use cubecl::prelude::*;
 
 use crate::dialect::DrainOp;
@@ -41,9 +42,10 @@ pub enum Scratch {
     /// No window: fragments store through their intrinsic, which cannot add; a drain that needs
     /// one opens [`OneTile`](Scratch::OneTile).
     None,
-    /// One tile, bounced through shared memory with three cube-wide barriers each.
+    /// One tile, bounced through shared memory with three barriers each, of the plane that holds the
+    /// grid.
     OneTile,
-    /// The plane's whole grid, two barriers for the whole drain.
+    /// The plane's whole grid, three barriers for the whole drain.
     #[serde(rename = "WholePartition")]
     WholeGrid,
 }
@@ -134,7 +136,9 @@ impl Tile {
             TileKind::Memory(_)
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
-            | TileKind::Lines(_) => panic!("Tile::factor: a sum is a tile an accumulator opened"),
+            | TileKind::Lines(_) => {
+                panic!("Tile::sum_instruction: a sum is a tile an accumulator opened")
+            }
         }
     }
 
@@ -172,7 +176,7 @@ impl Tile {
             comptime!(OpenedBy::RescaledAccumulator),
         );
         let instruction = sum.sum_instruction();
-        let bounced = comptime!(instruction == Instruction::Cmma);
+        let bounced = comptime!(instruction.takes_scratch());
         sum.with_scratch(comptime!(if bounced { scratch } else { Scratch::None }))
     }
 
@@ -266,15 +270,9 @@ impl Tile {
 
     /// Drain this accumulator into `dest`, cast to its element. `self` and `dest` must be
     /// indexed by the same region. A cmma grid opened with no scratch opens one where `dest`
-    /// needs its fragments bounced. Scales the sum carries are applied as it drains: one over
-    /// every cell as one number, ones varying across its cells cell by cell.
+    /// needs its fragments bounced. The scales the sum carries are applied as it drains.
     ///
     /// It reaches the IR as one `tile.drained_into` op.
-    ///
-    /// # Panics
-    ///
-    /// As the kernel expands, where scales varying across its cells ride a sum held in the
-    /// fragment API, which hides where its cells lie.
     pub fn drained_into(&self, dest: &Tile) {
         intrinsic!(|scope| DrainOp::trace(scope, |scope| {
             self.__expand_drain_into_method(scope, dest)
@@ -288,116 +286,61 @@ impl Tile {
         opened.consume(at, self);
         opened.close();
     }
-
-    /// [`drained_into`](Tile::drained_into)'s drain, as tracing writes it inside the op.
-    #[allow(
-        dead_code,
-        reason = "reached only through its expansion, inside the op"
-    )]
-    fn drain_into(&self, dest: &Tile) {
-        let define!(Served) = self.element;
-        let define!(Out) = dest.element;
-        // A sum written out is a sum with its scales applied: multiplied by them once, as it
-        // drains. A grid of cmma fragments is scaled, and reaches a destination it cannot store
-        // to directly, through a scratch: where none was opened, the drain opens the smallest.
-        let levels = self.factor_levels();
-        let scaled = comptime!(levels > 0);
-        let total = self.is_memory();
-        comptime!(assert!(
-            !(total && scaled),
-            "Tile::drained_into: a memory tile is a merged total, which carries no scales"
-        ));
-        let unopened = self.scratch_unopened();
-        let in_place = self.casts_in_place_to::<Served, Out>();
-        let bounces = dest.fragments_bounce(in_place);
-        let varies = self.factor_varies();
-        let scaling = comptime!(DrainScaling::of(
-            unopened && (scaled || bounces),
-            scaled,
-            varies
-        ));
-        match scaling {
-            DrainScaling::OpensScratch => {
-                self.clone().with_scratch(Scratch::OneTile).drain_into(dest)
-            }
-            DrainScaling::PerCell => self.drain_scaled_per_cell::<Served>(dest),
-            DrainScaling::Whole => self.drain_scaled_whole(dest),
-            DrainScaling::Unscaled => self.drain_as_opened::<Served, Out>(dest),
-        }
-    }
-
-    /// [`drain_into`](Tile::drain_into) of a sum whose scales vary across its cells: each cell
-    /// multiplied by its own where its unit holds it, then drained unscaled.
-    #[allow(
-        dead_code,
-        reason = "reached only through its expansion, inside the op"
-    )]
-    fn drain_scaled_per_cell<Served: Numeric>(&self, dest: &Tile) {
-        scale_cells_below::<Served>(self, comptime!(self.place.below().to_vec()), 0usize);
-        self.unscaled().drain_into(dest);
-    }
-
-    /// [`drain_into`](Tile::drain_into) of a sum under one scale over all its cells.
-    #[allow(
-        dead_code,
-        reason = "reached only through its expansion, inside the op"
-    )]
-    fn drain_scaled_whole(&self, dest: &Tile) {
-        let mut sum = self.unscaled();
-        sum.scale_by::<f32>(self.factor.whole());
-        sum.drain_into(dest);
-    }
 }
 
-/// How a sum's drain applies the scales it carries.
+/// What a sum's drain does first.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum DrainScaling {
-    /// Through a scratch the drain opens first: a scaled sum, or one bouncing to its destination,
-    /// with none opened.
+enum SumDrain {
+    /// Multiplies the sum by the scales it carries.
+    Scaled,
+    /// Opens the scratch the sum bounces through to its destination.
     OpensScratch,
-    /// Cell by cell, the scales varying across the sum's cells.
-    PerCell,
-    /// As one number over every cell.
-    Whole,
-    /// None to apply.
-    Unscaled,
+    /// Nothing.
+    AsOpened,
 }
 
-impl DrainScaling {
-    /// The drain of a sum that `opens_scratch`, carries scales where `scaled`, which vary across
-    /// its cells where `varies`.
-    fn of(opens_scratch: bool, scaled: bool, varies: bool) -> Self {
-        match (opens_scratch, scaled, varies) {
-            (true, _, _) => Self::OpensScratch,
-            (false, true, true) => Self::PerCell,
-            (false, true, false) => Self::Whole,
-            (false, false, _) => Self::Unscaled,
+impl SumDrain {
+    /// The drain of a sum under scales where `scaled`, which `opens_scratch` where it bounces to
+    /// its destination and has none.
+    fn of(scaled: bool, opens_scratch: bool) -> Self {
+        match (scaled, opens_scratch) {
+            (true, _) => Self::Scaled,
+            (false, true) => Self::OpensScratch,
+            (false, false) => Self::AsOpened,
         }
     }
 }
 
-/// Each fragment of `acc` below `levels[depth..]` multiplied cell by cell by its scales, which
-/// vary across the output: a row's and a column's, where a product's inputs carry them per row.
+/// Each tile of `sum` a plane or a unit holds, below `levels[depth..]`, multiplied by the scales it
+/// carries where it is held.
 #[cube]
-fn scale_cells_below<A: Numeric>(
-    acc: &Tile,
-    #[comptime] levels: Vec<Level>,
-    #[comptime] depth: usize,
-) {
-    if depth == levels.len() {
-        let mut fragment = acc.clone();
-        fragment.scale_own_cells::<A>();
+fn scale_held_below(sum: &Tile, #[comptime] levels: Vec<Level>, #[comptime] depth: usize) {
+    // Past the last level dealt to units or planes, the rest is walked by whoever holds the tile.
+    let held = comptime!(
+        levels[depth..]
+            .iter()
+            .all(|level| level.coverage() == Coverage::Walk)
+    );
+    if held {
+        sum.clone().scale_held();
     } else {
-        let level = comptime!(levels[depth].clone());
-        if comptime!(level.coverage() == Coverage::Walk) {
-            for region in acc.over(&level).unrolled() {
-                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
-            }
-        } else {
-            for region in acc.over(&level) {
-                scale_cells_below::<A>(&acc.at(&region), levels.clone(), depth + 1);
-            }
-        }
+        scale_held_through_level(sum, levels, depth);
+    }
+}
+
+/// [`scale_held_below`] each region of `sum` that `levels[depth]` cuts, unrolled where the level
+/// is walked.
+#[cube]
+fn scale_held_through_level(sum: &Tile, #[comptime] levels: Vec<Level>, #[comptime] depth: usize) {
+    let level = comptime!(levels[depth].clone());
+    let walk = sum.over(&level);
+    let walk = if comptime!(level.coverage() == Coverage::Walk) {
+        walk.unrolled()
+    } else {
+        walk
+    };
+    for region in walk {
+        scale_held_below(&sum.at(&region), levels.clone(), depth + 1);
     }
 }
 
@@ -429,246 +372,6 @@ impl Tile {
             element: elem_type_of::<E>(),
         }
     }
-
-    /// Whether this accumulator's fragments cast to `Out` are fragments the device holds
-    /// ([`casts_in_place`]): what decides whether a cmma grid draining into an `Out` destination
-    /// stores whole or bounces.
-    fn casts_in_place_to<A: Numeric, Out: Numeric>(&self) -> comptime_type!(bool) {
-        // Only a cmma fragment has a cast the device may lack. Reading the grid of anything else
-        // would ask the extent of a dimension that may be dynamic.
-        match &self.kind {
-            // The fragment's own edges: the placement's space spans every plane's grid.
-            TileKind::PlanePartition(p) => {
-                let cmma = p.is_cmma();
-                if comptime!(cmma) {
-                    casts_in_place::<A, Out>(comptime!(p.rows), comptime!(p.cols))
-                } else {
-                    comptime!(true)
-                }
-            }
-            TileKind::PlaneTile(t) => match t {
-                PlaneTile::Cmma(_) => {
-                    let (_, m, n) = self.fragment_grid();
-                    casts_in_place::<A, Out>(m, n)
-                }
-                PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                    comptime!(true)
-                }
-            },
-            TileKind::Memory(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => comptime!(true),
-        }
-    }
-
-    /// Waits for the units that share the scratch this accumulator bounces through: its holder's.
-    /// A plane's windows are its own ([`plane_windows`]), so its plane alone meets them; a plane
-    /// group's fragments span its planes, so the cube does.
-    fn sync_scratch(&self) {
-        match comptime!(self.place.holder()) {
-            ComputeScope::Unit | ComputeScope::Plane => sync_plane(),
-            ComputeScope::PlaneGroup { .. } | ComputeScope::Cube => sync_cube(),
-        }
-    }
-
-    /// Whether this is a grid of cmma fragments opened with no scratch.
-    fn scratch_unopened(&self) -> comptime_type!(bool) {
-        match &self.kind {
-            TileKind::PlanePartition(p) => {
-                let cmma = p.is_cmma();
-                comptime!(cmma && p.held == Scratch::None)
-            }
-            TileKind::Memory(_)
-            | TileKind::PlaneTile(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => comptime!(false),
-        }
-    }
-
-    /// This sum multiplied by the scales it carries, once, and carrying none: what a drain that
-    /// lands it a chunk at a time ([`drained_chunk_into`](Tile::drained_chunk_into)) writes. A
-    /// grid of cmma fragments opened with no scratch is scaled through the smallest.
-    pub(crate) fn with_scales_applied(&self) -> Tile {
-        let levels = self.factor_levels();
-        let unopened = self.scratch_unopened();
-        let scaled = comptime!(levels > 0);
-        let scratch = comptime!(if unopened && scaled {
-            Scratch::OneTile
-        } else {
-            Scratch::None
-        });
-        let mut sum = self.clone().with_scratch(scratch).unscaled();
-        if scaled {
-            sum.scale_by::<f32>(self.factor.whole());
-        }
-        sum
-    }
-
-    /// [`drained_into`](Tile::drained_into) for the fragments of chunk `turn` alone, of
-    /// `chunks` the fragment grid is dealt into by place: what one writer of a cyclic schedule
-    /// lands in one round, each fragment drained in exactly one of the `chunks` rounds. It reaches
-    /// every barrier a whole drain does, so writers landing different chunks meet at all of them.
-    /// A grid opened with no scratch drains through the smallest, as a whole drain does.
-    pub(crate) fn drained_chunk_into<A: Numeric, Out: Numeric>(
-        &self,
-        dest: &Tile,
-        turn: usize,
-        #[comptime] chunks: usize,
-    ) {
-        let unopened = self.scratch_unopened();
-        let in_place = self.casts_in_place_to::<A, Out>();
-        let bounces = dest.fragments_bounce(in_place);
-        if comptime!(unopened && bounces) {
-            let opened = self.clone().with_scratch(Scratch::OneTile);
-            opened.drained_chunk_into::<A, Out>(dest, turn, chunks);
-        } else {
-            self.drain_chunk_as_opened::<A, Out>(dest, turn, chunks);
-        }
-    }
-
-    /// [`drained_chunk_into`](Tile::drained_chunk_into) through the scratch this grid was opened
-    /// with, where `dest` is one its fragments must bounce to reach.
-    fn drain_chunk_as_opened<A: Numeric, Out: Numeric>(
-        &self,
-        dest: &Tile,
-        turn: usize,
-        #[comptime] chunks: usize,
-    ) {
-        let in_place = self.casts_in_place_to::<A, Out>();
-        let bounces = dest.fragments_bounce(in_place);
-        match &self.kind {
-            TileKind::PlanePartition(p) => match comptime!(DrainPlan::new(p.held, bounces)) {
-                DrainPlan::Straight => drain_chunk_below::<A, Out>(
-                    self,
-                    dest,
-                    comptime!(self.place.below().to_vec()),
-                    0usize,
-                    comptime!(DrainPass::Copy),
-                    0usize,
-                    turn,
-                    chunks,
-                ),
-                DrainPlan::BounceEach => drain_chunk_below::<A, Out>(
-                    self,
-                    dest,
-                    comptime!(self.place.below().to_vec()),
-                    0usize,
-                    comptime!(DrainPass::Bounce),
-                    0usize,
-                    turn,
-                    chunks,
-                ),
-                DrainPlan::BounceTogether => {
-                    self.sync_scratch();
-                    drain_chunk_below::<A, Out>(
-                        self,
-                        dest,
-                        comptime!(self.place.below().to_vec()),
-                        0usize,
-                        comptime!(DrainPass::Spill),
-                        0usize,
-                        turn,
-                        chunks,
-                    );
-                    self.sync_scratch();
-                    drain_chunk_below::<A, Out>(
-                        self,
-                        dest,
-                        comptime!(self.place.below().to_vec()),
-                        0usize,
-                        comptime!(DrainPass::Add),
-                        0usize,
-                        turn,
-                        chunks,
-                    );
-                    self.sync_scratch();
-                }
-            },
-            // One tile: it is the one chunk of its grid. A fragment bouncing into its destination
-            // meets its holder at its barriers whatever the turn, so it bounces through the
-            // predicated pass; anything else stores with no barrier at all.
-            TileKind::PlaneTile(t) => {
-                let cmma = match t {
-                    PlaneTile::Cmma(_) => comptime!(true),
-                    PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
-                        comptime!(false)
-                    }
-                };
-                let in_place = self.casts_in_place_to::<A, Out>();
-                let bounces = dest.fragments_bounce(in_place);
-                if comptime!(cmma && bounces) {
-                    drain_chunk_leaf::<A, Out>(self, dest, comptime!(DrainPass::Bounce), turn == 0);
-                } else {
-                    drain_chunk_leaf::<A, Out>(self, dest, comptime!(DrainPass::Copy), turn == 0);
-                }
-            }
-            TileKind::Memory(_)
-            | TileKind::TmaGmem(_)
-            | TileKind::Procedural(_)
-            | TileKind::Lines(_) => {
-                panic!(
-                    "Tile::drained_chunk_into: a plane-resident accumulator drains; nothing else does"
-                )
-            }
-        }
-    }
-
-    /// [`drained_into`](Tile::drained_into) through the scratch this grid was opened with,
-    /// where `dest` is one its fragments must bounce to reach.
-    fn drain_as_opened<A: Numeric, Out: Numeric>(&self, dest: &Tile) {
-        let in_place = self.casts_in_place_to::<A, Out>();
-        let bounces = dest.fragments_bounce(in_place);
-        match &self.kind {
-            TileKind::PlanePartition(p) => match comptime!(DrainPlan::new(p.held, bounces)) {
-                DrainPlan::Straight => drain_below::<A, Out>(
-                    self,
-                    dest,
-                    comptime!(self.place.below().to_vec()),
-                    0usize,
-                    comptime!(DrainPass::Copy),
-                ),
-                // One slot shared: each spill and add pair off at its leaf.
-                DrainPlan::BounceEach => drain_below::<A, Out>(
-                    self,
-                    dest,
-                    comptime!(self.place.below().to_vec()),
-                    0usize,
-                    comptime!(DrainPass::Bounce),
-                ),
-                // Own slots: every spill precedes any add, so the descent runs twice.
-                DrainPlan::BounceTogether => {
-                    self.sync_scratch();
-                    drain_below::<A, Out>(
-                        self,
-                        dest,
-                        comptime!(self.place.below().to_vec()),
-                        0usize,
-                        comptime!(DrainPass::Spill),
-                    );
-                    self.sync_scratch();
-                    drain_below::<A, Out>(
-                        self,
-                        dest,
-                        comptime!(self.place.below().to_vec()),
-                        0usize,
-                        comptime!(DrainPass::Add),
-                    );
-                    self.sync_scratch();
-                }
-            },
-            // No grid: the accumulator is one tile and the drain is one store.
-            TileKind::PlaneTile(_) => drain_leaf::<A, Out>(self, dest, comptime!(DrainPass::Copy)),
-            // A finished total merged in memory: the holder's units copy its lines, whoever
-            // filled the buffer the destination windows.
-            TileKind::Memory(_) => dest.clone().copy_cast_from(self),
-            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => panic!(
-                "Tile::drained_into: an accumulator or a total merged in memory drains; nothing \
-                 else does"
-            ),
-        }
-    }
 }
 
 /// Who holds each of the output's tiles at `place`: the narrowest scope a level below it deals them
@@ -681,6 +384,41 @@ fn holder(place: &Placement) -> ComputeScope {
         .filter_map(|level| level.coverage().scope())
         .min()
         .unwrap_or_else(|| place.holder())
+}
+
+/// The sum [`Tile::placed_accumulator`] opens, of factors whose fragments load from `source`.
+#[cube]
+fn kept_accumulator<EA: Numeric>(
+    #[comptime] space: Space,
+    #[comptime] depth: usize,
+    #[comptime] levels: Vec<Level>,
+    lhs: &Tile,
+    #[comptime] source: FragmentSource,
+    #[comptime] opened_by: OpenedBy,
+) -> Tile {
+    let place = comptime!(Placement::new(space, depth, levels));
+    let call = plane_call_on::<EA>(&place, &lhs.place.space, source, source, opened_by);
+    let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
+    let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
+    let grid = comptime!(GridShape::new(&place, &lhs.place.space));
+    let instruction = comptime!(call.instruction);
+    let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
+    let mut acc = PlanePartition::mirror::<EA>(
+        &place.space,
+        comptime!(MatrixDimensions::accumulator(
+            &place.space,
+            &lhs.place.space
+        )),
+        instruction,
+        grid,
+        1usize,
+        1usize,
+        accumulation,
+        place.depth,
+        place.levels.clone(),
+    );
+    acc.init_identity::<EA>(accumulation.monoid());
+    acc
 }
 
 /// Panics where a plane group level splits a dimension the output at `place` lacks: each group
@@ -876,6 +614,83 @@ impl Tile {
         )
     }
 
+    /// [`stage_accumulator`](Tile::stage_accumulator) of products whose first factor the planes hold
+    /// in registers ([`held_for`](Tile::held_for)), both read in `E`, whatever element `lhs`, the
+    /// factor where it lies, is stored in: it is cast as it loads. It is the crate's own transport's
+    /// ([`Instruction::for_held_factor_accumulator`](crate::Instruction::for_held_factor_accumulator)).
+    pub fn held_factor_accumulator<EA: Numeric, E: Numeric>(
+        walk: &Walk,
+        #[comptime] dimensions: Vec<Dimension>,
+        lhs: &Tile,
+    ) -> Tile {
+        let element = elem_type_of::<E>();
+        kept_accumulator::<EA>(
+            comptime!(walk.level.child(&walk.space).subspace(&dimensions)),
+            comptime!(walk.depth()),
+            comptime!(walk.parent.path.root_levels()),
+            lhs,
+            comptime!(FragmentSource::Values(element)),
+            comptime!(OpenedBy::HeldFactorAccumulator),
+        )
+    }
+
+    /// The fragments of `E` each plane holds of this factor of `sum`'s products, the first one,
+    /// unfilled: one for each step of the contraction a call of `sum`'s instruction takes and each
+    /// row of `sum`'s grid, which the plane fills once from its own window
+    /// ([`copy_cast_from`](Tile::copy_cast_from) at the plane's region), cast as they load, and every
+    /// product into `sum` then reads in registers. They are laid out as `sum` is cut, so they are
+    /// indexed by the regions `sum` is, and take no shared memory. This factor spans nothing the
+    /// walk steps but the contraction, as an attention's query does.
+    pub fn held_for<E: Numeric>(&self, sum: &Tile) -> Tile {
+        let (_, m, n) = sum.fragment_grid();
+        let instruction = sum.sum_instruction();
+        let place = comptime!(Placement::new(
+            self.place.space.clone(),
+            sum.place.depth,
+            sum.place.levels.clone()
+        ));
+        let (tiles, leaf) = comptime!((
+            partition_shape(&place.space, place.below()),
+            place.space.leaf(place.below())
+        ));
+        let edges = comptime!(MatrixDimensions::edges(&leaf));
+        let (rows, k) = comptime!((edges.rows(&leaf), edges.cols(&leaf)));
+        comptime!(assert!(
+            matches!(instruction, Instruction::Mma { .. })
+                && rows == m
+                && leaf.contracted_extent(&sum.place.space) == k,
+            "Tile::held_for: a factor held in registers is the rows of a manual-mma sum by its \
+             contraction, fragments of {m} by the instruction's depth; this one's leaf is {leaf:?}"
+        ));
+        let (m_tiles, n_tiles) = tiles;
+        let mut frags = Sequence::<PlaneTile>::new();
+        #[unroll]
+        for _i in 0..(m_tiles * n_tiles) {
+            frags.push(PlaneTile::operand::<E>(
+                instruction,
+                comptime!(MatrixIdent::A),
+                m,
+                n,
+                k,
+                comptime!(MatrixLayout::RowMajor),
+            ));
+        }
+        Tile {
+            kind: TileKind::new_PlanePartition(PlanePartition {
+                frags,
+                m_tiles,
+                n_tiles,
+                rows: m,
+                cols: k,
+                scratch: ComptimeOption::new_None(),
+                held: Scratch::None,
+            }),
+            factor: Factor::none(),
+            place,
+            element: elem_type_of::<E>(),
+        }
+    }
+
     /// A plane-resident accumulator over `space`, placed at `depth` of `levels` as
     /// [`with_levels`](Tile::with_levels) places a tile, summing `lhs` times a factor of its
     /// element, opened at zero: [`stage_accumulator`](Tile::stage_accumulator) on a grid the
@@ -887,29 +702,250 @@ impl Tile {
         #[comptime] levels: Vec<Level>,
         lhs: &Tile,
     ) -> Tile {
-        let place = comptime!(Placement::new(space, depth, levels));
-        let call = plane_call::<EA>(&place, lhs, lhs, comptime!(OpenedBy::StageAccumulator));
-        let place = comptime!(walk_contraction(&place, &lhs.place.space, call.depth()));
-        let place = comptime!(cut_into_cells(&place, &lhs.place.space, call.cell()));
-        let grid = comptime!(GridShape::new(&place, &lhs.place.space));
-        let instruction = comptime!(call.instruction);
-        let accumulation = comptime!(Accumulation::Contraction(Semiring::SumProd));
-        let mut acc = PlanePartition::mirror::<EA>(
-            &place.space,
-            comptime!(MatrixDimensions::accumulator(
-                &place.space,
-                &lhs.place.space
-            )),
-            instruction,
-            grid,
-            1usize,
-            1usize,
-            accumulation,
-            place.depth,
-            place.levels.clone(),
-        );
-        acc.init_identity::<EA>(accumulation.monoid());
-        acc
+        let source = lhs.fragment_source();
+        kept_accumulator::<EA>(
+            space,
+            depth,
+            levels,
+            lhs,
+            source,
+            comptime!(OpenedBy::StageAccumulator),
+        )
+    }
+}
+
+#[cube]
+impl Tile {
+    /// [`drained_into`](Tile::drained_into)'s drain, as tracing writes it inside the op.
+    #[allow(
+        dead_code,
+        reason = "reached only through its expansion, inside the op"
+    )]
+    fn drain_into(&self, dest: &Tile) {
+        let define!(Served) = self.element;
+        let define!(Out) = dest.element;
+        // A sum written out is a sum with its scales applied: multiplied by them once, as it
+        // drains. A grid of cmma fragments is scaled, and reaches a destination it cannot store
+        // to directly, through a scratch: where none was opened, the drain opens the smallest.
+        let levels = self.factor_levels();
+        let total = self.is_memory();
+        comptime!(assert!(
+            !(total && levels > 0),
+            "Tile::drained_into: a memory tile is a merged total, which carries no scales"
+        ));
+        let unopened = self.scratch_unopened();
+        let bounces = self.bounces_into::<Served, Out>(dest);
+        let drain = comptime!(SumDrain::of(levels > 0, unopened && bounces));
+        match drain {
+            SumDrain::Scaled => self.with_scales_applied().drain_into(dest),
+            SumDrain::OpensScratch => self.clone().with_scratch(Scratch::OneTile).drain_into(dest),
+            SumDrain::AsOpened => self.drain_as_opened::<Served, Out>(dest),
+        }
+    }
+
+    /// Whether this accumulator's fragments cast to `Out` are fragments the device holds
+    /// ([`casts_in_place`]): what decides whether a cmma grid draining into an `Out` destination
+    /// stores whole or bounces.
+    fn casts_in_place_to<A: Numeric, Out: Numeric>(&self) -> comptime_type!(bool) {
+        // Only a cmma fragment has a cast the device may lack. Reading the grid of anything else
+        // would ask the extent of a dimension that may be dynamic.
+        match &self.kind {
+            // The fragment's own edges: the placement's space spans every plane's grid.
+            TileKind::PlanePartition(p) => {
+                let cmma = p.takes_scratch();
+                if comptime!(cmma) {
+                    casts_in_place::<A, Out>(comptime!(p.rows), comptime!(p.cols))
+                } else {
+                    comptime!(true)
+                }
+            }
+            TileKind::PlaneTile(t) => match t {
+                PlaneTile::Cmma(_) => {
+                    let (_, m, n) = self.fragment_grid();
+                    casts_in_place::<A, Out>(m, n)
+                }
+                PlaneTile::Mma(_) | PlaneTile::Registers(_) | PlaneTile::Wgmma(_) => {
+                    comptime!(true)
+                }
+            },
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(true),
+        }
+    }
+
+    /// Waits for the units that share the scratch this accumulator bounces through: its holder's.
+    /// A plane's windows are its own ([`plane_windows`]), so its plane alone meets them; a plane
+    /// group's fragments span its planes, so the cube does.
+    fn sync_scratch(&self) {
+        match comptime!(self.place.holder()) {
+            ComputeScope::Unit | ComputeScope::Plane => sync_plane(),
+            ComputeScope::PlaneGroup { .. } | ComputeScope::Cube => sync_cube(),
+        }
+    }
+
+    /// Whether this is a grid of cmma fragments opened with no scratch.
+    fn scratch_unopened(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlanePartition(p) => {
+                let cmma = p.takes_scratch();
+                comptime!(cmma && p.held == Scratch::None)
+            }
+            TileKind::Memory(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// This sum multiplied by the scales it carries, once, and carrying none: what a drain that
+    /// lands it a chunk at a time ([`drained_chunk_into`](Tile::drained_chunk_into)) writes. A
+    /// grid of cmma fragments opened with no scratch is scaled through the smallest.
+    pub(crate) fn with_scales_applied(&self) -> Tile {
+        let levels = self.factor_levels();
+        let unopened = self.scratch_unopened();
+        let scaled = comptime!(levels > 0);
+        let scratch = comptime!(if unopened && scaled {
+            Scratch::OneTile
+        } else {
+            Scratch::None
+        });
+        let sum = self.clone().with_scratch(scratch);
+        if scaled {
+            scale_held_below(&sum, comptime!(self.place.below().to_vec()), 0usize);
+        }
+        sum.unscaled()
+    }
+
+    /// [`drained_into`](Tile::drained_into) for the fragments of chunk `turn` alone, of
+    /// `chunks` the fragment grid is dealt into by place: what one writer of a cyclic schedule
+    /// lands in one round, each fragment drained in exactly one of the `chunks` rounds. It reaches
+    /// every barrier a whole drain does, so writers landing different chunks meet at all of them.
+    /// A grid opened with no scratch drains through the smallest, as a whole drain does.
+    pub(crate) fn drained_chunk_into<A: Numeric, Out: Numeric>(
+        &self,
+        dest: &Tile,
+        turn: usize,
+        #[comptime] chunks: usize,
+    ) {
+        let levels = self.factor_levels();
+        let unopened = self.scratch_unopened();
+        let bounces = self.bounces_into::<A, Out>(dest);
+        match comptime!(SumDrain::of(levels > 0, unopened && bounces)) {
+            SumDrain::Scaled => self
+                .with_scales_applied()
+                .drained_chunk_into::<A, Out>(dest, turn, chunks),
+            SumDrain::OpensScratch => self
+                .clone()
+                .with_scratch(Scratch::OneTile)
+                .drained_chunk_into::<A, Out>(dest, turn, chunks),
+            SumDrain::AsOpened => self.drain_chunk_as_opened::<A, Out>(dest, turn, chunks),
+        }
+    }
+
+    /// Whether this sum's fragments must bounce to reach `dest`, cast from `A` to `Out`: what
+    /// decides whether a drain opens a scratch and how it passes over the grid. A fragment whose
+    /// units write lines of `dest` out of their registers does not.
+    fn bounces_into<A: Numeric, Out: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
+        let in_place = self.casts_in_place_to::<A, Out>();
+        let from_registers = self.drains_from_registers_into::<A>(dest);
+        dest.fragments_bounce(in_place, from_registers)
+    }
+
+    /// Whether this plane-resident sum, held at `A`, reaches `dest` out of its units' registers,
+    /// a line of `dest`'s store at a time, where it would otherwise bounce
+    /// ([`PlaneTile::cell_lines`]); a memory tile does not.
+    fn drains_from_registers_into<A: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
+        let width = dest.store_vector_size();
+        match &self.kind {
+            TileKind::PlanePartition(p) => {
+                let lines = p.at(0usize, 0usize).cell_lines::<A>(width);
+                comptime!(lines.is_some())
+            }
+            TileKind::PlaneTile(t) => {
+                let lines = t.cell_lines::<A>(width);
+                comptime!(lines.is_some())
+            }
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// Whether this plane-resident sum is backed by a scratch ([`Instruction::takes_scratch`]); a
+    /// memory tile is not.
+    fn takes_scratch(&self) -> comptime_type!(bool) {
+        match &self.kind {
+            TileKind::PlanePartition(p) => p.takes_scratch(),
+            TileKind::PlaneTile(t) => t.takes_scratch(),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// [`drained_chunk_into`](Tile::drained_chunk_into) through the scratch this grid was opened
+    /// with, where `dest` is one its fragments must bounce to reach.
+    fn drain_chunk_as_opened<A: Numeric, Out: Numeric>(
+        &self,
+        dest: &Tile,
+        turn: usize,
+        #[comptime] chunks: usize,
+    ) {
+        let bounces = self.bounces_into::<A, Out>(dest);
+        let scratch_backed = self.takes_scratch();
+        let one_tile = comptime!(DrainPass::for_one_tile(scratch_backed && bounces));
+        match &self.kind {
+            TileKind::PlanePartition(p) => drain_planned::<A, Out>(
+                self,
+                dest,
+                comptime!(DrainPlan::new(p.held, bounces)),
+                turn,
+                chunks,
+            ),
+            // One tile: it is the one chunk of its grid. A fragment bouncing into its destination
+            // meets its holder at its barriers whatever the turn, so it bounces through the
+            // predicated pass; anything else stores with no barrier at all.
+            TileKind::PlaneTile(_) => drain_leaf::<A, Out>(self, dest, one_tile, turn == 0),
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => {
+                panic!(
+                    "Tile::drained_chunk_into: a plane-resident accumulator should drain; nothing else does"
+                )
+            }
+        }
+    }
+
+    /// [`drained_into`](Tile::drained_into) through the scratch this grid was opened with,
+    /// where `dest` is one its fragments must bounce to reach.
+    fn drain_as_opened<A: Numeric, Out: Numeric>(&self, dest: &Tile) {
+        let bounces = self.bounces_into::<A, Out>(dest);
+        match &self.kind {
+            TileKind::PlanePartition(p) => drain_planned::<A, Out>(
+                self,
+                dest,
+                comptime!(DrainPlan::new(p.held, bounces)),
+                WHOLE_DRAIN_TURN,
+                WHOLE_DRAIN_CHUNKS,
+            ),
+            // No grid: the accumulator is one tile and the drain is one store.
+            TileKind::PlaneTile(_) => {
+                drain_leaf::<A, Out>(self, dest, comptime!(DrainPass::Copy), true)
+            }
+            // A finished total merged in memory: the holder's units copy its lines, whoever
+            // filled the buffer the destination windows.
+            TileKind::Memory(_) => dest.clone().copy_cast_from(self),
+            TileKind::TmaGmem(_) | TileKind::Procedural(_) | TileKind::Lines(_) => panic!(
+                "Tile::drained_into: an accumulator or a total merged in memory should drain; \
+                 nothing else does"
+            ),
+        }
     }
 }
 
@@ -957,11 +993,24 @@ fn plane_call<EA: Numeric>(
 ) -> comptime_type!(ShapedInstruction) {
     let lhs_source = lhs.fragment_source();
     let rhs_source = rhs.fragment_source();
+    plane_call_on::<EA>(out, &lhs.place.space, lhs_source, rhs_source, opened_by)
+}
+
+/// [`plane_call`] of factors stated: the first's space, and the source each one's fragments load
+/// from.
+#[cube]
+fn plane_call_on<EA: Numeric>(
+    #[comptime] out: &Placement,
+    #[comptime] lhs: &Space,
+    #[comptime] lhs_source: FragmentSource,
+    #[comptime] rhs_source: FragmentSource,
+    #[comptime] opened_by: OpenedBy,
+) -> comptime_type!(ShapedInstruction) {
     let device = comptime::device_properties().comptime();
     let target = comptime::target_properties().comptime();
     let sum = elem_type_of::<EA>();
     comptime!({
-        let grid = GridShape::new(out, &lhs.place.space);
+        let grid = GridShape::new(out, lhs);
         let shape = [grid.m, grid.n, grid.k];
         Instruction::for_plane(
             &device,
@@ -983,50 +1032,78 @@ fn plane_call<EA: Numeric>(
     })
 }
 
-/// [`Tile::drained_into`]'s descent over `levels[i..]`, applying `pass` at every leaf.
+/// A whole drain is the one turn of its one chunk.
+const WHOLE_DRAIN_TURN: usize = 0;
+const WHOLE_DRAIN_CHUNKS: usize = 1;
+
+/// A descent starts at the first level below the sum, at the first place of its grid.
+const ROOT_LEVEL: usize = 0;
+const ROOT_PLACE: usize = 0;
+
+/// The drain of `acc` into `dest` as `plan` passes over its grid, landing the fragments of chunk
+/// `turn` of `chunks`.
 #[cube]
-fn drain_below<A: Numeric, O: Numeric>(
+fn drain_planned<A: Numeric, O: Numeric>(
     acc: &Tile,
     dest: &Tile,
-    #[comptime] levels: Vec<Level>,
-    #[comptime] i: usize,
-    #[comptime] pass: DrainPass,
+    #[comptime] plan: DrainPlan,
+    turn: usize,
+    #[comptime] chunks: usize,
 ) {
-    if i == levels.len() {
-        drain_leaf::<A, O>(acc, dest, pass);
-    } else {
-        let level = comptime!(levels[i].clone());
-        // A walked level's coordinates must be constants: its regions select fragments.
-        if comptime!(level.coverage() == Coverage::Walk) {
-            for region in dest.over(&level).unrolled() {
-                drain_below::<A, O>(
-                    &acc.at(&region),
-                    &dest.at(&region),
-                    levels.clone(),
-                    i + 1,
-                    pass,
-                );
-            }
-        } else {
-            for region in dest.over(&level) {
-                drain_below::<A, O>(
-                    &acc.at(&region),
-                    &dest.at(&region),
-                    levels.clone(),
-                    i + 1,
-                    pass,
-                );
-            }
+    match plan {
+        DrainPlan::Straight => {
+            drain_from_root::<A, O>(acc, dest, comptime!(DrainPass::Copy), turn, chunks)
         }
+        // One slot shared: each spill and add pair off at its leaf.
+        DrainPlan::BounceEach => {
+            drain_from_root::<A, O>(acc, dest, comptime!(DrainPass::Bounce), turn, chunks)
+        }
+        // Own slots: every spill precedes any add, so the descent runs twice.
+        DrainPlan::BounceTogether => drain_spills_then_adds::<A, O>(acc, dest, turn, chunks),
     }
 }
 
-/// [`Tile::drained_chunk_into`]'s descent over `levels[i..]`: [`drain_below`]'s, the fragment
-/// grid's coordinates summed along the way into `place`, the chunk a fragment falls in being
-/// `place` modulo `chunks`.
+/// Every spill of the grid, then every add, each pass met at the scratch's barriers.
 #[cube]
-#[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
-fn drain_chunk_below<A: Numeric, O: Numeric>(
+fn drain_spills_then_adds<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    acc.sync_scratch();
+    drain_from_root::<A, O>(acc, dest, comptime!(DrainPass::Spill), turn, chunks);
+    acc.sync_scratch();
+    drain_from_root::<A, O>(acc, dest, comptime!(DrainPass::Add), turn, chunks);
+    acc.sync_scratch();
+}
+
+/// [`drain_below`] from the first level below `acc`.
+#[cube]
+fn drain_from_root<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    #[comptime] pass: DrainPass,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    drain_below::<A, O>(
+        acc,
+        dest,
+        comptime!(acc.place.below().to_vec()),
+        ROOT_LEVEL,
+        pass,
+        ROOT_PLACE,
+        turn,
+        chunks,
+    );
+}
+
+/// A drain's descent over `levels[i..]`, applying `pass` at every leaf: the fragment grid's
+/// coordinates are summed along the way into `place`, and a fragment lands where `place` modulo
+/// `chunks` is `turn`, every fragment of a whole drain, its one chunk.
+#[cube]
+fn drain_below<A: Numeric, O: Numeric>(
     acc: &Tile,
     dest: &Tile,
     #[comptime] levels: Vec<Level>,
@@ -1037,111 +1114,178 @@ fn drain_chunk_below<A: Numeric, O: Numeric>(
     #[comptime] chunks: usize,
 ) {
     if i == levels.len() {
-        drain_chunk_leaf::<A, O>(acc, dest, pass, place % chunks == turn);
+        drain_landing_leaf::<A, O>(acc, dest, pass, place, turn, chunks);
     } else {
-        let level = comptime!(levels[i].clone());
-        let dimensions = comptime!(dest.place.space.dimensions().collect::<Vec<_>>());
-        // Only the fragment grid, a walked level, places a fragment: every plane holding the same
-        // tile reaches its fragments at the same places, the planes' own level adding nothing.
-        if comptime!(level.coverage() == Coverage::Walk) {
-            for region in dest.over(&level).unrolled() {
-                let mut here = place;
-                #[unroll]
-                for a in 0..dimensions.len() {
-                    here += region.coord(comptime!(dimensions[a]));
-                }
-                drain_chunk_below::<A, O>(
-                    &acc.at(&region),
-                    &dest.at(&region),
-                    levels.clone(),
-                    i + 1,
-                    pass,
-                    here,
-                    turn,
-                    chunks,
-                );
-            }
-        } else {
-            for region in dest.over(&level) {
-                drain_chunk_below::<A, O>(
-                    &acc.at(&region),
-                    &dest.at(&region),
-                    levels.clone(),
-                    i + 1,
-                    pass,
-                    place,
-                    turn,
-                    chunks,
-                );
-            }
-        }
+        drain_through_level::<A, O>(acc, dest, levels, i, pass, place, turn, chunks);
     }
 }
 
-/// [`drain_leaf`] for a fragment that lands only where `lands`: every barrier is reached
-/// whatever it says, so planes landing different fragments still meet at the same ones.
+/// [`drain_below`] each region `levels[i]` cuts. A walked level's coordinates must be constants:
+/// its regions select fragments.
 #[cube]
-fn drain_chunk_leaf<A: Numeric, O: Numeric>(
+fn drain_through_level<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    #[comptime] levels: Vec<Level>,
+    #[comptime] i: usize,
+    #[comptime] pass: DrainPass,
+    place: usize,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    if comptime!(levels[i].coverage() == Coverage::Walk) {
+        drain_walked::<A, O>(acc, dest, levels, i, pass, place, turn, chunks);
+    } else {
+        drain_dealt::<A, O>(acc, dest, levels, i, pass, place, turn, chunks);
+    }
+}
+
+/// [`drain_below`] each region of the walked level `levels[i]`, unrolled. Only the fragment grid,
+/// a walked level, places a fragment: every plane holding the same tile reaches its fragments at
+/// the same places, the planes' own level adding nothing.
+#[cube]
+fn drain_walked<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    #[comptime] levels: Vec<Level>,
+    #[comptime] i: usize,
+    #[comptime] pass: DrainPass,
+    place: usize,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    let level = comptime!(levels[i].clone());
+    let dimensions = comptime!(dest.place.space.dimensions().collect::<Vec<_>>());
+    for region in dest.over(&level).unrolled() {
+        let here = fragment_place(place, &region, dimensions.clone(), chunks);
+        drain_below::<A, O>(
+            &acc.at(&region),
+            &dest.at(&region),
+            levels.clone(),
+            i + 1,
+            pass,
+            here,
+            turn,
+            chunks,
+        );
+    }
+}
+
+/// [`drain_below`] each region of the level `levels[i]` deals out.
+#[cube]
+fn drain_dealt<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    #[comptime] levels: Vec<Level>,
+    #[comptime] i: usize,
+    #[comptime] pass: DrainPass,
+    place: usize,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    let level = comptime!(levels[i].clone());
+    for region in dest.over(&level) {
+        drain_below::<A, O>(
+            &acc.at(&region),
+            &dest.at(&region),
+            levels.clone(),
+            i + 1,
+            pass,
+            place,
+            turn,
+            chunks,
+        );
+    }
+}
+
+/// `place` moved by `region`'s coordinates along `dimensions` where a drain is dealt into
+/// several chunks; a whole drain, its one chunk, places nothing.
+#[cube]
+#[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
+fn fragment_place(
+    place: usize,
+    region: &Region,
+    #[comptime] dimensions: Vec<Dimension>,
+    #[comptime] chunks: usize,
+) -> usize {
+    let mut here = place;
+    if chunks > 1 {
+        #[unroll]
+        for a in 0..dimensions.len() {
+            here += region.coord(comptime!(dimensions[a]));
+        }
+    }
+    here
+}
+
+/// [`drain_leaf`] for the fragment at `place`, landing where it falls in chunk `turn` of
+/// `chunks`, always in a whole drain's one chunk.
+#[cube]
+fn drain_landing_leaf<A: Numeric, O: Numeric>(
+    acc: &Tile,
+    dest: &Tile,
+    #[comptime] pass: DrainPass,
+    place: usize,
+    turn: usize,
+    #[comptime] chunks: usize,
+) {
+    if comptime!(chunks == WHOLE_DRAIN_CHUNKS) {
+        drain_leaf::<A, O>(acc, dest, pass, true);
+    } else {
+        drain_leaf::<A, O>(acc, dest, pass, place % chunks == turn);
+    }
+}
+
+/// One tile of a drain against the one window it lands in, written only where `lands`: every
+/// barrier is reached whatever it says, so planes landing different fragments still meet at the
+/// same ones.
+#[cube]
+fn drain_leaf<A: Numeric, O: Numeric>(
     acc: &Tile,
     dest: &Tile,
     #[comptime] pass: DrainPass,
     lands: bool,
 ) {
     match pass {
-        DrainPass::Copy => {
-            if lands {
-                let mut window = dest.clone();
-                window.copy_cast_from(acc);
-            }
-        }
-        DrainPass::Spill => {
-            if lands {
-                acc.spill_to_scratch::<A>();
-            }
-        }
-        DrainPass::Add => {
-            if lands {
-                let mut window = dest.clone();
-                window.add_from_scratch::<O, A>(acc);
-            }
-        }
-        DrainPass::Bounce => {
-            let mut window = dest.clone();
-            acc.sync_scratch();
-            if lands {
-                acc.spill_to_scratch::<A>();
-            }
-            acc.sync_scratch();
-            if lands {
-                window.add_from_scratch::<O, A>(acc);
-            }
-            acc.sync_scratch();
-        }
+        DrainPass::Copy => copy_where_lands(acc, dest, lands),
+        DrainPass::Spill => spill_where_lands::<A>(acc, lands),
+        DrainPass::Add => add_where_lands::<A, O>(acc, dest, lands),
+        DrainPass::Bounce => bounce_where_lands::<A, O>(acc, dest, lands),
     }
 }
 
-/// One tile of a drain against the one window it lands in.
+/// `acc` copied into `dest` where it `lands`.
 #[cube]
-fn drain_leaf<A: Numeric, O: Numeric>(acc: &Tile, dest: &Tile, #[comptime] pass: DrainPass) {
-    match pass {
-        DrainPass::Copy => {
-            let mut window = dest.clone();
-            window.copy_cast_from(acc);
-        }
-        DrainPass::Spill => acc.spill_to_scratch::<A>(),
-        DrainPass::Add => {
-            let mut window = dest.clone();
-            window.add_from_scratch::<O, A>(acc);
-        }
-        DrainPass::Bounce => {
-            let mut window = dest.clone();
-            acc.sync_scratch();
-            acc.spill_to_scratch::<A>();
-            acc.sync_scratch();
-            window.add_from_scratch::<O, A>(acc);
-            acc.sync_scratch();
-        }
+fn copy_where_lands(acc: &Tile, dest: &Tile, lands: bool) {
+    if lands {
+        dest.clone().copy_cast_from(acc);
     }
+}
+
+/// `acc` spilled into its scratch where it `lands`.
+#[cube]
+fn spill_where_lands<A: Numeric>(acc: &Tile, lands: bool) {
+    if lands {
+        acc.spill_to_scratch::<A>();
+    }
+}
+
+/// `acc`'s spilled cells added into `dest` where it `lands`.
+#[cube]
+fn add_where_lands<A: Numeric, O: Numeric>(acc: &Tile, dest: &Tile, lands: bool) {
+    if lands {
+        dest.clone().add_from_scratch::<O, A>(acc);
+    }
+}
+
+/// `acc` spilled and added into `dest` where it `lands`, between the scratch's three barriers.
+#[cube]
+fn bounce_where_lands<A: Numeric, O: Numeric>(acc: &Tile, dest: &Tile, lands: bool) {
+    acc.sync_scratch();
+    spill_where_lands::<A>(acc, lands);
+    acc.sync_scratch();
+    add_where_lands::<A, O>(acc, dest, lands);
+    acc.sync_scratch();
 }
 
 #[cfg(test)]

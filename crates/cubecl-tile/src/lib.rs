@@ -10,9 +10,12 @@ mod comptime_only;
 pub mod dialect;
 pub mod launch;
 pub mod layout;
+mod nested;
 pub mod ops;
 pub mod space;
 pub mod stage;
+#[cfg(test)]
+mod test_scope;
 pub(crate) mod tile;
 
 /// What a [`Tile`] can be in the kernel.
@@ -69,17 +72,19 @@ pub use ops::matmul::instruction::{
 pub use ops::matmul::software_matmul::SoftwareMatmul;
 pub use ops::matmul::step::{ProductStep, StepCost};
 pub use space::base::Space;
+pub use space::base_region::BaseRegion;
 pub use space::dimension::Dimension;
 pub use space::partition::base::Partitioning;
 pub use space::partition::level::Level;
 pub use space::partition::levels::Levels;
 pub use space::region::{Leaves, Planes, Region};
+pub use space::vector_region::VectorRegion;
 pub use space::walk::base::Walk;
-pub use stage::base::StageStorage;
+pub use stage::base::{FactorStage, StageOrder, StageSource, StageStorage};
 pub use stage::pipeline::base::Stages;
 pub use tile::accumulator::base::Scratch;
 pub use tile::base::{Tile, TileExpand};
-pub use tile::factor::{Factor, FactorExpand};
+pub(crate) use tile::factor::{Factor, FactorExpand};
 pub use tile::index::Indexing;
 pub use tile::kind::plane::mma::lane_runs::LaneMap;
 pub use tile::slices::{DimensionSlices, DimensionSlicesExpand};

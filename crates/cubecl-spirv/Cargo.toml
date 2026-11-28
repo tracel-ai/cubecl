@@ -33,12 +33,6 @@ std = [
     "pliron/std",
 ]
 
-tracing = [
-    "cubecl-runtime/tracing",
-    "cubecl-common/tracing",
-    "cubecl-core/tracing",
-    "cubecl-opt/tracing",
-]
 
 [dependencies]
 bitflags = { workspace = true }

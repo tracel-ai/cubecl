@@ -1,8 +1,9 @@
 //! An operand's dimensions mapped onto its buffer's physical axes.
 
 use crate::Addressed;
-use cubecl::zspace::{SmallVec, Tiling};
+use cubecl::zspace::SmallVec;
 
+use crate::layout::storage::pieces_named;
 use crate::{
     AxesBuilder, Composition, Decline, Dimension, Divisor, Geometry, Offset, PhysicalAxisMap, Space,
 };
@@ -17,12 +18,10 @@ pub struct Projection {
 }
 
 impl Projection {
-    /// One dimension per physical axis at coefficient `1`, in buffer order.
+    /// One dimension per physical axis at coefficient `1`, in buffer order. A dimension named again
+    /// is its next finer piece.
     pub fn direct(dimensions: &[Dimension]) -> Self {
-        Projection {
-            physical: dimensions.iter().map(|&a| PhysicalAxisMap::of(a)).collect(),
-            dimensions: SmallVec::from_slice(dimensions),
-        }
+        Projection::tiled(dimensions, &pieces_named(dimensions))
     }
 
     /// [`direct`](Projection::direct) over a space's own dimensions.
@@ -30,12 +29,18 @@ impl Projection {
         Projection::direct(&space.dimensions().collect::<Vec<_>>())
     }
 
-    /// [`direct`](Projection::direct) storage-tiled: `labels` name each buffer axis by the
-    /// dimension it is a piece of, level-major.
-    pub fn tiled(dimensions: &[Dimension], labels: &[Dimension]) -> Self {
-        let physical: Vec<PhysicalAxisMap> =
-            labels.iter().copied().map(PhysicalAxisMap::of).collect();
-        Projection::new(dimensions, &physical)
+    /// [`direct`](Projection::direct) storage-tiled: `pieces` state each buffer axis as the
+    /// dimension it is a piece of and how many of that dimension's pieces are coarser.
+    ///
+    /// # Panics
+    ///
+    /// As [`new`](Projection::new).
+    pub fn tiled(dimensions: &[Dimension], pieces: &[(Dimension, usize)]) -> Self {
+        let physical = pieces
+            .iter()
+            .map(|&(dimension, piece)| PhysicalAxisMap::piece_of(dimension, piece))
+            .collect();
+        Projection::of_maps(dimensions, physical)
     }
 
     /// The same operand with each dimension's storage fragments merged back into one coordinate.
@@ -43,7 +48,7 @@ impl Projection {
         let carried = self.carried_groups();
         let physical: Vec<PhysicalAxisMap> = carried
             .iter()
-            .map(|&pa| self.physical[pa].clone())
+            .map(|&pa| self.physical[pa].clone().whole())
             .collect();
         Projection::new(&self.dimensions, &physical)
     }
@@ -63,13 +68,15 @@ impl Projection {
             .enumerate()
             .map(|(pa, map)| {
                 let at = match map.addressed() {
-                    Addressed::Broadcast => carried.iter().position(|&q| q == pa),
-                    Addressed::By(dimension) => carried
+                    Addressed::Broadcast | Addressed::ByDigit => {
+                        carried.iter().position(|&q| q == pa)
+                    }
+                    addressed => carried
                         .iter()
-                        .position(|&q| self.physical[q].addressed() == Addressed::By(dimension)),
+                        .position(|&q| self.physical[q].addressed() == addressed),
                 }
                 .expect("collected above");
-                PhysicalAxisMap::of(dimensions[at])
+                PhysicalAxisMap::piece_of(dimensions[at], map.piece())
             })
             .collect();
         Projection::new(&dimensions, &physical)
@@ -85,12 +92,12 @@ impl Projection {
         let mut carried: Vec<usize> = Vec::new();
         for (pa, map) in self.physical.iter().enumerate() {
             match map.addressed() {
-                // Still a buffer axis, so it is its own group.
-                Addressed::Broadcast => carried.push(pa),
-                Addressed::By(dimension) => {
+                // Still a buffer axis, or a digit's, so it is its own group.
+                Addressed::Broadcast | Addressed::ByDigit => carried.push(pa),
+                addressed => {
                     if !carried
                         .iter()
-                        .any(|&q| self.physical[q].addressed() == Addressed::By(dimension))
+                        .any(|&q| self.physical[q].addressed() == addressed)
                     {
                         carried.push(pa);
                     }
@@ -98,18 +105,6 @@ impl Projection {
             }
         }
         carried
-    }
-
-    /// How many fragments each dimension is split across; panics past what a [`Tiling`]
-    /// records.
-    pub fn tiling(&self) -> Tiling {
-        let fragments: Vec<usize> = self
-            .dimensions
-            .iter()
-            .map(|&dimension| self.fragments(dimension))
-            .collect();
-        Tiling::new(&fragments)
-            .unwrap_or_else(|e| panic!("Projection::tiling: {fragments:?} fragments: {e:?}"))
     }
 
     /// Whether some dimension is split across several physical fragments.
@@ -120,12 +115,100 @@ impl Projection {
     }
 
     /// How many physical axes `dimension` is split across. A broadcast dimension is spread over
-    /// none, which is not a tiling of it: one fragment, the same answer an untiled dimension gives.
+    /// none, and one read as digits is read, not stored, across its axes: neither is a tiling of
+    /// it, so each is one fragment, the same answer an untiled dimension gives.
     fn fragments(&self, dimension: Dimension) -> usize {
-        match self.addresses(dimension) {
+        match self.addresses(dimension) && !self.reads_digits_of(dimension) {
             false => 1,
             true => self.carriers(dimension).len(),
         }
+    }
+
+    /// Whether some physical axis reads a digit of `dimension` ([`folded`](Projection::folded)).
+    fn reads_digits_of(&self, dimension: Dimension) -> bool {
+        self.digit_dimensions().contains(&dimension)
+    }
+
+    /// The dimensions some physical axis reads a digit of, in axis order, each once: the order of
+    /// a `RuntimeMap`'s digit starts.
+    pub(crate) fn digit_dimensions(&self) -> SmallVec<[Dimension; Space::MAX_RANK]> {
+        let mut dimensions = SmallVec::new();
+        for dimension in self.physical.iter().filter_map(|m| m.digit_dimension()) {
+            if !dimensions.contains(&dimension) {
+                dimensions.push(dimension);
+            }
+        }
+        dimensions
+    }
+
+    /// Where `dimension`'s start sits in a `RuntimeMap`'s digit starts.
+    pub(crate) fn digit_start_index(&self, dimension: Dimension) -> usize {
+        self.digit_dimensions()
+            .iter()
+            .position(|&d| d == dimension)
+            .expect("Projection::digit_start_index: no axis reads a digit of this dimension")
+    }
+
+    /// Merges the dimensions in `fold`, outermost first, each with its extent, into one dimension
+    /// `into`: `folded(P, &[(OH, oh), (OW, ow)])` gives `P = oh_index * ow + ow_index`. On an
+    /// operand whose axes are each one dimension, each folded axis becomes a stored piece of
+    /// `into`, sized by the buffer, whose shape must match `fold`. On a gathered operand each term
+    /// on a folded dimension reads that
+    /// dimension's digit of `into`. Call it with the same `fold` on every operand that has the
+    /// folded dimensions.
+    pub fn folded(&self, into: Dimension, fold: &[(Dimension, usize)]) -> Projection {
+        assert!(
+            fold.iter().all(|&(d, _)| self.dimensions.contains(&d)),
+            "Projection::folded: {fold:?} names a dimension this operand does not have, {:?}",
+            self.dimensions
+        );
+        let positions: Vec<usize> = fold.iter().map(|&(d, _)| self.position(d)).collect();
+        assert!(
+            fold.len() > 1 && positions.windows(2).all(|pair| pair[1] == pair[0] + 1),
+            "Projection::folded: fold two or more adjacent dimensions of this operand, each once, \
+             outermost first; got {fold:?} of {:?}",
+            self.dimensions
+        );
+        assert!(
+            !self.dimensions.contains(&into),
+            "Projection::folded: {into:?} is already one of this operand's dimensions"
+        );
+        assert!(
+            self.is_invertible() || !self.is_tiled(),
+            "Projection::folded: a storage-tiled operand is not folded; its pieces would read as \
+             separate digits"
+        );
+        let is_folded = |d: Dimension| fold.iter().any(|&(f, _)| f == d);
+        let first = positions[0];
+        let dimensions: Vec<Dimension> = self
+            .dimensions
+            .iter()
+            .enumerate()
+            .filter_map(|(at, &d)| match (at == first, is_folded(d)) {
+                (true, _) => Some(into),
+                (false, true) => None,
+                (false, false) => Some(d),
+            })
+            .collect();
+        let physical: Vec<PhysicalAxisMap> = match self.is_invertible() {
+            true => self
+                .physical
+                .iter()
+                .map(|map| match map.identity_dimension() {
+                    Some(d) if is_folded(d) => PhysicalAxisMap::piece_of(
+                        into,
+                        fold.iter().position(|&(f, _)| f == d).unwrap(),
+                    ),
+                    _ => map.clone(),
+                })
+                .collect(),
+            false => self
+                .physical
+                .iter()
+                .map(|map| map.clone().folded(into, fold))
+                .collect(),
+        };
+        Projection::new(&dimensions, &physical)
     }
 
     /// How physical axis `pa` carries `dimension`: the positions of its finer carriers, whose
@@ -136,14 +219,20 @@ impl Projection {
         pa: usize,
         dimension: Dimension,
     ) -> (SmallVec<[usize; Space::MAX_RANK]>, Option<usize>) {
-        let carriers = self.carriers(dimension);
         assert!(
-            carriers.contains(&pa),
-            "Projection::carried_by: physical axis {pa} does not carry {dimension:?} (carried by \
-             {carriers:?})"
+            !self.reads_digits_of(dimension),
+            "Projection::carried_by: {dimension:?} is read as digits, not stored as pieces, so its \
+             axes do not divide a coordinate by the buffer's extents"
         );
-        let finer = carriers.iter().copied().filter(|&q| q > pa).collect();
-        (finer, (carriers[0] != pa).then_some(pa))
+        let carriers = self.carriers(dimension);
+        let at = carriers.iter().position(|&q| q == pa).unwrap_or_else(|| {
+            panic!(
+                "Projection::carried_by: physical axis {pa} does not carry {dimension:?} (carried \
+                 by {carriers:?})"
+            )
+        });
+        let finer = SmallVec::from_slice(&carriers[at + 1..]);
+        (finer, (at > 0).then_some(pa))
     }
 
     /// Whether this operand addresses `dimension`; a spanned but unaddressed dimension is a
@@ -152,9 +241,9 @@ impl Projection {
         self.physical.iter().any(|m| m.addresses(dimension))
     }
 
-    /// The physical axes carrying `dimension`, in buffer order. Panics if there are none.
+    /// The physical axes carrying `dimension`, its pieces coarsest first. Panics if there are none.
     pub(crate) fn carriers(&self, dimension: Dimension) -> SmallVec<[usize; Space::MAX_RANK]> {
-        let carriers: SmallVec<[usize; Space::MAX_RANK]> = (0..self.physical.len())
+        let mut carriers: SmallVec<[usize; Space::MAX_RANK]> = (0..self.physical.len())
             .filter(|&q| {
                 self.physical[q]
                     .terms()
@@ -166,6 +255,7 @@ impl Projection {
             !carriers.is_empty(),
             "Projection::carriers: {dimension:?} addresses no physical axis of this operand"
         );
+        carriers.sort_by_key(|&pa| self.physical[pa].piece());
         carriers
     }
 
@@ -213,6 +303,11 @@ impl Projection {
     }
 
     /// `dimensions` in the tile's logical order, `physical` one per physical axis in buffer order.
+    ///
+    /// # Panics
+    ///
+    /// Where the axes a dimension is stored as ([`PhysicalAxisMap::piece_of`]) do not state each
+    /// of its pieces once.
     pub fn new(dimensions: &[Dimension], physical: &[PhysicalAxisMap]) -> Self {
         Projection::of_maps(dimensions, physical.iter().cloned().collect())
     }
@@ -222,9 +317,29 @@ impl Projection {
         dimensions: &[Dimension],
         physical: SmallVec<[PhysicalAxisMap; Space::MAX_RANK]>,
     ) -> Self {
-        Projection {
+        let projection = Projection {
             physical,
             dimensions: SmallVec::from_slice(dimensions),
+        };
+        projection.assert_pieces_stated_once();
+        projection
+    }
+
+    fn assert_pieces_stated_once(&self) {
+        for &dimension in &self.dimensions {
+            let mut pieces: SmallVec<[usize; Space::MAX_RANK]> = self
+                .physical
+                .iter()
+                .filter(|map| map.is_identity(dimension))
+                .map(PhysicalAxisMap::piece)
+                .collect();
+            pieces.sort();
+            assert!(
+                pieces.iter().copied().eq(0..pieces.len()),
+                "Projection: the axes {dimension:?} is stored as state its pieces {pieces:?}, not \
+                 each of {} once",
+                pieces.len()
+            );
         }
     }
 
@@ -246,7 +361,7 @@ impl Projection {
             .rev()
             .map_while(|map| match map.addressed() {
                 Addressed::By(dimension) => Some(dimension),
-                Addressed::Broadcast => None,
+                Addressed::ByDigit | Addressed::Broadcast => None,
             })
             .collect();
         labels.reverse();
@@ -341,7 +456,7 @@ impl Projection {
         let field: usize = map
             .terms()
             .iter()
-            .map(|t| (extent_of(t.dimension) - 1) * t.scale.bound())
+            .map(|t| t.largest_coordinate(extent_of(t.dimension)) * t.scale.bound())
             .sum();
         1 + field.div_ceil(map.divisor().bound())
     }
@@ -414,7 +529,7 @@ impl Projection {
             .into_iter()
             .filter_map(|pa| match self.physical[pa].addressed() {
                 Addressed::By(dimension) => Some(dimension),
-                Addressed::Broadcast => None,
+                Addressed::ByDigit | Addressed::Broadcast => None,
             })
             .collect();
         let stated: Vec<Dimension> = self
@@ -454,18 +569,20 @@ impl Projection {
             }
         }
         for &dimension in self.dimensions.iter() {
-            // A gathered operand must be untiled: each addressed dimension maps to one physical
-            // axis.
-            let count = self
-                .physical
-                .iter()
-                .filter(|m| m.addresses(dimension))
-                .count();
-            if count > 1 {
-                return Err(Decline::GatherDimensionAddressedTwice(dimension));
-            }
+            self.validate_gathered_dimension(dimension)?;
         }
         Ok(())
+    }
+
+    /// A gathered operand must be untiled: each addressed dimension maps to one physical axis,
+    /// unless every axis it addresses reads a digit of it.
+    fn validate_gathered_dimension(&self, dimension: Dimension) -> Result<(), Decline> {
+        let mut addressing = self.physical.iter().filter(|m| m.addresses(dimension));
+        let count = addressing.clone().count();
+        match count < 2 || addressing.all(|m| m.digit_dimension() == Some(dimension)) {
+            true => Ok(()),
+            false => Err(Decline::GatherDimensionAddressedTwice(dimension)),
+        }
     }
 
     /// Start writing a projection one buffer axis at a time, in buffer order ([`AxesBuilder`]).
@@ -659,6 +776,43 @@ mod tests {
         assert_eq!(refused, Err(Decline::GatherDimensionAddressedTwice(B)));
     }
 
+    const OH: Dimension = Dimension(7);
+    const OW: Dimension = Dimension(8);
+    const RW: Dimension = Dimension(9);
+
+    /// A 2-D input `[h, w, c]` read at `h = oh * 2 + r - 1`, `w = ow + rw - 1`.
+    fn input() -> Projection {
+        Projection::new(
+            &[OH, OW, R, RW, B],
+            &[
+                PhysicalAxisMap::affine(&[(OH, 2), (R, 1)]).shifted(-1),
+                PhysicalAxisMap::affine(&[(OW, 1), (RW, 1)]).shifted(-1),
+                PhysicalAxisMap::of(B),
+            ],
+        )
+    }
+
+    /// Folded into `A = oh * 7 + ow`, the rows and columns stay coordinates of their own and
+    /// nothing is storage-tiled.
+    #[test]
+    fn a_folded_gather_reads_its_digits_on_their_own_axes() {
+        let p = input().folded(A, &[(OH, 5), (OW, 7)]);
+        assert_eq!(p.dimensions(), &[A, R, RW, B]);
+        assert_eq!(p.validate(4), Ok(()));
+        assert!(!p.is_tiled());
+        assert_eq!(&p.digit_dimensions()[..], &[A]);
+        assert_eq!(p.coordinate_rank(), 3);
+        // 1 + 4 * 2 + 2 * 1, whatever the region's extent along `A`.
+        assert_eq!(p.span(0, |d| if d == A { 16 } else { 3 }), 11);
+    }
+
+    /// A direct operand's fold is pieces of the one dimension, its radices the buffer's.
+    #[test]
+    fn a_folded_direct_operand_stores_pieces() {
+        let p = Projection::direct(&[OH, OW, B]).folded(A, &[(OH, 5), (OW, 7)]);
+        assert_eq!(p, Projection::tiled(&[A, B], &[(A, 0), (A, 1), (B, 0)]));
+    }
+
     #[test]
     fn innermost_must_be_identity() {
         let refused = Projection::new(
@@ -686,7 +840,7 @@ mod tests {
             &[
                 PhysicalAxisMap::affine(&[(A, 2), (R, 3)]),
                 PhysicalAxisMap::of(B),
-                PhysicalAxisMap::of(B),
+                PhysicalAxisMap::piece_of(B, 1),
             ],
         )
         .validate(1);
@@ -700,7 +854,7 @@ mod tests {
             &[
                 PhysicalAxisMap::affine(&[(A, 2), (R, 3)]),
                 PhysicalAxisMap::of(B),
-                PhysicalAxisMap::of(B),
+                PhysicalAxisMap::piece_of(B, 1),
             ],
         )
         .validate(4);
@@ -720,7 +874,7 @@ mod tests {
 
     #[test]
     fn tiled_is_not_a_gather() {
-        let p = Projection::tiled(&[A, B], &[A, B, A, B]);
+        let p = Projection::tiled(&[A, B], &[(A, 0), (B, 0), (A, 1), (B, 1)]);
         assert!(!p.is_direct());
         assert!(p.is_tiled());
         assert!(p.is_invertible());
@@ -747,20 +901,26 @@ mod tests {
         const BATCH: Dimension = Dimension(3);
         let spec = TileSpec::new(Projection::new(
             &[BATCH, A, B],
-            &[BATCH, A, B, A, B].map(PhysicalAxisMap::of),
+            &[(BATCH, 0), (A, 0), (B, 0), (A, 1), (B, 1)]
+                .map(|(dimension, piece)| PhysicalAxisMap::piece_of(dimension, piece)),
         ));
 
         assert_eq!(spec.projection.physical_rank(), 5);
         let [p0, p1, p2] = [Dimension(0), Dimension(1), Dimension(2)];
         assert_eq!(
             spec.projection.positional(),
-            Projection::tiled(&[p0, p1, p2], &[p0, p1, p2, p1, p2])
+            Projection::tiled(
+                &[p0, p1, p2],
+                &[(p0, 0), (p1, 0), (p2, 0), (p1, 1), (p2, 1)]
+            )
         );
         assert_eq!(
-            Projection::tiled(&[BATCH, A, B], &[BATCH, A, B, A, B]),
+            Projection::tiled(
+                &[BATCH, A, B],
+                &[(BATCH, 0), (A, 0), (B, 0), (A, 1), (B, 1)]
+            ),
             spec.projection
         );
-        assert_eq!(spec.projection.tiling(), Tiling::new(&[1, 2, 2]).unwrap());
     }
 
     #[test]
@@ -788,7 +948,7 @@ mod tests {
 
     #[test]
     fn a_ragged_tiling_orders_level_major() {
-        let p = Projection::tiled(&[A, B], &[A, B, A, B, A]);
+        let p = Projection::tiled(&[A, B], &[(A, 0), (B, 0), (A, 1), (B, 1), (A, 2)]);
         assert_eq!(p.physical_rank(), 5);
         // `[A0, B0, A1, B1, A2]`.
         assert_eq!(p.carriers(A).as_slice(), &[0, 2, 4]);
@@ -805,7 +965,7 @@ mod tests {
     #[test]
     fn carried_coordinates_weigh_back_to_the_coordinate() {
         let shape = [3usize, 8];
-        let p = Projection::new(&[A], &[PhysicalAxisMap::of(A), PhysicalAxisMap::of(A)]);
+        let p = Projection::tiled(&[A], &[(A, 0), (A, 1)]);
         let block = |pa| {
             p.carried_by(pa, A)
                 .0
@@ -823,17 +983,42 @@ mod tests {
         }
     }
 
-    /// `tiling` reads back the piece counts of the axes `tiled` was given.
+    /// `[m, k]` stored `[m/16, k/16, m%8, k/2%4, k/8%2, m/8%2, k%2]`, as a tensor core takes a tile
+    /// of sixteen by sixteen.
+    fn tensor_core() -> Projection {
+        Projection::tiled(
+            &[A, B],
+            &[(A, 0), (B, 0), (A, 2), (B, 2), (B, 1), (A, 1), (B, 3)],
+        )
+    }
+
+    /// Which piece an axis is comes from its statement, not from the axes around it.
     #[test]
-    fn tiling_reads_back_the_counts_tiled_was_built_from() {
-        for fragments in [[1, 1, 1], [3, 3, 3], [1, 2, 2], [3, 1, 2]] {
-            let dimensions: Vec<Dimension> = (0..3).map(|p| Dimension(p as u8)).collect();
-            let labels = crate::StoragePartitioning::level_major(&dimensions, &fragments);
-            let p = Projection::tiled(&dimensions, &labels);
-            assert_eq!(p.tiling(), Tiling::new(&fragments).unwrap());
-            assert_eq!(p.physical_rank(), fragments.iter().sum::<usize>());
-            assert_eq!(p.is_tiled(), fragments.iter().any(|&n| n > 1));
-        }
+    fn a_piece_is_carried_as_stated_wherever_its_axis_lies() {
+        let p = tensor_core();
+        assert_eq!(p.carried_by(0, A), (SmallVec::from_slice(&[5, 2]), None));
+        assert_eq!(p.carried_by(5, A), (SmallVec::from_slice(&[2]), Some(5)));
+        assert_eq!(p.carried_by(2, A), (SmallVec::new(), Some(2)));
+        assert_eq!(p.carried_by(4, B), (SmallVec::from_slice(&[3, 6]), Some(4)));
+    }
+
+    /// The buffer addressed by position keeps the pieces its axes state.
+    #[test]
+    fn positional_keeps_the_pieces_stated() {
+        assert_eq!(tensor_core().positional(), tensor_core());
+    }
+
+    /// The axes of one dimension merge into one, whichever piece the first of them is.
+    #[test]
+    fn untiled_merges_the_pieces_stated() {
+        let p = Projection::tiled(&[A, B], &[(A, 1), (B, 0), (A, 0)]);
+        assert_eq!(p.untiled(), Projection::direct(&[A, B]));
+    }
+
+    #[test]
+    #[should_panic(expected = "not each of 2 once")]
+    fn a_piece_stated_twice_is_refused() {
+        Projection::tiled(&[A, B], &[(A, 0), (B, 0), (A, 0)]);
     }
 
     #[test]

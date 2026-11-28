@@ -4,8 +4,8 @@
 //! candidate an autotune race measured compiled its kernels, at the shape it
 //! was tuned for. Pruning keeps the kernels this build's work launched and
 //! removes the rest of what it compiled, everything another build compiled,
-//! and the build records the caller does not keep. The autotune answers
-//! stay.
+//! and the build records the caller does not keep. The tunes stay
+//! unless the caller asks for those the work did not use to go.
 //!
 //! These are values: what a caller asks for and what it gets back cross the
 //! network unchanged, so a remote environment prunes where it lives. The
@@ -21,6 +21,9 @@ pub struct PruneOptions {
     /// Which of the environment's build records stay.
     #[serde(default)]
     pub records: RecordPruning,
+    /// Which of the environment's tunes stay.
+    #[serde(default)]
+    pub tunes: TunePruning,
 }
 
 impl PruneOptions {
@@ -34,6 +37,29 @@ impl PruneOptions {
         self.records = records;
         self
     }
+
+    /// Keep the tunes `tunes` says.
+    pub fn tunes(mut self, tunes: TunePruning) -> Self {
+        self.tunes = tunes;
+        self
+    }
+}
+
+/// Which of an environment's tunes a prune keeps.
+///
+/// Each tuner records the tunes this build's work loaded or stored, per
+/// table. An environment may hold more: tunes brought from elsewhere, and
+/// those of a key the work no longer reaches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TunePruning {
+    /// Every one.
+    #[default]
+    KeepAll,
+    /// In each table this build's work used, the tunes it used; every
+    /// other table whole, since it may be another hardware's, another cubecl
+    /// version's or a tuner's this build never ran. An environment in which
+    /// this build used no tune keeps them all.
+    KeepUsed,
 }
 
 /// Which of an environment's build records a prune keeps.
@@ -61,6 +87,11 @@ pub struct Pruned {
     /// The compiled kernels: an artifact and the entries that name it count
     /// as one kernel.
     pub kernels: PruneTally,
+    /// The tunes, each one entry: none counted unless the prune
+    /// was asked to [keep only the used ones](TunePruning::KeepUsed), and
+    /// then only those of the tables this build used.
+    #[serde(default)]
+    pub tunes: PruneTally,
     /// The build records, each one entry.
     pub records: PruneTally,
 }

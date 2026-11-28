@@ -51,12 +51,9 @@ std = [
     "dep:toml",
 ]
 tokio = ["std", "dep:tokio"]
-tracing = ["dep:tracing"]
-
 
 [dependencies]
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }

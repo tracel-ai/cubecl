@@ -69,8 +69,7 @@ pub use cubecl_runtime::execution;
 
 pub use cubecl_server::prune;
 
-/// Watching what the runtime runs: the execution observer, and the profiling
-/// logger's levels.
+/// Watching what the runtime runs: the execution observer, and the server logger.
 ///
 /// Re-exported because a caller attributing kernels to its own work reaches for
 /// [`ExecutionObservation`](cubecl_runtime::logging::ExecutionObservation) and has no

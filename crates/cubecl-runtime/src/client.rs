@@ -1,27 +1,27 @@
 use crate::{
-    config::TypeNameFormatLevel,
     device::HardwareIdentity,
-    id::{GraphId, KernelId},
+    id::GraphId,
     kernel::CubeKernel,
     logging::{
         CollectivePath, Communication, ExecutionId, ExecutionKind, ExecutionPlace, ExecutionScope,
-        ProfileLevel, StreamRole, TimingRequest, TransferRoute, WaitTarget,
+        StreamRole, TimingRequest, TransferRoute, WaitTarget,
     },
     memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CommunicationSkips, CommunicationTiming,
-        ComputeWait, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
+        ComputeWait, CopyDescriptor, CubeCount, Handle, IoError, KernelArguments, KernelResource,
         MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, PeerAccess, PeerBinding,
         PeerMemory, ProfileError, ProfilingToken, ReduceOperation, Reduction, SendOutcome, Server,
         ServerError, ServerStorage, ServerUtilities,
     },
-    storage::{ManagedResource, StorageAllocator},
+    storage::{HostRange, ManagedResource, StorageAllocator},
     throughput::{
         CachedThroughput, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::any::{Any, TypeId};
+use core::ops::Range;
 
 mod group;
 #[cfg(not(target_family = "wasm"))]
@@ -934,6 +934,60 @@ impl Client {
         self.do_empty(vec![descriptor]).remove(0).memory
     }
 
+    /// A handle to `range` of `host`, the [`HostRange`] this device's kernels read in place:
+    /// nothing is copied to the device.
+    ///
+    /// One device may import several ranges of a memory, and each device imports on its own:
+    /// [sharing](Self::share_with_peers) an import and collectives refuse it.
+    ///
+    /// A range is contiguous, so a device that reads only its shard of a table imports it alone
+    /// when the table is laid out shard by shard, each padded to
+    /// [`HOST_MEMORY_ALIGNMENT_BYTES`](crate::storage::HOST_MEMORY_ALIGNMENT_BYTES). On a host
+    /// with several sockets, a device reading memory of the other socket crosses the link between
+    /// them: one memory per socket, each device importing the nearest, avoids it.
+    ///
+    /// # Assumptions
+    ///
+    /// No [resource](Self::get_resource) of the handle outlives its device's service, which lets go
+    /// of the import as it closes.
+    ///
+    /// # Guarantees
+    ///
+    /// - `host` stays pinned and alive until the last work reading the handle completes. Once
+    ///   nothing holds the handle, a binding of it or a graph reading it, an import or
+    ///   [cleanup](Self::memory_cleanup) on the stream that imported it queues the release behind
+    ///   that work, and a later one lets go of `host` once the release completes, unpinning it
+    ///   when no other device still imports it. Dropping the caller's own `host` frees nothing
+    ///   the devices still read.
+    /// - The handle is never [mutable in place](Handle::can_mut), and a [write](Self::write) to
+    ///   it, or a launch that may write it, fails the handle.
+    /// - A graph records kernels reading an import made before the recording.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when the device lacks
+    /// [`Features::host_memory_import`], when a stream of the device records a graph, when
+    /// `host` and `range` make no [`HostRange`], or when the driver refuses it, such as past a
+    /// limit on the memory it pins.
+    pub fn import_host_memory(
+        &self,
+        host: &Arc<Bytes>,
+        range: Range<u64>,
+    ) -> Result<Handle, ServerError> {
+        if !self.features().host_memory_import {
+            return Err(IoError::HostMemoryRefused {
+                reason: format!("{} imports no host memory", self.service_id()).into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into());
+        }
+        let host = HostRange::new(host.clone(), range)?;
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.import_host_memory(host, stream_id))
+            .closed_as_error()
+    }
+
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`Client::create_tensor`]
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
@@ -1025,12 +1079,14 @@ impl Client {
     /// # Errors
     ///
     /// [`ServerError::NoDeviceTransport`] on a runtime without peer access,
-    /// [`ServerError::ForeignHandle`] for a handle of another client, and the
+    /// [`ServerError::ForeignHandle`] for a handle of another client,
+    /// [`IoError::HostMemoryRefused`] for [imported](Self::import_host_memory) host memory, and the
     /// failure the buffer carries.
     pub fn share_with_peers(&self, handle: &Handle) -> Result<Handle, ServerError> {
         let mut handle = handle.clone();
         let binding = handle.to_binding();
         self.local(&binding)?;
+        binding.ensure_shareable()?;
         // Peer bindings add their own offsets to the allocation's address.
         let whole = BufferBinding {
             offset_start: None,
@@ -1051,22 +1107,20 @@ impl Client {
     ///
     /// `src` must be this client's. The bytes go device to device when both
     /// clients are of the same runtime and it has a collective transport;
-    /// otherwise, and always across runtimes, they go through the host.
+    /// otherwise, and always across runtimes or from
+    /// [imported](Self::import_host_memory) host memory, they go through the host.
     ///
     /// On CUDA, transfers run on a communicator and stream of their own, so neither waits in
     /// NCCL's queue behind a collective; a stream [`sync_collective`](Self::sync_collective) made
     /// wait on one still does.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst_server))
-    )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self) -> Handle {
         self.expect_local(&src.to_binding());
         let shape = [src.size_in_used() as usize];
+        let shareable = src.memory.is_shareable();
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.has_device_transport() && same_runtime {
+        if self.has_device_transport() && same_runtime && shareable {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -1080,10 +1134,6 @@ impl Client {
     }
 
     /// Sets up the group over `device_ids` on every one of its devices, unless it already is.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, device_ids))
-    )]
     pub fn ensure_init_collective(&self, device_ids: Vec<DeviceId>) {
         self.expect_device_transport(Collective::CommInit);
         // Two ranks on one device wait on its server thread for each other, forever.
@@ -1134,19 +1184,38 @@ impl Client {
         self.utilities.communication_skips.any()
     }
 
-    /// Whether launches on this device read their kernel's duration before returning, which waits
-    /// for the kernel to end: an observer asks for each one read, or the profiling logger reads
-    /// those it keeps. A discarded launch, or one whose profile the device refuses, reads none.
-    /// Metal waits for every timed launch, read or not.
+    /// Whether a collective issued now queues nothing: the device skips communication, or the
+    /// process discards its launches to gather, compile or tune kernels. A stream's own mode
+    /// never decides it: stream modes are per device and per thread, and a member that queues
+    /// its part waits on its peers forever.
+    ///
+    /// # Assumptions
+    ///
+    /// The process mode does not change between the members' calls of one collective.
+    ///
+    /// # Guarantees
+    ///
+    /// Every member of a collective answers alike.
+    pub fn discards_communication(&self) -> bool {
+        self.skips_communication()
+            || crate::execution::ProcessMode::current() != crate::execution::ProcessMode::Execute
+    }
+
+    /// Whether launches now wait for their kernel to end, to read its duration back for the
+    /// installed observer. Metal waits for every timed launch, read or not.
+    ///
+    /// # Assumptions
+    ///
+    /// The observer's answer, and whether one is installed, do not change between this call and
+    /// the launches it predicts.
+    ///
+    /// # Guarantees
+    ///
+    /// True exactly when the installed observer asks for
+    /// [`Resolved`](TimingRequest::Resolved): the answer is the process's, not this device's. A
+    /// launch may still read none: a discarded one, or one whose profile the device refuses.
     pub fn launches_read_timing(&self) -> bool {
-        match crate::logging::timing_requested() {
-            TimingRequest::None => false,
-            TimingRequest::Resolved => true,
-            TimingRequest::Deferred(_) => !matches!(
-                self.utilities.logger.profile_level(),
-                None | Some(ProfileLevel::ExecutionOnly)
-            ),
-        }
+        crate::logging::timing_requested() == TimingRequest::Resolved
     }
 
     pub(crate) fn communication_skips(&self) -> &CommunicationSkips {
@@ -1174,7 +1243,6 @@ impl Client {
     /// Call it once every device has queued its part of the `all_reduce` calls it waits for: a
     /// transfer from this device queued in between would wait on a part not queued yet. A
     /// [`ClientGroup`]'s collectives need none: each one's stream waits for it at once.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
@@ -1184,16 +1252,18 @@ impl Client {
             return;
         }
         let stream_id = self.stream_id();
-        let timing = crate::logging::times_communications().then(|| {
-            let mut timing = CommunicationTiming::default();
-            self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
-            timing
-        });
+        let timing = crate::logging::timing_requested()
+            .times_communications()
+            .then(|| {
+                let mut timing = CommunicationTiming::default();
+                self.issue_wait(WaitTarget::QueuedCollectives, &mut timing);
+                timing
+            });
 
         self.device.submit(move |server| {
-            // Logged rather than unwrapped: a panic on the server thread is
-            // reduced to a log line by the channel's catch_unwind anyway, so
-            // report deliberately instead of through a swallowed unwind.
+            // Logged rather than unwrapped: a panic here would answer the
+            // next call that waits on this device, which is not where a failed
+            // collective sync belongs.
             if let Some(timing) = timing {
                 server.time_next_communication(timing);
             }
@@ -1212,12 +1282,23 @@ impl Client {
     /// Every device has to queue the `all_reduce` calls over a group in one order. Queue each
     /// call on every device before the next: a device waiting in NCCL for its peers stops taking
     /// work after about a thousand calls, or as soon as it relocates memory, and the thread
-    /// queueing them stops with it. It queues nothing while this device skips communication,
-    /// whatever its peers do, since reading theirs would load their clients on every call.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
-    )]
+    /// queueing them stops with it. It queues nothing while this client discards communication
+    /// ([`discards_communication`](Self::discards_communication)), whatever its peers do, since
+    /// reading theirs would load their clients on every call.
+    ///
+    /// # Assumptions
+    ///
+    /// `src` is a whole number of `dtype` elements, and `dst` holds as many bytes.
+    ///
+    /// # Guarantees
+    ///
+    /// A reduction queued with [imported](Self::import_host_memory) host memory fails: `dst`
+    /// carries [`IoError::HostMemoryRefused`].
+    ///
+    /// # Panics
+    ///
+    /// When `src` or `dst` breaks the Assumptions, before anything is queued here; peers already
+    /// queued are left waiting.
     pub fn all_reduce(
         &mut self,
         src: Handle,
@@ -1234,7 +1315,7 @@ impl Client {
             held == size,
             "{collective}'s destination holds {held} bytes where its source holds {size}"
         );
-        if self.skips_communication() {
+        if self.discards_communication() {
             self.record_collective(collective, &device_ids, size, CollectivePath::Skipped);
             return;
         }
@@ -1277,7 +1358,7 @@ impl Client {
                 path,
             })
         })?;
-        Some(communication.id)
+        Some(communication.id())
     }
 
     /// How this runtime runs a collective, which only a runtime with a device transport does.
@@ -1300,13 +1381,13 @@ impl Client {
                 stream,
             },
         })?;
-        if !crate::logging::times_communications() {
+        if !part.times_communications() {
             return None;
         }
         let mut timing = CommunicationTiming::default();
-        crate::logging::notify_unread(&part, timing.part_window());
+        part.deliver_unread(timing.part_window());
         if let ComputeWait::Now = wait {
-            self.issue_wait(WaitTarget::Part(part.id), &mut timing);
+            self.issue_wait(WaitTarget::Part(part.id()), &mut timing);
         }
         Some(timing)
     }
@@ -1321,8 +1402,10 @@ impl Client {
             },
             awaits,
         });
-        if let Some(wait) = wait {
-            crate::logging::notify_unread(&wait, timing.wait_window());
+        // The wait's own answer decides, which may not be the one the caller
+        // checked before issuing it.
+        if let Some(wait) = wait.filter(crate::logging::ReportedExecution::times_communications) {
+            wait.deliver_unread(timing.wait_window());
         }
     }
 
@@ -1447,10 +1530,15 @@ impl Client {
     ///
     /// Inside the destination's [`exclusive`](Self::exclusive), this can deadlock: the receive
     /// waits on the source, whose queue may hold a transfer waiting on the destination's.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
-    )]
+    ///
+    /// # Assumptions
+    ///
+    /// The source is not [imported](Self::import_host_memory) host memory, which the destination's
+    /// device imports on its own.
+    ///
+    /// # Panics
+    ///
+    /// When the source is imported host memory, breaking the Assumption.
     pub fn to_client_tensor(
         &mut self,
         src_descriptor: CopyDescriptor,
@@ -1458,6 +1546,10 @@ impl Client {
     ) -> Handle {
         self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
+        assert!(
+            src_descriptor.handle.memory.descriptor().is_shareable(),
+            "a device to device transfer refuses imported host memory"
+        );
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
@@ -1519,13 +1611,6 @@ impl Client {
     }
 
     #[track_caller]
-    #[cfg_attr(feature = "tracing", tracing::instrument(level="trace",
-        skip(self, kernel, bindings),
-        fields(
-            kernel.name = %kernel.name(),
-            kernel.id = %kernel.id(),
-        )
-    ))]
     unsafe fn launch_inner(
         &self,
         kernel: Box<dyn CubeKernel>,
@@ -1581,12 +1666,10 @@ impl Client {
         // A discarded launch runs nothing to time, and a backend timing windows by the
         // timestamps its passes write reports a window around one as never measured.
         let timed = !launch_mode.discards_launch();
-        let level = self.utilities.logger.profile_level().filter(|_| timed);
 
         // Before the submit, on the issuing thread: this is the last point at
         // which the caller's own context still exists, and attributing a
-        // launch to what caused it is the whole reason the hook is here rather
-        // than beside the logger's aggregation.
+        // launch to what caused it is the whole reason the hook is here.
         let execution = crate::logging::issue(|| ExecutionKind::Kernel {
             place: ExecutionPlace {
                 service: self.service_id(),
@@ -1594,157 +1677,47 @@ impl Client {
             },
             name: kernel.name(),
         });
+        let Some(execution) = execution.filter(|execution| timed && execution.wants_timing())
+        else {
+            unsafe { self.submit_launch(kernel, count, bindings, issued, stream_id, launch_mode) };
+            return;
+        };
 
-        // An observer asking for timing gets the profiled path even with the
-        // profiling logger off — the two are separate readers of the same
-        // measurement, and making one depend on the other's configuration
-        // would mean a caller could not time launches without also logging
-        // them somewhere it did not choose.
-        let observed = execution.filter(|_| timed && crate::logging::timing_wanted());
-
-        match level {
-            None | Some(ProfileLevel::ExecutionOnly) if observed.is_none() => {
-                let utilities = self.utilities.clone();
-                self.device.submit(move |state| {
-                    let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        Some(profile_label(kernel.name(), &kernel.id()))
-                    } else {
-                        None
-                    };
-
-                    issued.run(|| unsafe {
-                        state.launch(kernel, count, bindings, stream_id, launch_mode)
-                    });
-
-                    if let Some(info) = execution_info {
-                        utilities.logger.register_execution(info);
-                    }
-                });
-            }
-            level => {
-                let name = kernel.name();
-                let kernel_id = kernel.id();
-                let context = self.device.clone();
-                // The arguments travel through a slot the profiled closure
-                // empties, because a profile can be refused — a graph capture
-                // window refuses one on the spot — and a refusal must hand the
-                // launch back: dropping a kernel because its measurement could
-                // not start would turn a missing timing into a missing
-                // computation.
-                let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
-                    kernel,
-                    count.clone(),
-                    bindings,
-                ))));
-                let to_launch = slot.clone();
-                let issued_profiled = issued.clone();
-                let profiled = self.profile_opened(
-                    WindowOpens::AtLaunch,
-                    move || {
-                        let (kernel, count, bindings) = to_launch
-                            .lock()
-                            .take()
-                            .expect("filled right above, emptied only here");
-                        context
-                            .submit_blocking(move |state| {
-                                issued_profiled.run(|| unsafe {
-                                    state.launch(kernel, count, bindings, stream_id, launch_mode)
-                                })
-                            })
-                            .unwrap_or_resume()
-                    },
-                    name,
-                );
-                let profile = match profiled {
-                    Ok(((), profile)) => profile,
-                    Err(err) => {
-                        // The logger's timing levels opted into profiling and
-                        // keep their loud failure. Only the observer's timing
-                        // degrades: it asked for a measurement, and a refused
-                        // measurement must not take the launch down with it.
-                        if !matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
-                            panic!("{err:?}");
-                        }
-                        match slot.lock().take() {
-                            // The refusal came before the closure ran, so the
-                            // kernel was never submitted. Launch it the way an
-                            // unobserved run would have.
-                            Some((kernel, count, bindings)) => {
-                                let utilities = self.utilities.clone();
-                                let kernel_id = kernel.id();
-                                self.device.submit(move |state| {
-                                    issued.run(|| unsafe {
-                                        state.launch(
-                                            kernel,
-                                            count,
-                                            bindings,
-                                            stream_id,
-                                            launch_mode,
-                                        )
-                                    });
-                                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                        let info = profile_label(name, &kernel_id);
-                                        utilities.logger.register_execution(info);
-                                    }
-                                });
-                            }
-                            // The closure ran, so the kernel was submitted;
-                            // only its measurement was lost.
-                            None => {
-                                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                    let info = profile_label(name, &kernel_id);
-                                    self.utilities.logger.register_execution(info);
-                                }
-                            }
-                        }
-                        log::warn!(
-                            "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
-                        );
-                        return;
-                    }
-                };
-                // The observer alone: it takes the measurement unread, so the
-                // kernels around this one keep running back to back. An observer
-                // does not change what the logger writes, and `ExecutionOnly` is
-                // documented as the kernels that ran without their timings, so
-                // it logs the execution and never the profile.
-                if let Some(execution) = &observed
-                    && matches!(level, None | Some(ProfileLevel::ExecutionOnly))
-                {
-                    crate::logging::notify_profiled(execution, profile);
-                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = profile_label(name, &kernel_id);
-                        self.utilities.logger.register_execution(info);
-                    }
-                    return;
-                }
-                // Both read this measurement, and a measurement is read once.
-                // The observer is told first because resolving consumes it: the
-                // logger's copy is the one that can be deferred, an observer's
-                // cannot be recovered afterwards.
-                let profile = if let Some(execution) = &observed {
-                    // The observer asked to keep its measurements and cannot:
-                    // the logger reads this one, so the observer is told a
-                    // duration and its kernels stop overlapping.
-                    crate::logging::warn_logger_takes_deferred_measurements();
-                    // Comes back already resolved rather than measured again:
-                    // the logger and the observer are two readers of one
-                    // measurement, and a second would not be the same launch.
-                    crate::logging::read_and_notify_timed(execution, profile)
-                } else {
-                    profile
-                };
-                // Every level left times its launches: the ones that don't
-                // either never took this path or returned above.
-                let info = match level {
-                    Some(ProfileLevel::Full) => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
-                    }
-                    _ => profile_label(name, &kernel_id),
-                };
-                self.utilities.logger.register_profiled(info, profile);
-            }
+        // The arguments travel through a slot the profiled closure empties,
+        // because a profile can be refused — a graph capture window refuses one
+        // on the spot — and a refusal must hand the launch back: dropping a
+        // kernel because its measurement could not start would turn a missing
+        // timing into a missing computation.
+        let name = kernel.name();
+        let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
+            kernel, count, bindings,
+        ))));
+        let to_launch = slot.clone();
+        let context = self.device.clone();
+        let issued_profiled = issued.clone();
+        let profiled = self.profile_opened(
+            WindowOpens::AtLaunch,
+            move || {
+                let (kernel, count, bindings) = to_launch
+                    .lock()
+                    .take()
+                    .expect("the slot should be filled above, and emptied only here");
+                context
+                    .submit_blocking(move |state| {
+                        issued_profiled.run(|| unsafe {
+                            state.launch(kernel, count, bindings, stream_id, launch_mode)
+                        })
+                    })
+                    .unwrap_or_resume()
+            },
+            name,
+        );
+        match profiled {
+            Ok(((), profile)) => execution.deliver_profile(profile),
+            Err(err) => warn_refused_profile(name, &err),
         }
+        // A profile refused before its closure ran left the kernel in the slot, never submitted.
+        unsafe { self.launch_unprofiled(&slot, issued, stream_id, launch_mode) };
     }
 
     /// Launches the `kernel` with the given `bindings`.
@@ -2055,14 +2028,9 @@ impl Client {
             Err(err) => return Box::pin(core::future::ready(Err(err))),
         };
 
-        let fut = self
-            .device
+        self.device
             .submit_blocking(move |server| server.sync(bindings, stream_id))
-            .closed_as_error();
-
-        self.utilities.logger.profile_summary();
-
-        fut
+            .closed_as_error()
     }
 
     /// The bindings `handles` name, which is what crosses to the device
@@ -2368,13 +2336,6 @@ impl Client {
     }
 
     /// Transfer data from one client to another
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(
-            level = "trace",
-            skip(self, src_descriptor, alloc_descriptor, dst_server)
-        )
-    )]
     fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor,
@@ -2385,6 +2346,7 @@ impl Client {
         let elem_size = src_descriptor.elem_size;
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
+        let carried = carries_failed_read(&src_descriptor, dst_server);
         let transfer = crate::logging::issue(|| {
             ExecutionKind::Communication(Communication::Transfer {
                 from: self.service_id(),
@@ -2393,7 +2355,7 @@ impl Client {
                 route: TransferRoute::Host,
             })
         })
-        .filter(|_| crate::logging::times_communications())
+        .filter(crate::logging::ReportedExecution::times_communications)
         .map(|transfer| (transfer, Instant::now()));
 
         let read = self
@@ -2401,10 +2363,15 @@ impl Client {
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
             .closed_as_error();
 
-        let mut data = cubecl_environment::future::block_on(read).unwrap();
+        let read = cubecl_environment::future::block_on(read);
+        if let Err(error) = &read
+            && !carried
+        {
+            panic!("a transfer through the host should read its source: {error}");
+        }
         if let Some((transfer, started)) = transfer {
             let read = ProfileDuration::new_system_time(started, Instant::now());
-            crate::logging::notify_unread(&transfer, read);
+            transfer.deliver_unread(read);
         }
 
         // The allocation belongs to the destination: it is initialized and
@@ -2431,9 +2398,15 @@ impl Client {
             // buffer and is reported at the next sync point.
             if server
                 .initialize_memory(memory, size, stream_id_dst)
-                .is_ok()
+                .is_err()
             {
-                server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+                return;
+            }
+            match read {
+                Ok(mut data) => {
+                    server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
+                }
+                Err(error) => server.peer_wrote(vec![desc_descriptor.handle], Some(error)),
             }
         });
 
@@ -2479,10 +2452,59 @@ impl Client {
     }
 }
 
-fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
-    let base = TypeNameFormatLevel::Balanced.format(name);
-    kernel_id.entrypoint_name(&base)
+impl Client {
+    /// Launches the kernel `slot` still holds, with no profile around it, and does nothing once
+    /// the slot was emptied.
+    ///
+    /// # Safety
+    ///
+    /// In [`ExecutionMode::Unchecked`](cubecl_ir::settings::ExecutionMode::Unchecked), the kernel reads
+    /// and writes only inside its bindings.
+    unsafe fn launch_unprofiled(
+        &self,
+        slot: &LaunchSlot,
+        issued: crate::execution::IssuedLaunch,
+        stream_id: StreamId,
+        launch_mode: crate::execution::LaunchMode,
+    ) {
+        let Some((kernel, count, bindings)) = slot.lock().take() else {
+            return;
+        };
+        unsafe { self.submit_launch(kernel, count, bindings, issued, stream_id, launch_mode) };
+    }
+
+    /// Queues `kernel` on the device, counted to `issued`.
+    ///
+    /// # Safety
+    ///
+    /// In [`ExecutionMode::Unchecked`](cubecl_ir::settings::ExecutionMode::Unchecked), the kernel reads
+    /// and writes only inside its bindings.
+    unsafe fn submit_launch(
+        &self,
+        kernel: Box<dyn CubeKernel>,
+        count: CubeCount,
+        bindings: KernelArguments,
+        issued: crate::execution::IssuedLaunch,
+        stream_id: StreamId,
+        launch_mode: crate::execution::LaunchMode,
+    ) {
+        self.device.submit(move |state| {
+            issued.run(|| unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) });
+        });
+    }
 }
+
+/// Says a launch of `name` went untimed: its observer asked for a measurement the device
+/// refused, and the launch went ahead without one.
+fn warn_refused_profile(name: &str, err: &ProfileError) {
+    log::warn!(
+        "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
+    );
+}
+
+/// A kernel's arguments on their way to the device, taken by whichever path launches it.
+type LaunchSlot =
+    cubecl_environment::sync::Mutex<Option<(Box<dyn CubeKernel>, CubeCount, KernelArguments)>>;
 
 /// A blocking call whose answer is already a [`ServerError`] result reads a service that was
 /// closed as one more error rather than a panic: a client still issuing work as the process
@@ -2492,6 +2514,15 @@ trait ClosedAsError {
     type Answer;
 
     fn closed_as_error(self) -> Self::Answer;
+}
+
+/// Whether `dst` carries a failed read of `src` onto its copy, rather than the copy panicking: a
+/// read of imported host memory fails where a refused write failed it, and a runtime that
+/// imports host memory taints the buffers a
+/// [`peer_wrote`](crate::server::ServerCommunication::peer_wrote) failed, whichever runtime the
+/// source is of.
+fn carries_failed_read(src: &CopyDescriptor, dst: &Client) -> bool {
+    src.handle.memory.descriptor().is_imported() && dst.features().host_memory_import
 }
 
 /// The error a call on a closed service answers with.

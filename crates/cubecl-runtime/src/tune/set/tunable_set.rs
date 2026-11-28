@@ -1,0 +1,240 @@
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::sync::Arc;
+use cubecl_common::hash::StableHash;
+
+use crate::tune::hook::clone_input_generator::CloneInputGenerator;
+use crate::tune::hook::hook_binder::HookBinder;
+use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer};
+use crate::tune::measure::tune_fn::TuneFn;
+use crate::tune::plan::planner::TunePlanner;
+use crate::tune::set::candidate_orderer::{CandidateOrderer, names_hash};
+use crate::tune::{
+    AutotuneKey, Bounds, BoundsGenerator, Evictor, InputGenerator, KeyGenerator, StageEnterer,
+    Tunable, TuneDeviceAccess, TuneInputs,
+};
+
+/// A set of candidate tunable functions for autotune, sharing a key generator and an input
+/// generator. See [`TuneInputs`] for the `F` parameter.
+///
+/// `Id` is what its tunables are identified by, as [`Tunable`] says.
+///
+/// # Assumptions
+///
+/// - Two sets whose candidates have the same names, in the same order, hold the same candidates:
+///   a set is told apart from another, in memory and in the persistent cache, by its
+///   [checksum](Self::compute_checksum) alone, so a kernel changed behind an unchanged name keeps
+///   the tunes made before the change.
+pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
+    candidates: CandidateOrderer<K, F, Output, Id>,
+    /// The hash of the candidates' names, kept in step with them: every launch looks its tuner up
+    /// by it.
+    checksum: StableHash,
+    key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
+    input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
+    hooks: HookBinder<K, F>,
+    device_access: TuneDeviceAccess,
+    short_circuit: bool,
+}
+
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
+    /// A set with no candidate, keyed by `key_gen` and measured on what `input_gen` makes of the
+    /// reference inputs.
+    pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
+        Self {
+            candidates: CandidateOrderer::new(),
+            checksum: names_hash::<K, F, Output, Id>(&[]),
+            input_gen: Arc::new(input_gen),
+            key_gen: Arc::new(key_gen),
+            hooks: HookBinder::new(),
+            device_access: TuneDeviceAccess::Exclusive,
+            short_circuit: true,
+        }
+    }
+
+    /// [`new`](Self::new), measured on clones of the real call inputs.
+    pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
+        Self::new(key_gen, CloneInputGenerator)
+    }
+
+    /// The number of candidates, which bounds every index a tune of a non-empty set answers.
+    pub fn len(&self) -> usize {
+        self.candidates.functions().len()
+    }
+
+    /// Whether the set holds no candidate, so that no call of it can execute.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The set with `tunable` after its other candidates.
+    ///
+    /// # Guarantees
+    ///
+    /// - The set plans every key afresh, `tunable` included, and its checksum names `tunable`.
+    pub fn with(mut self, tunable: Tunable<K, F, Output, Id>) -> Self {
+        self.checksum = self.candidates.add(tunable);
+        self
+    }
+
+    /// The set with the bounds `bounds_generator` generates setting the time limit a candidate is
+    /// close enough under.
+    pub fn with_bounds(
+        mut self,
+        bounds_generator: Arc<dyn BoundsGenerator<K, F> + Send + Sync>,
+    ) -> Self {
+        self.hooks.register_bounds_generator(bounds_generator);
+        self
+    }
+
+    /// The set with `evictor` running before every measured sample.
+    ///
+    /// # Guarantees
+    ///
+    /// - The eviction is issued outside the profiled region, so it costs the round time rather
+    ///   than the sample.
+    /// - A failed eviction is logged and the sample is measured anyway, warm: an eviction is a
+    ///   measurement aid, and losing one is not worth failing the tune for.
+    pub fn with_evictor(mut self, evictor: Arc<dyn Evictor<K, F> + Send + Sync>) -> Self {
+        self.hooks.register_evictor(evictor);
+        self
+    }
+
+    /// The set with `enterer` entering every stage of its tunes.
+    pub fn with_stage_enterer(
+        mut self,
+        enterer: Arc<dyn StageEnterer<K, F> + Send + Sync>,
+    ) -> Self {
+        self.hooks.register_stage_enterer(enterer);
+        self
+    }
+
+    /// The set with its tunes holding the device as `access` does.
+    pub fn with_device_access(mut self, access: TuneDeviceAccess) -> Self {
+        self.device_access = access;
+        self
+    }
+
+    /// The set with the short circuit, which natively ends a batch at its first candidate under
+    /// the bounds' time limit, as its groups' patience allows, turned on where `enabled`. Wasm has
+    /// no short circuit.
+    pub fn with_short_circuit(mut self, enabled: bool) -> Self {
+        self.short_circuit = enabled;
+        self
+    }
+
+    /// The checksum a cached tune is stored under: a tune under another candidate list
+    /// tunes another problem.
+    pub fn compute_checksum(&self) -> String {
+        format!("{:x}", self.checksum)
+    }
+
+    /// [`KeyGenerator::generate`] of the set's key generator.
+    pub fn generate_key<'a>(&self, inputs: &F::At<'a>) -> K {
+        self.key_gen.generate(inputs)
+    }
+
+    /// [`InputGenerator::generate`] of the set's input generator.
+    pub fn generate_inputs<'a>(&self, key: &K, inputs: &F::At<'a>) -> F::At<'a> {
+        self.input_gen.generate(key, inputs)
+    }
+
+    /// The bounds the candidates of `key` are measured against, if the set has a bounds generator.
+    pub fn bounds(&self, key: &K, inputs: &F::At<'_>) -> Option<Bounds> {
+        self.hooks.generate_bounds(key, inputs)
+    }
+}
+
+impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output, Id> {
+    pub(crate) fn device_access(&self) -> TuneDeviceAccess {
+        self.device_access
+    }
+
+    pub(crate) fn is_short_circuit_enabled(&self) -> bool {
+        self.short_circuit
+    }
+
+    /// [`CandidateOrderer::functions`].
+    pub(crate) fn autotunables(&self) -> impl Iterator<Item = &TuneFn<F, Output>> {
+        self.candidates.functions()
+    }
+
+    pub(crate) fn plan(&self, key: &K) -> TunePlanner {
+        self.candidates.plan(key)
+    }
+
+    /// [`CandidateOrderer::order_candidates`].
+    pub(crate) fn order_candidates(&self, key: &K) -> Arc<[usize]> {
+        self.candidates.order_candidates(key)
+    }
+
+    /// The function of the candidate at `index`, an index the tuner answered for this set.
+    pub(crate) fn function_at(&self, index: usize) -> &TuneFn<F, Output> {
+        self.candidates.tunable_at(index).function()
+    }
+
+    /// What the candidate at `index` is [identified](Tunable::identified) by, an index the tuner
+    /// answered for this set.
+    pub(crate) fn identity_at(&self, index: usize) -> &Id {
+        self.candidates.tunable_at(index).identity()
+    }
+
+    /// The low half of the [checksum](Self::compute_checksum), without hashing the names again.
+    pub(crate) fn checksum(&self) -> u64 {
+        self.checksum as u64
+    }
+
+    /// [`HookBinder::bind_evictor`].
+    pub(crate) fn bound_evictor<'i>(
+        &self,
+        key: &K,
+        inputs: &F::At<'i>,
+    ) -> Option<Box<BoundEvictor<'i>>> {
+        self.hooks.bind_evictor(key, inputs)
+    }
+
+    /// [`HookBinder::bind_stage_enterer`].
+    pub(crate) fn bound_stage_enterer<'i>(
+        &self,
+        key: &K,
+        inputs: &F::At<'i>,
+    ) -> Option<Box<BoundStageEnterer<'i>>> {
+        self.hooks.bind_stage_enterer(key, inputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    fn set() -> TunableSet<String, String, ()> {
+        TunableSet::new_cloning_inputs(|inputs: &String| inputs.clone())
+    }
+
+    fn runs(_: String) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[test]
+    fn a_candidate_changes_the_checksum() {
+        let one = set().with(Tunable::new("one", runs));
+
+        assert_ne!(set().compute_checksum(), one.compute_checksum());
+    }
+
+    #[test]
+    fn a_candidate_changes_the_low_half_of_the_checksum() {
+        let one = set().with(Tunable::new("one", runs));
+
+        assert_ne!(set().checksum(), one.checksum());
+    }
+
+    #[test]
+    fn a_cloning_set_measures_on_the_reference_inputs() {
+        let inputs = "inputs".to_string();
+
+        assert_eq!(set().generate_inputs(&"key".to_string(), &inputs), inputs);
+    }
+}

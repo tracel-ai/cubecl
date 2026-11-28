@@ -4,7 +4,7 @@ use core::fmt::{self, Display, Formatter};
 
 use cubecl::zspace::{SmallVec, Tiling};
 
-use super::Stagger;
+use super::{Stagger, names_of_pieces};
 use crate::{Decline, Dimension, Geometry, Space};
 
 /// The most pieces a statement keeps on the stack: a few stated tiles and the rest of each
@@ -33,11 +33,16 @@ pub struct StoragePartitioning {
     rest_counts: SmallVec<[Option<usize>; Space::MAX_RANK]>,
     /// How far apart the coarsest pieces start: back to back where `None`.
     stagger: Option<Stagger>,
+    /// The dimension of the finest piece that some finer piece of its own lies outside of, where a
+    /// buffer's order has one: the tiles and the order stop before it, as no tile holds it.
+    unnested: Option<Dimension>,
 }
 
 impl StoragePartitioning {
     /// The statement a bound buffer was written from, read off its axes by stride; `labels` name
-    /// the trailing axes. `None` where the buffer's order is no partitioning. Its
+    /// the trailing axes. Read as far as each dimension's finer pieces lie inside its coarser ones,
+    /// which in a tensor core's layout may be its finest piece alone. `None` where the buffer's order
+    /// is no partitioning. Its
     /// [`stagger`](Self::stagger) is not read back: a padded coarsest stride orders the pieces as a
     /// dense one does, so the tiles and their order read the same, but a reader asking where runs
     /// are contiguous asks the geometry's strides (`Geometry::dense_run`).
@@ -45,25 +50,41 @@ impl StoragePartitioning {
         let rank = geometry.rank();
         let unlabelled = rank.saturating_sub(labels.len());
         let tiling = geometry.tiling();
-        // Axes past the logical rank are stated pieces.
-        let first_stated = match tiling.is_tiled() {
-            true => tiling.logical_rank(rank).unwrap_or(rank),
-            false => rank,
-        };
+        let pieces = geometry.pieces_of_axes(labels);
+        let label = |axis: usize| labels[axis - unlabelled];
+        // Every piece a tiling stores a dimension as but the coarsest is a stated tile.
+        let is_stated = |axis: usize| tiling.is_tiled() && pieces[axis - unlabelled] > 0;
         let mut axes: PieceList<(usize, usize, usize)> = geometry
             .axes()
             .enumerate()
             .filter(|&(axis, (extent, stride))| {
-                let piece_of_one = extent == 1 && axis >= first_stated;
-                axis >= unlabelled && (piece_of_one || extent > 1 && stride > 0)
+                axis >= unlabelled && (extent == 1 && is_stated(axis) || extent > 1 && stride > 0)
             })
             .map(|(axis, (extent, stride))| (axis, extent, stride))
             .collect();
-        axes.sort_by_key(|&(axis, extent, stride)| (stride, extent > 1, core::cmp::Reverse(axis)));
+        // On a tie, the finest piece first.
+        axes.sort_by_key(|&(axis, extent, stride)| {
+            let piece = pieces[axis - unlabelled];
+            (stride, extent > 1, core::cmp::Reverse((piece, axis)))
+        });
+        // Whether every finer piece of a piece's dimension lies inside it.
+        let nests = |at: usize, axis: usize| {
+            (unlabelled..rank)
+                .filter(|&other| label(other) == label(axis))
+                .filter(|&other| pieces[other - unlabelled] > pieces[axis - unlabelled])
+                .filter(|&other| geometry.shape()[other] > 1)
+                .all(|other| axes[..at].iter().any(|&(inside, _, _)| inside == other))
+        };
+        let nested = axes
+            .iter()
+            .enumerate()
+            .position(|(at, &(axis, _, _))| !nests(at, axis));
+        let unnested = nested.map(|at| label(axes[at].0));
+        axes.truncate(nested.unwrap_or(axes.len()));
         let (stated, rest): (PieceList<_>, PieceList<_>) = axes
             .iter()
             .copied()
-            .partition(|&(axis, _, _)| axis >= first_stated);
+            .partition(|&(axis, _, _)| is_stated(axis));
         let finest_rest = rest.first().map_or(usize::MAX, |&(_, _, stride)| stride);
         if stated
             .iter()
@@ -71,17 +92,18 @@ impl StoragePartitioning {
         {
             return None;
         }
-        // Only a dimension spanning several plain axes has counts of its own, so a partitioning
-        // read off a buffer equals the one stated for it wherever none does.
+        // A folded dimension's logical extent includes broadcast pieces. Keep its physical
+        // piece counts even when only one piece addresses the buffer.
         let rest_counts: SmallVec<[Option<usize>; Space::MAX_RANK]> = rest
             .iter()
             .map(|&(axis, extent, _)| {
-                let label = labels[axis - unlabelled];
-                let pieces = rest
-                    .iter()
-                    .filter(|&&(other, _, _)| labels[other - unlabelled] == label)
-                    .count();
-                (pieces > 1).then_some(extent)
+                let folded = (unlabelled..rank).any(|other| {
+                    other != axis
+                        && label(other) == label(axis)
+                        && !is_stated(other)
+                        && geometry.shape()[other] > 1
+                });
+                folded.then_some(extent)
             })
             .collect();
         let rest_counts = match rest_counts.iter().any(Option::is_some) {
@@ -91,14 +113,12 @@ impl StoragePartitioning {
         Some(Self {
             tiles: stated
                 .iter()
-                .map(|&(axis, extent, _)| (labels[axis - unlabelled], extent))
+                .map(|&(axis, extent, _)| (label(axis), extent))
                 .collect(),
-            order: rest
-                .iter()
-                .map(|&(axis, _, _)| labels[axis - unlabelled])
-                .collect(),
+            order: rest.iter().map(|&(axis, _, _)| label(axis)).collect(),
             rest_counts,
             stagger: None,
+            unnested,
         })
     }
 
@@ -127,12 +147,19 @@ impl StoragePartitioning {
 
     /// The buffer's axes, coarsest first, each named by the dimension it is a piece of.
     pub fn labels(&self, dimensions: &[Dimension]) -> Vec<Dimension> {
-        StoragePartitioning::level_major(dimensions, &self.fragments(dimensions))
+        names_of_pieces(StoragePartitioning::level_major(
+            dimensions,
+            &self.fragments(dimensions),
+        ))
     }
 
-    /// The axes of a buffer storing `dimensions` as `fragments` pieces each, in cubecl's [`Tiling`]
-    /// order: `[k, n]` stored `[k/32, n/32, 32, 32]` is `[K, N, K, N]`.
-    pub(crate) fn level_major(dimensions: &[Dimension], fragments: &[usize]) -> Vec<Dimension> {
+    /// The axes of a buffer storing `dimensions` as `fragments` pieces each, level-major, each the
+    /// dimension it is a piece of and how many of that dimension's pieces are coarser: `[k, n]`
+    /// stored `[k/32, n/32, 32, 32]` is `[(K, 0), (N, 0), (K, 1), (N, 1)]`.
+    pub(crate) fn level_major(
+        dimensions: &[Dimension],
+        fragments: &[usize],
+    ) -> Vec<(Dimension, usize)> {
         assert_eq!(
             dimensions.len(),
             fragments.len(),
@@ -147,26 +174,38 @@ impl StoragePartitioning {
                     .iter()
                     .zip(fragments)
                     .filter(move |&(_, &pieces)| level < pieces)
-                    .map(|(&dimension, _)| dimension)
+                    .map(move |(&dimension, _)| (dimension, level))
             })
             .collect()
     }
 
     /// Whether `tile`, finest first, is held by this partitioning over a tensor of `extents`.
+    /// For a partitioning read from a buffer, supply that buffer's logical extents.
     /// Stated tiles are taken whole; the rest of a dimension may be divided.
+    /// Reaching a zero count while consuming the tile returns [`TileMisfit::Unwhole`].
     pub fn holds(
         &self,
         tile: &[(Dimension, usize)],
         extents: &[(Dimension, usize)],
     ) -> Result<(), TileMisfit> {
-        let mut pieces = self.pieces(extents)?;
+        let mut pieces = self.pieces(extents, &self.rest_counts)?;
         pieces.reverse();
         for &(dimension, count) in tile {
+            if count == 0 {
+                return Err(TileMisfit::Unwhole {
+                    dimension,
+                    extent: dimension_extent(extents, dimension),
+                    tile: count,
+                });
+            }
             let mut run = 1;
             while run < count {
-                let Some(mut piece) = pieces.pop() else {
-                    return Err(TileMisfit::RunsOut { wanted: dimension });
-                };
+                let mut piece = pieces.pop().ok_or(
+                    self.unnested
+                        .map_or(TileMisfit::RunsOut { wanted: dimension }, |dimension| {
+                            TileMisfit::Unnested { dimension }
+                        }),
+                )?;
                 if piece.count == 1 {
                     continue;
                 }
@@ -203,7 +242,7 @@ impl StoragePartitioning {
         &self,
         extents: &[(Dimension, usize)],
     ) -> PieceList<SmallVec<[(Dimension, usize); Space::MAX_RANK]>> {
-        let Ok(pieces) = self.pieces(extents) else {
+        let Ok(pieces) = self.pieces(extents, &self.rest_counts) else {
             return PieceList::new();
         };
         let mut tiles = PieceList::new();
@@ -230,6 +269,10 @@ impl StoragePartitioning {
     /// The buffer storing a tensor of `extents`: its axes in [`labels`](Self::labels)' order and
     /// its [`Tiling`]. Each piece steps by the run of every piece finer than it, the coarsest piece
     /// of more than one by its [`stagger`](Self::stagger)'s pitch over that run where it has one.
+    ///
+    /// For a folded broadcast, the retained [`order`](Self::order) must contain exactly the
+    /// requested dimensions, each once, or this returns [`Decline::StorageOrderUnmatched`].
+    /// Successful materialization uses the full requested extents.
     pub fn physical(&self, extents: &[(Dimension, usize)]) -> Result<Geometry, Decline> {
         let dimensions: SmallVec<[Dimension; Space::MAX_RANK]> =
             extents.iter().map(|&(dimension, _)| dimension).collect();
@@ -241,7 +284,7 @@ impl StoragePartitioning {
                 dimensions: dimensions.to_vec(),
             });
         }
-        let pieces = self.pieces(extents).map_err(|misfit| match misfit {
+        let pieces = self.pieces(extents, &[]).map_err(|misfit| match misfit {
             TileMisfit::Unwhole {
                 dimension,
                 extent,
@@ -280,7 +323,7 @@ impl StoragePartitioning {
                 let p = (0..pieces.len())
                     .rev()
                     .find(|&p| !taken[p] && pieces[p].dimension == dimension)
-                    .expect("a dimension has as many pieces as it has axes");
+                    .expect("a dimension should have as many pieces as it has axes");
                 taken[p] = true;
                 (pieces[p].count, strides[p])
             })
@@ -297,8 +340,13 @@ impl StoragePartitioning {
             .collect()
     }
 
-    /// Every piece over a tensor of `extents`, finest first: stated tiles, then each rest.
-    fn pieces(&self, extents: &[(Dimension, usize)]) -> Result<PieceList<Piece>, TileMisfit> {
+    /// The stated tiles and then each rest, finest first. A rest with an observed count uses
+    /// its source axis's extent. The requested logical extent sizes every other rest.
+    fn pieces(
+        &self,
+        extents: &[(Dimension, usize)],
+        observed_counts: &[Option<usize>],
+    ) -> Result<PieceList<Piece>, TileMisfit> {
         let mut pieces: PieceList<Piece> = self
             .tiles
             .iter()
@@ -309,7 +357,7 @@ impl StoragePartitioning {
             })
             .collect();
         for (piece, &dimension) in self.order.iter().enumerate() {
-            if let Some(count) = self.rest_counts.get(piece).copied().flatten() {
+            if let Some(count) = observed_counts.get(piece).copied().flatten() {
                 pieces.push(Piece {
                     dimension,
                     count,
@@ -317,10 +365,7 @@ impl StoragePartitioning {
                 });
                 continue;
             }
-            let extent = extents
-                .iter()
-                .find(|&&(a, _)| a == dimension)
-                .map_or(1, |&(_, extent)| extent);
+            let extent = dimension_extent(extents, dimension);
             let tile: usize = self
                 .tiles
                 .iter()
@@ -342,6 +387,13 @@ impl StoragePartitioning {
         }
         Ok(pieces)
     }
+}
+
+fn dimension_extent(extents: &[(Dimension, usize)], dimension: Dimension) -> usize {
+    extents
+        .iter()
+        .find(|&&(label, _)| label == dimension)
+        .map_or(1, |&(_, extent)| extent)
 }
 
 /// A [`StoragePartitioning`] being stated leaf-up, until [`grid`](Self::grid).
@@ -371,6 +423,7 @@ impl StorageLevels {
             order: SmallVec::from_slice(order),
             rest_counts: SmallVec::new(),
             stagger: None,
+            unnested: None,
         }
     }
 }
@@ -388,6 +441,8 @@ pub enum TileMisfit {
     },
     /// The partitioning ends before the wanted piece closes.
     RunsOut { wanted: Dimension },
+    /// A finer piece of the dimension lies coarser than the next one of it: no tile holds them.
+    Unnested { dimension: Dimension },
     /// The stated tiles do not close the dimension's extent.
     Unwhole {
         dimension: Dimension,
@@ -415,6 +470,11 @@ impl Display for TileMisfit {
             Self::RunsOut { wanted } => {
                 write!(f, "nothing is left along {wanted:?} for the piece wanted")
             }
+            Self::Unnested { dimension } => write!(
+                f,
+                "a finer piece of {dimension:?} lies coarser than the next one of it, so no tile \
+                 holds them"
+            ),
             Self::Unwhole {
                 dimension,
                 extent,
@@ -460,7 +520,8 @@ mod tests {
         ];
         for storage in statements {
             let geometry = storage.physical(&[(K, 64), (N, 64)]).unwrap();
-            let read = StoragePartitioning::new(&geometry, &geometry.labels(&[K, N])).unwrap();
+            let read =
+                StoragePartitioning::new(&geometry, &geometry.labels(&[K, N]).unwrap()).unwrap();
             assert_eq!(read, storage);
         }
     }
@@ -472,7 +533,7 @@ mod tests {
         let dense = StorageLevels::new(&[(K, 16)])
             .tile(&[(N, 16)])
             .grid(&[K, N]);
-        let stagger = Stagger::new(1024, 4).expect("a 4-bit value divides a transaction");
+        let stagger = Stagger::new(1024, 4).expect("a 4-bit value should divide a transaction");
         let staggered = dense.clone().staggered(stagger);
         // The two lay the buffer down differently, so a derivation keyed on one never serves the
         // other.
@@ -490,7 +551,7 @@ mod tests {
         assert!(finer.iter().all(|&(dense, staggered)| dense == staggered));
         assert_eq!(coarsest.1, stagger.pitch(coarsest.0));
         assert!(coarsest.1 > coarsest.0);
-        let read = StoragePartitioning::new(&geometry, &geometry.labels(&[K, N])).unwrap();
+        let read = StoragePartitioning::new(&geometry, &geometry.labels(&[K, N]).unwrap()).unwrap();
         assert_eq!(read, dense);
     }
 
@@ -501,13 +562,13 @@ mod tests {
         let one_strip = StorageLevels::new(&[(K, 16)])
             .tile(&[(N, 32)])
             .grid(&[K, N])
-            .staggered(Stagger::new(1024, 4).expect("a 4-bit value divides a transaction"));
+            .staggered(Stagger::new(1024, 4).expect("a 4-bit value should divide a transaction"));
         // Each K tile is 512 values, two transactions: three hold it.
         let geometry = one_strip.physical(&[(K, 4096), (N, 32)]).unwrap();
         let k_rest = geometry
             .axes()
             .find(|&(extent, _)| extent == 256)
-            .expect("4096 / 16 tiles down K");
+            .expect("4096 / 16 should tile down K");
         assert_eq!(k_rest.1, 3 * 256);
     }
 
@@ -526,6 +587,60 @@ mod tests {
         let broadcast = Geometry::new(&[(3, 0), (1, 5), (4096, 1)]);
         let read = StoragePartitioning::new(&broadcast, &[M, K, N]).unwrap();
         assert_eq!(read.order(), &[N]);
+    }
+
+    fn folded_broadcast() -> StoragePartitioning {
+        let source = Geometry::new(&[(3, 0), (2, 1)]);
+        StoragePartitioning::new(&source, &[K, K]).unwrap()
+    }
+
+    #[test]
+    fn a_folded_broadcast_holds_only_the_addressing_piece() {
+        let storage = folded_broadcast();
+        let extents = [(K, 6)];
+        assert_eq!(storage.holds(&[(K, 2)], &extents), Ok(()));
+        assert_eq!(
+            storage.holds(&[(K, 6)], &extents),
+            Err(TileMisfit::RunsOut { wanted: K })
+        );
+    }
+
+    #[test]
+    fn a_folded_broadcast_materializes_the_requested_extent() {
+        assert_eq!(
+            folded_broadcast().physical(&[(K, 6)]).unwrap(),
+            Geometry::row_major(&[6])
+        );
+    }
+
+    /// `[m, k]` stored `[m/16, k/16, m%8, k/2%4, k/8%2, m/8%2, k%2]`, as a tensor core takes a tile
+    /// of sixteen by sixteen.
+    fn tensor_core() -> Geometry {
+        Geometry::row_major(&[3, 5, 8, 4, 2, 2, 2]).with_tiling(
+            Tiling::from_physical_dims(&[&[0, 5, 2][..], &[1, 4, 3, 6]])
+                .expect("each axis should be one piece"),
+        )
+    }
+
+    /// `m`'s coarser piece lies inside its finest, so the tiles stop at `k`'s finest.
+    #[test]
+    fn a_tensor_core_layout_is_tiles_as_far_as_its_pieces_nest() {
+        let geometry = tensor_core();
+        let labels = geometry.labels(&[M, K]).unwrap();
+        let read = StoragePartitioning::new(&geometry, &labels).unwrap();
+        assert_eq!(read.tiles(), &[(K, 2)]);
+        assert!(read.order().is_empty());
+    }
+
+    #[test]
+    fn no_tile_holds_pieces_that_do_not_nest() {
+        let geometry = tensor_core();
+        let labels = geometry.labels(&[M, K]).unwrap();
+        let read = StoragePartitioning::new(&geometry, &labels).unwrap();
+        assert_eq!(
+            read.holds(&[(K, 2), (M, 2)], &geometry.extents(&labels)),
+            Err(TileMisfit::Unnested { dimension: M })
+        );
     }
 
     #[test]
@@ -566,6 +681,14 @@ mod tests {
         let extents = [(K, 64), (N, 4096)];
         assert_eq!(rows.holds(&[(N, 8)], &extents), Ok(()));
         assert!(rows.holds(&[(N, 3)], &extents).is_err());
+        assert_eq!(
+            rows.holds(&[(N, 8), (K, 0)], &extents),
+            Err(TileMisfit::Unwhole {
+                dimension: K,
+                extent: 64,
+                tile: 0,
+            })
+        );
     }
 
     /// NVFP4: a word of eight along `K` and a two-by-two-word read are whole stated tiles.
@@ -627,7 +750,7 @@ mod tests {
         assert_eq!(without.holds(&read, &extents), Ok(()));
     }
 
-    /// The level-major order cubecl's tiling lists axes in: every dimension's coarsest piece in the
+    /// The level-major order a stated buffer lists its axes in: every dimension's coarsest piece in the
     /// tensor's order, then the next of every dimension still split, so an untiled dimension drops
     /// out after the first level and a deeper dimension appears alone at the finest.
     #[test]

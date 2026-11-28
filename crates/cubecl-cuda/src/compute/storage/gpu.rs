@@ -1,7 +1,10 @@
+use crate::compute::events::Cuda;
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{
+    HostImports, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
+};
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
@@ -23,6 +26,7 @@ pub struct GpuStorage {
     /// The bytes `memory` holds.
     allocated: u64,
     ptr_bindings: PtrBindings,
+    host_imports: HostImports<Cuda>,
 }
 
 /// A GPU memory resource allocated for CUDA using [`GpuStorage`].
@@ -43,27 +47,30 @@ impl GpuResource {
     }
 }
 
-impl Default for GpuStorage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GpuStorage {
-    /// Creates an empty storage.
-    pub fn new() -> Self {
+    /// Storage whose imports `stream`'s work reads.
+    ///
+    /// # Safety
+    ///
+    /// `stream` outlives the storage: the release of every import is recorded on it.
+    pub unsafe fn on_stream(stream: cudarc::driver::sys::CUstream) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             allocated: 0,
             ptr_bindings: PtrBindings::new(),
+            // SAFETY: the caller keeps `stream` alive for as long as the storage.
+            host_imports: unsafe { HostImports::on_stream(stream) },
         }
     }
+}
 
+impl GpuStorage {
     /// Deallocates buffers marked for deallocation.
     ///
     /// This method processes all pending deallocations by freeing the associated GPU memory.
     fn perform_deallocations(&mut self) {
+        self.host_imports.release_after_stream(&self.deallocations);
         self.deallocations
             .drain(..)
             .filter_map(|id| self.memory.remove(&id))
@@ -143,10 +150,13 @@ impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let (ptr, _, _) = self
-            .memory
-            .get(&handle.id)
-            .expect("the handle should name a live allocation of this storage");
+        let ptr = match self.memory.get(&handle.id) {
+            Some((ptr, _, _)) => *ptr,
+            None => self
+                .host_imports
+                .device_ptr(&handle.id)
+                .expect("the handle should name a live allocation of this storage"),
+        };
 
         let offset = handle.offset();
         let size = handle.size();
@@ -159,10 +169,6 @@ impl StorageAllocator for GpuStorage {
         )
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         // CubeCL pools these allocations itself, so the synchronous allocator is
@@ -211,12 +217,14 @@ impl StorageAllocator for GpuStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
+        self.host_imports.import(host)
+    }
+
     fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn flush(&mut self) {
         self.perform_deallocations();
     }
@@ -235,7 +243,8 @@ mod tests {
         let context = cudarc::driver::CudaContext::new(0).unwrap();
         let stream = context.new_stream().unwrap();
 
-        let mut storage = GpuStorage::new();
+        // SAFETY: `stream` lives until the end of the test, past the storage.
+        let mut storage = unsafe { GpuStorage::on_stream(stream.cu_stream()) };
         for size in [0, 16] {
             let handle = storage.allocate_bytes(size).unwrap();
             let resource = storage.get(&handle);

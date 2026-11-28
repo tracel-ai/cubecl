@@ -1,4 +1,16 @@
+use core::any::TypeId;
+
+use cubecl_ir::{
+    interfaces::aliasing::PointerExt,
+    prelude::{AnalysisManager, Context, Operation, Ptr, Result, pass_name},
+};
 use hashbrown::HashMap;
+use pliron::{pass::Analysis, value::Value};
+
+use crate::analyses::dataflow_solver::{
+    DataflowSolver, ProgramPoint, SolverConfig,
+    pointer_liveness::{LivenessLattice, PointerLivenessAnalysis},
+};
 
 /// Shared memory liveness analysis and allocation
 pub mod shared {
@@ -212,7 +224,7 @@ pub mod shared {
             }
             let parent = op.deref(ctx).get_parent_block();
             for operand in op.deref(ctx).operands() {
-                let root = operand.get_root_value(ctx);
+                let root = operand.get_root_ptr(ctx);
                 if !self.first_uses.contains_key(&root)
                     && self
                         .shared_memories
@@ -236,7 +248,7 @@ pub mod shared {
             if Operation::is_op::<FreeOp>(op, ctx)
                 && let Some(place) = place()
             {
-                let memory = op.deref(ctx).get_operand(0).get_root_value(ctx);
+                let memory = op.deref(ctx).get_operand(0).get_root_ptr(ctx);
                 self.frees.push((memory, place));
             }
             if let Some(sync) = op_dyn.downcast_ref::<SyncOp>()
@@ -319,5 +331,60 @@ pub mod shared {
                     || Operation::is_op::<ForOp>(op, ctx)
                     || Operation::is_op::<ScfWhileOp>(op, ctx)
             })
+    }
+}
+
+pub struct PointerLiveness {
+    root: Ptr<Operation>,
+    solver: DataflowSolver,
+}
+
+impl PointerLiveness {
+    pub fn is_live_after(&self, ctx: &Context, op: Ptr<Operation>, ptr: Value) -> bool {
+        let analysis = self
+            .solver
+            .get_analysis::<PointerLivenessAnalysis>()
+            .unwrap();
+        let Some(&root_id) = analysis.roots.get(&ptr.get_root_ptr(ctx)) else {
+            return true;
+        };
+        let point = ProgramPoint::after_op(ctx, op);
+        let Some(liveness) = self.solver.lookup_state::<LivenessLattice>(point) else {
+            return true;
+        };
+        liveness.deref().value().contains(root_id)
+    }
+
+    pub fn update_in_place(
+        &mut self,
+        ctx: &Context,
+        changed_ops: impl IntoIterator<Item = Ptr<Operation>>,
+    ) {
+        self.solver
+            .recompute_from_program_points(
+                ctx,
+                self.root,
+                changed_ops.into_iter().map(|op| {
+                    (
+                        ProgramPoint::after_op(ctx, op),
+                        TypeId::of::<PointerLivenessAnalysis>(),
+                    )
+                }),
+            )
+            .expect("Failed to recompute");
+    }
+}
+
+#[pass_name]
+impl Analysis for PointerLiveness {
+    fn compute(op: Ptr<Operation>, ctx: &Context, _: &mut AnalysisManager) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        let mut solver = DataflowSolver::new(SolverConfig::default());
+        solver.load(PointerLivenessAnalysis::default());
+        solver.initialize_and_run(ctx, op)?;
+
+        Ok(Self { root: op, solver })
     }
 }

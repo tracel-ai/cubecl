@@ -20,6 +20,9 @@ pub enum Decline {
     RankBelowLabels { rank: usize, block: usize },
     /// More leading axes than batch dimensions to label them.
     UnlabelledBatchAxes { axes: usize, dimensions: usize },
+    /// The tiling stores a batch axis as several pieces, or among the pieces of the labelled axes:
+    /// batch axes are ahead of them, one each.
+    BatchAxesInPieces(Tiling),
     /// An operand must address at least one coordinate.
     NoCoordinate,
     /// The buffer cannot be served `width` wide.
@@ -138,7 +141,7 @@ pub enum Decline {
     /// they are stated.
     ScalesOfAPoolUnpaged,
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table that is not plain `u32` entries,
-    /// one a line: an entry is a coordinate.
+    /// one a line, its axes its keys in their order: an entry is a coordinate.
     IndexTableNotU32,
     /// [`indexed`](crate::TileTensorLaunch::indexed) with a table of `rank` axes keyed by `keys`
     /// dimensions: a table holds one axis per key.
@@ -190,6 +193,33 @@ pub enum Decline {
     /// [`physical`](crate::layout::StoragePartitioning::physical): more pieces than the buffer's
     /// metadata records ([`Tiling`]).
     StoragePiecesUnrecordable(MetadataError),
+    /// `condition` should have held of a launch the kernel is meant to run, and does not, for
+    /// `cause` where another decline is what shows it: a bug in the kernel, where every other
+    /// variant is a launch it does not claim.
+    Broken {
+        condition: &'static str,
+        cause: Option<Box<Decline>>,
+    },
+}
+
+impl Decline {
+    /// `cause`, met where `condition` should have held. A `cause` that is
+    /// [`Broken`](Self::Broken) itself is kept, as the condition that failed first.
+    pub fn broken_by(condition: &'static str, cause: Decline) -> Self {
+        match cause {
+            Decline::Broken { .. } => cause,
+            cause => Decline::Broken {
+                condition,
+                cause: Some(Box::new(cause)),
+            },
+        }
+    }
+
+    /// Whether this is [`Broken`](Self::Broken): a test that skips what a device does not run
+    /// fails on it.
+    pub fn is_broken(&self) -> bool {
+        matches!(self, Decline::Broken { .. })
+    }
 }
 
 impl Display for Decline {
@@ -219,6 +249,11 @@ impl Display for Decline {
                     "Arg: {axes} batch axes but only {dimensions} batch dimensions given"
                 )
             }
+            Decline::BatchAxesInPieces(tiling) => write!(
+                f,
+                "Arg: batch axes are ahead of the labelled ones, one each, and {tiling:?} stores \
+                 one otherwise"
+            ),
             Decline::NoCoordinate => {
                 write!(f, "Arg: an operand must address at least one coordinate")
             }
@@ -415,8 +450,8 @@ impl Display for Decline {
             ),
             Decline::IndexTableNotU32 => write!(
                 f,
-                "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, each a \
-                 coordinate"
+                "TileTensorLaunch::indexed: a table holds plain u32 entries, one a line, its axes its \
+                 keys in their order, each entry a coordinate"
             ),
             Decline::IndexTableRank { keys, rank } => write!(
                 f,
@@ -478,8 +513,66 @@ impl Display for Decline {
                 "StoragePartitioning::physical: the buffer's metadata cannot record its pieces: \
                  {why:?}"
             ),
+            Decline::Broken {
+                condition,
+                cause: None,
+            } => write!(f, "broken, this should hold: {condition}"),
+            Decline::Broken {
+                condition,
+                cause: Some(cause),
+            } => write!(f, "broken, this should hold: {condition}; but {cause}"),
         }
     }
 }
 
 impl std::error::Error for Decline {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONDITION: &str = "the engine binds what the routine prepared";
+
+    #[test]
+    fn a_decline_met_where_a_condition_should_hold_is_broken() {
+        let broken = Decline::broken_by(CONDITION, Decline::NoUnits);
+
+        assert_eq!(
+            broken,
+            Decline::Broken {
+                condition: CONDITION,
+                cause: Some(Box::new(Decline::NoUnits)),
+            }
+        );
+    }
+
+    #[test]
+    fn a_broken_decline_keeps_the_condition_that_failed_first() {
+        let first = Decline::broken_by(CONDITION, Decline::NoUnits);
+
+        assert_eq!(Decline::broken_by("a later one", first.clone()), first);
+    }
+
+    #[test]
+    fn a_broken_decline_says_so() {
+        let broken = Decline::broken_by(CONDITION, Decline::NoUnits);
+
+        assert!(broken.is_broken());
+    }
+
+    #[test]
+    fn a_launch_a_kernel_does_not_claim_is_not_broken() {
+        assert!(!Decline::NoUnits.is_broken());
+    }
+
+    #[test]
+    fn a_broken_decline_names_its_condition_and_its_cause() {
+        let broken = Decline::broken_by(CONDITION, Decline::PlanesUnavailable);
+
+        assert_eq!(
+            broken.to_string(),
+            "broken, this should hold: the engine binds what the routine prepared; but the kernel \
+             works in planes, and the device runs no plane operations"
+        );
+    }
+}

@@ -8,7 +8,7 @@ use crate::*;
 pub(crate) enum DrainPlan {
     /// No scratch: each tile stores through its own intrinsic.
     Straight,
-    /// Own slot per tile: all spills, then all adds, two barriers in all.
+    /// Own slot per tile: all spills, then all adds, three barriers in all.
     BounceTogether,
     /// One shared slot: spill and add per tile, three barriers each.
     BounceEach,
@@ -39,6 +39,17 @@ pub(crate) enum DrainPass {
     Spill,
     /// Add alone: the second pass.
     Add,
+}
+
+impl DrainPass {
+    /// The pass one tile drains by: a bounce where its fragments must bounce to reach their
+    /// destination, a store otherwise.
+    pub(crate) fn for_one_tile(bounces: bool) -> Self {
+        match bounces {
+            true => DrainPass::Bounce,
+            false => DrainPass::Copy,
+        }
+    }
 }
 
 /// Which of the plane's units carry a drain's writes, and what they combine first.

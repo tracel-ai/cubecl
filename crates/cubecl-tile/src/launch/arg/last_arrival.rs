@@ -66,7 +66,7 @@ impl<'a> TileTensor<'a> {
             space: Space::with_sizes(boxes_space.space(), partitioning.space.sizes.clone()),
             levels: boxes_space.levels().to_vec(),
         };
-        let (first, holders) = portion.holders(i);
+        let (first, holders) = portion.nth_holders(i);
         let run = portion.run();
         let first_slot = 2 * first + select(portion.starts_in(i, first), 0usize, 1usize);
         let slots = self.tile_mut(&boxes);
@@ -84,7 +84,7 @@ impl<'a> TileTensor<'a> {
             own,
             arrivals,
             region: portion.region(i),
-            counter: portion.index(i),
+            counter: portion.nth_index(i),
             first,
             holders,
             first_slot,
@@ -157,6 +157,11 @@ impl Partitioning {
 
     /// The shape of a [`LastArrival`]'s slots for an output over `dimensions`, in that order: two
     /// cube boxes a run of the shared cube level, stacked along the first of `dimensions`.
+    ///
+    /// # Panics
+    ///
+    /// Where the outermost level shares no grid, or does not cut the first of `dimensions` by a
+    /// stated tile.
     pub fn arrival_slots(&self, dimensions: &[Dimension]) -> cubecl::zspace::Shape {
         let boxes = self.arrival_slots_space(dimensions);
         cubecl::zspace::Shape::from(
@@ -176,6 +181,11 @@ impl Partitioning {
             "LastArrival: the cube level distributes no grid as one index; say `shared_by`",
         );
         let stacked = dimensions[0];
+        assert!(
+            level.tile(stacked).is_some(),
+            "LastArrival: the cube level does not cut {stacked:?}, the output's first dimension, \
+             which the slots are counted along; put a dimension it cuts first"
+        );
         let cube_box = level.child(self.space());
         let Extent::Static(edge) = cube_box.extent_raw(stacked) else {
             panic!(

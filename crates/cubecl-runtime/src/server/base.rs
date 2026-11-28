@@ -1,5 +1,6 @@
 use super::{CaptureStatus, DeviceCaptures, Handle};
 use crate::kernel::BufferIOAttr;
+use crate::storage::HostRange;
 use crate::{
     client::Client,
     compiler::CompilationError,
@@ -86,6 +87,18 @@ pub enum ProfileError {
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Server(#[from] Box<ServerError>),
+}
+
+impl ProfileError {
+    /// Whether the window failed on a defect of the kernel it profiled, rather than on the
+    /// profiling: a kernel whose own code panicked as it was expanded.
+    pub fn is_expansion_panic(&self) -> bool {
+        match self {
+            Self::Launch(error) => error.is_expansion_panic(),
+            Self::Server(error) => error.is_expansion_panic(),
+            Self::Unknown { .. } | Self::NotRegistered { .. } | Self::NotMeasured { .. } => false,
+        }
+    }
 }
 
 /// A failure during a profiling window invalidates the measurement, whatever
@@ -473,6 +486,14 @@ impl LaunchError {
             _ => false,
         }
     }
+
+    /// Whether [`CompilationError::ExpansionPanicked`] stopped the launch.
+    pub fn is_expansion_panic(&self) -> bool {
+        matches!(
+            self,
+            Self::CompilationError(CompilationError::ExpansionPanicked { .. })
+        )
+    }
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -766,6 +787,17 @@ impl ServerError {
         }
     }
 
+    /// Whether an expansion panic is among the failures this reports, under the read of a buffer
+    /// it left unwritten or beside failures of other launches.
+    pub fn is_expansion_panic(&self) -> bool {
+        match self {
+            Self::Launch(error) => error.is_expansion_panic(),
+            Self::Unwritten { root, .. } => root.is_expansion_panic(),
+            Self::Several { errors, .. } => errors.iter().any(Self::is_expansion_panic),
+            _ => false,
+        }
+    }
+
     /// Whether the device that emitted the error is poisoned.
     ///
     /// The other half of [`is_refusal`](Self::is_refusal): a refusal says
@@ -825,6 +857,33 @@ pub trait Server:
         size: u64,
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
+
+    /// A handle to `host`, which this device's kernels then read in place, on the given
+    /// [stream](StreamId).
+    ///
+    /// # Guarantees
+    ///
+    /// Every implementation keeps `host` until the last work queued on it completes, on any
+    /// stream, refuses every launch that may write it
+    /// ([`forbidden_writes`](KernelArguments::forbidden_writes)), and refuses the import while a
+    /// stream records a graph.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::HostMemoryRefused`] when the device imports no host memory, which is the
+    /// default, a stream records a graph, or the driver refuses it.
+    fn import_host_memory(
+        &mut self,
+        host: HostRange,
+        stream_id: StreamId,
+    ) -> Result<Handle, ServerError> {
+        let _ = stream_id;
+        Err(IoError::HostMemoryRefused {
+            reason: alloc::format!("this runtime imports no host memory ({host:?})").into(),
+            backtrace: BackTrace::capture(),
+        }
+        .into())
+    }
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -1446,7 +1505,8 @@ pub trait ServerCommunication {
     /// A failure taints them as a failed launch here would, so a read fails
     /// on the cause, and an enqueued write releases a failure they carried.
     /// The default does nothing: a runtime without peer access never shares
-    /// a buffer.
+    /// a buffer. A runtime that [imports](crate::client::Client::import_host_memory)
+    /// host memory taints them, which a host copy of a failed import relies on.
     #[allow(unused_variables)]
     fn peer_wrote(&mut self, written: Vec<BufferBinding>, error: Option<ServerError>) {}
 }
@@ -1491,7 +1551,7 @@ impl SendOutcome {
 
 /// Where a server sends the device windows of one communication part and of a compute stream's
 /// wait, for an observer that times communications
-/// ([`KernelsAndCommunications`](crate::logging::Timed::KernelsAndCommunications)).
+/// ([`KernelsAndCommunications`](crate::logging::TimedExecutions::KernelsAndCommunications)).
 ///
 /// The observer holds each window unread from the moment it is issued. One the server never
 /// sends, for a part refused before it ran or recorded inside a graph capture, reads back empty.
@@ -1840,6 +1900,19 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// Host memory could not be allocated, or a device could not import it: a pinning or
+    /// registration limit of the driver, a range the device cannot import, or a device that
+    /// imports none
+    /// ([`Features::host_memory_import`](cubecl_ir::features::Features::host_memory_import)).
+    #[error("host memory refused: {reason}\n{backtrace}")]
+    HostMemoryRefused {
+        /// What was asked, and what refused it.
+        reason: Reason,
+        /// The backtrace.
+        #[cfg_attr(serializable, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// The current IO operation is not supported
     #[error("The current IO operation is not supported\n{backtrace}")]
     UnsupportedIoOperation {
@@ -2072,6 +2145,27 @@ impl KernelArguments {
                     .map(|io| io.is_writable())
                     .unwrap_or(true);
                 written.then_some(binding)
+            })
+    }
+
+    /// The buffers the device may not write, such as
+    /// [imported](crate::client::Client::import_host_memory) host memory, that the kernel may
+    /// write per `compiled`, the compiler's own answer: a launch with any is refused, and these
+    /// are the ones it fails. A buffer the compiler kept no answer for counts as written, since
+    /// the caller's declaration cannot vouch for a kernel it did not compile.
+    pub fn forbidden_writes<'a>(
+        &'a self,
+        compiled: Option<&'a [BufferIOAttr]>,
+    ) -> impl Iterator<Item = &'a BufferBinding> {
+        self.resources
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, resource)| {
+                let binding = resource.local_binding()?;
+                let written = compiled
+                    .and_then(|io| io.get(index))
+                    .is_none_or(|io| io.is_writable());
+                (!binding.memory.descriptor().is_device_writable() && written).then_some(binding)
             })
     }
 
@@ -2615,6 +2709,75 @@ mod tests {
             !group(Vec::new()).is_refusal(),
             "an empty group refuses nothing"
         );
+    }
+
+    /// The launch failure of a kernel whose own code panicked as it was expanded.
+    fn expansion_panic() -> LaunchError {
+        LaunchError::CompilationError(CompilationError::ExpansionPanicked {
+            kernel: "kernel".into(),
+            message: "an assertion failed".into(),
+            backtrace: Default::default(),
+        })
+    }
+
+    #[test_log::test]
+    fn an_expansion_panic_is_found_at_the_root() {
+        let unwritten = ServerError::Unwritten {
+            failure: 1,
+            claimed: 1,
+            chain: Vec::new(),
+            root: alloc::boxed::Box::new(ServerError::Launch(expansion_panic())),
+            backtrace: Default::default(),
+        };
+        let several = ServerError::Several {
+            errors: vec![ServerError::TornDown, unwritten],
+            backtrace: Default::default(),
+        };
+
+        assert!(several.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_failure_no_launch_caused_is_no_expansion_panic() {
+        assert!(!ServerError::TornDown.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_launch_stopped_by_an_expansion_panic_says_so() {
+        assert!(expansion_panic().is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_launch_a_compiler_refused_is_no_expansion_panic() {
+        let refused = LaunchError::CompilationError(CompilationError::Generic {
+            reason: "no such intrinsic on this target".into(),
+            backtrace: Default::default(),
+        });
+
+        assert!(!refused.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_finds_the_expansion_panic_its_launch_met() {
+        let error = ProfileError::Launch(expansion_panic());
+
+        assert!(error.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_finds_the_expansion_panic_the_server_reports() {
+        let error = ProfileError::from(ServerError::Launch(expansion_panic()));
+
+        assert!(error.is_expansion_panic());
+    }
+
+    #[test_log::test]
+    fn a_window_that_was_lost_met_no_expansion_panic() {
+        let error = ProfileError::NotRegistered {
+            backtrace: Default::default(),
+        };
+
+        assert!(!error.is_expansion_panic());
     }
 
     /// Every fallback over-names: a kernel the compiler kept no answer for,

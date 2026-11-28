@@ -8,7 +8,7 @@ use crate::bytes::{
 use crate::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 use core::{
-    alloc::LayoutError,
+    alloc::{Layout, LayoutError},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -392,16 +392,19 @@ impl Bytes {
         }
     }
 
-    /// The `size` bytes of `file`, opened at `path`, read from the open file
-    /// when first used: a file renamed over `path` meanwhile is not the one
-    /// read.
-    #[cfg(native_cache)]
-    pub(crate) fn from_opened_file(
-        file: std::fs::File,
-        path: std::path::PathBuf,
-        size: u64,
-    ) -> Self {
-        let controller = crate::bytes::file::FileAllocationController::opened(file, path, size);
+    #[cfg(feature = "std")]
+    /// The `size` bytes of `file` that start `offset` bytes in, read when
+    /// first used.
+    ///
+    /// # Assumptions
+    ///
+    /// - The file holds at least `offset + size` bytes when they are read.
+    pub fn from_opened_file(file: &crate::bytes::OpenedFile, size: u64, offset: u64) -> Self {
+        let controller = crate::bytes::file::FileAllocationController::from_source(
+            file.source().clone(),
+            size,
+            offset,
+        );
 
         Self {
             controller: Box::new(controller),
@@ -534,6 +537,22 @@ impl Bytes {
     /// allocation), defeating the laziness this constructor is meant to preserve.
     pub unsafe fn from_controller(controller: Box<dyn AllocationController>, len: usize) -> Self {
         Self { controller, len }
+    }
+
+    /// `size_bytes` zeroed bytes whose first byte is aligned to `align`, a power of two, which may
+    /// exceed what [`Self::from_elems`] aligns to.
+    ///
+    /// # Errors
+    ///
+    /// [`AllocationError::OutOfMemory`] when `align` is not a power of two, or the host cannot
+    /// allocate `size_bytes` at it.
+    pub fn zeroed_aligned(size_bytes: usize, align: usize) -> Result<Self, AllocationError> {
+        let layout =
+            Layout::from_size_align(size_bytes, align).map_err(|_| AllocationError::OutOfMemory)?;
+        let controller = super::aligned::AlignedAllocationController::zeroed(layout)
+            .ok_or(AllocationError::OutOfMemory)?;
+        // SAFETY: the controller holds `size_bytes` zeroed bytes.
+        Ok(unsafe { Self::from_controller(Box::new(controller), size_bytes) })
     }
 
     /// Create a sequence of [Bytes] from the memory representation of an unknown type of elements.
@@ -675,6 +694,13 @@ impl Bytes {
 
     /// Copy an existing slice of data into Bytes that are aligned to `align`
     fn try_from_data(align: usize, data: &[u8]) -> Result<Self, LayoutError> {
+        if align > default_controller::MAX_ALIGN {
+            let controller = super::aligned::AlignedAllocationController::with_data(data, align)?;
+            return Ok(Self {
+                controller: Box::new(controller),
+                len: data.len(),
+            });
+        }
         let controller = NativeAllocationController::alloc_with_data(data, align)?;
 
         Ok(Self {
@@ -857,8 +883,57 @@ impl Eq for Bytes {}
 // The type is no-std; its tests need std (test_log, std collections).
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use super::{Bytes, SplitPolicy, ViewError};
+    use super::{AllocationError, Bytes, SplitPolicy, ViewError};
     use alloc::{vec, vec::Vec};
+
+    #[test]
+    fn zeroed_aligned_bytes_are_zeroed_and_aligned() {
+        let bytes = Bytes::zeroed_aligned(3 * 4096, 64 * 1024).unwrap();
+        assert_eq!(bytes.len(), 3 * 4096);
+        assert_eq!(bytes.as_ptr() as usize % (64 * 1024), 0);
+        assert!(bytes.iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn a_copy_of_zeroed_aligned_bytes_keeps_their_alignment() {
+        let mut bytes = Bytes::zeroed_aligned(2 * 4096, 64 * 1024).unwrap();
+        bytes[1] = 7;
+        let copy = bytes.clone();
+        assert_eq!(copy.as_ptr() as usize % (64 * 1024), 0);
+        assert_eq!(&copy[..], &bytes[..]);
+    }
+
+    #[test]
+    fn extending_zeroed_aligned_bytes_keeps_their_alignment() {
+        let mut bytes = Bytes::zeroed_aligned(17, 64 * 1024).unwrap();
+        bytes[16] = 7;
+        bytes.extend_from_byte_slice(&[9]);
+        assert_eq!(bytes.as_ptr() as usize % (64 * 1024), 0);
+        assert_eq!(&bytes[16..], &[7, 9]);
+    }
+
+    #[test]
+    fn zeroed_aligned_bytes_split_into_owned_halves() {
+        let mut bytes = Bytes::zeroed_aligned(2 * 4096, 64 * 1024).unwrap();
+        bytes[4096] = 7;
+        let (_, second) = bytes.split(4096, SplitPolicy::Owned).unwrap();
+        assert_eq!(second[0], 7);
+    }
+
+    #[test]
+    fn zeroed_aligned_bytes_may_be_empty() {
+        let bytes = Bytes::zeroed_aligned(0, 64 * 1024).unwrap();
+        assert!(bytes.is_empty());
+        assert_eq!(bytes.as_ptr() as usize % (64 * 1024), 0);
+    }
+
+    #[test]
+    fn zeroed_aligned_bytes_refuse_an_alignment_off_a_power_of_two() {
+        assert_eq!(
+            Bytes::zeroed_aligned(16, 3).unwrap_err(),
+            AllocationError::OutOfMemory
+        );
+    }
 
     const _CONST_ASSERTS: fn() = || {
         fn test_send<T: Send>() {}

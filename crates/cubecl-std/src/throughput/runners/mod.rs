@@ -1,5 +1,7 @@
+pub mod cache_read;
 pub mod compute_cmma;
 pub mod compute_direct;
+pub mod cube_rate;
 pub mod launch_overhead;
 pub mod link_collective;
 pub mod link_peer;
@@ -8,4 +10,5 @@ pub mod memory_direct;
 pub mod memory_probe;
 pub mod memory_read;
 pub mod memory_write;
+pub mod shared_read;
 pub mod verify;

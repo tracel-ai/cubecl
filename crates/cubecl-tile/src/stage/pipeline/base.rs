@@ -10,6 +10,7 @@ use super::payload::base::{Payload, PayloadExpand, StageSpec};
 use super::payload::pair::OperandPair;
 use super::plan::StagePlan;
 use super::schedule::Prefetch;
+use crate::stage::transport::transposed::RunBlocks;
 use crate::*;
 
 /// What a plane does with the stages' slots.
@@ -79,12 +80,15 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
     ///
     /// `width` overrides the stage's line width; the operand must then be scalar and unpacked.
     /// `decoded` is the element a stage whose fill decodes its operand holds, `f32` where `None`.
+    /// `contracted` is the Dimension a contraction sums the staged operands along, where the
+    /// caller states one.
     #[allow(dead_code)]
     pub(crate) fn new(
         walk: &Walk,
         sources: &P,
         #[comptime] storage: StageStorage,
         #[comptime] width: Option<usize>,
+        #[comptime] contracted: Option<Dimension>,
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<P> {
@@ -96,6 +100,7 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
             depth: walk.depth(),
             storage,
             width,
+            contracted,
             decoded,
             owner: plan.owner(),
         });
@@ -158,7 +163,7 @@ impl<P: Payload<P> + Clone + CubeType<ExpandType: Clone>> Stages<P> {
 #[cube]
 impl Stages<OperandPair> {
     /// The `depth` slots staging both operands of a contraction into shared memory laid out as
-    /// `storage`.
+    /// `storage`, stating no Dimension it sums them along.
     ///
     /// A stage whose fill decodes its operand, from scales, a codebook or fields as wide as their
     /// word, holds the values at `decoded`, or at `f32` where `None`. An operand staged as it lies
@@ -171,11 +176,89 @@ impl Stages<OperandPair> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<OperandPair> {
+        let staged = comptime!(StagedOperands::Both);
+        Stages::smem_staging(walk, lhs, rhs, staged, storage, depth, decoded)
+    }
+
+    /// [`smem`](Stages::smem) staging the operands `staged` names, the other read where it lies.
+    pub fn smem_staging(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
+        Stages::pair(
+            walk,
+            lhs,
+            rhs,
+            staged,
+            comptime!(None),
+            storage,
+            depth,
+            decoded,
+        )
+    }
+
+    /// [`smem_staging`](Stages::smem_staging) for the factors of a contraction summed along
+    /// `contracted`, whose stages are laid out in the order the fragments reading them take
+    /// ([`StageStorage::ordered_for_fragments`]).
+    ///
+    /// # Assumptions
+    ///
+    /// - Both operands span `contracted`.
+    ///
+    /// # Guarantees
+    ///
+    /// - Each operand `staged` names is staged as [`smem_staging`](Stages::smem_staging) stages
+    ///   it, but for the order its stage is laid out in.
+    #[allow(clippy::too_many_arguments)]
+    pub fn smem_factors(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] contracted: Dimension,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
+        let contracted = comptime!(Some(contracted));
+        Stages::pair(walk, lhs, rhs, staged, contracted, storage, depth, decoded)
+    }
+}
+
+#[cube]
+impl Stages<OperandPair> {
+    /// The slots staging the operands `staged` names, `contracted` the Dimension a contraction
+    /// sums them along where the caller states one.
+    #[allow(clippy::too_many_arguments)]
+    fn pair(
+        walk: &Walk,
+        lhs: &Tile,
+        rhs: &Tile,
+        #[comptime] staged: StagedOperands,
+        #[comptime] contracted: Option<Dimension>,
+        #[comptime] storage: StageStorage,
+        #[comptime] depth: usize,
+        #[comptime] decoded: Option<ElemType>,
+    ) -> Stages<OperandPair> {
         let sources = OperandPair {
             lhs: lhs.clone(),
             rhs: rhs.clone(),
+            staged,
         };
-        Stages::new(walk, &sources, storage, comptime!(None), depth, decoded)
+        Stages::new(
+            walk,
+            &sources,
+            storage,
+            comptime!(None),
+            contracted,
+            depth,
+            decoded,
+        )
     }
 }
 
@@ -189,7 +272,15 @@ impl Stages<Tile> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<Tile> {
-        Stages::new(walk, input, storage, comptime!(None), depth, decoded)
+        Stages::new(
+            walk,
+            input,
+            storage,
+            comptime!(None),
+            comptime!(None),
+            depth,
+            decoded,
+        )
     }
 
     /// [`smem_single`](Stages::smem_single) with the stage served in `width`-wide lines.
@@ -201,7 +292,7 @@ impl Stages<Tile> {
         #[comptime] depth: usize,
         #[comptime] decoded: Option<ElemType>,
     ) -> Stages<Tile> {
-        Stages::new(walk, input, storage, width, depth, decoded)
+        Stages::new(walk, input, storage, width, comptime!(None), depth, decoded)
     }
 }
 
@@ -226,6 +317,9 @@ pub(crate) enum FetchedFill {
     /// The packed source's loads as stored and the scale of every line they land, decoded at the
     /// store ([`Tile::fetch_decoded_from`]).
     Decoded,
+    /// The source's lines as they lie, in blocks along the run of a stage laid along one,
+    /// transposed at the store ([`Memory::store_blocks`]).
+    Transposed,
 }
 
 /// Bind the fetched line widths `FL` and `FR` for the rest of the kernel's scope.
@@ -243,14 +337,70 @@ impl Tile {
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetches_in_registers`.
     pub(crate) fn register_fetch(&self, src: &Tile) -> comptime_type!(Option<FetchedFill>) {
         let straight = self.fetches_straight_from(src);
+        let transposed = self.fetches_transposed_from(src);
         let staged = self.packing();
         let decodes = src.decodes_into(staged);
         let turns = self.decoded_fetch_turns(src);
-        comptime!(match (straight, decodes && turns.is_some()) {
-            (true, _) => Some(FetchedFill::Straight),
-            (false, true) => Some(FetchedFill::Decoded),
-            (false, false) => None,
+        comptime!(match (straight, transposed, decodes && turns.is_some()) {
+            (true, _, _) => Some(FetchedFill::Straight),
+            (false, true, _) => Some(FetchedFill::Transposed),
+            (false, false, true) => Some(FetchedFill::Decoded),
+            (false, false, false) => None,
         })
+    }
+
+    /// Whether this stage, laid along a run, is filled from `src` by blocks of its lines as they
+    /// lie, which a register fetch can hold ([`Memory::fetches_transposed`]).
+    #[allow(dead_code)] // Reached through its expand, from `register_fetch`.
+    fn fetches_transposed_from(&self, src: &Tile) -> comptime_type!(bool) {
+        let space = comptime!(self.place.space.clone());
+        let bits = comptime!(self.element.size_bits());
+        let same = comptime!(self.element == src.element);
+        let decodes = src.decodes();
+        match &self.kind {
+            TileKind::Memory(stage) => match &src.kind {
+                TileKind::Memory(source) => {
+                    let blocks = stage.fetches_transposed(source, &space, bits);
+                    comptime!(same && !decodes && blocks)
+                }
+                TileKind::TmaGmem(_)
+                | TileKind::PlaneTile(_)
+                | TileKind::PlanePartition(_)
+                | TileKind::Procedural(_)
+                | TileKind::Lines(_) => comptime!(false),
+            },
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// The source lines one unit holds of this stage's fill from `src` by blocks, and their
+    /// width, where this stage is laid along a run and each unit's share is known.
+    #[allow(dead_code)] // Reached through its expand, from the register fetch's counts.
+    fn transposed_fetched_lines(&self, src: &Tile) -> comptime_type!(Option<(usize, usize)>) {
+        let space = comptime!(self.place.space.clone());
+        let bits = comptime!(self.element.size_bits());
+        let width = src.vector_size();
+        match &self.kind {
+            TileKind::Memory(stage) => {
+                let order = comptime!(stage.layout.order);
+                let fill = comptime!(stage.access.copy.clone());
+                comptime!(match order {
+                    StageOrder::AsSource => None,
+                    order => RunBlocks::new(&space, order, width, bits, &fill)
+                        .fetched_lines(&fill)
+                        .map(|lines| (lines, width)),
+                })
+            }
+            TileKind::TmaGmem(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(None),
+        }
     }
 
     /// 32-bit registers one unit holds between the fetch and the store of this stage's fill from
@@ -261,9 +411,13 @@ impl Tile {
         let straight = self.fetched_scalars();
         let width = self.vector_size();
         let decoded = self.decoded_fetched_registers(src);
+        let transposed = self.transposed_fetched_lines(src);
         comptime!(match fill {
             Some(FetchedFill::Straight) => straight.map(|scalars| {
                 Prefetch::straight_registers(scalars / width, width, src.element.size_bits())
+            }),
+            Some(FetchedFill::Transposed) => transposed.map(|(lines, width)| {
+                Prefetch::straight_registers(lines, width, src.element.size_bits())
             }),
             Some(FetchedFill::Decoded) => decoded,
             None => None,
@@ -277,7 +431,7 @@ impl Tile {
         let fill = self.register_fetch(src);
         comptime!(match fill {
             Some(FetchedFill::Decoded) => ElemType::UInt(cubecl::ir::UIntKind::U32),
-            Some(FetchedFill::Straight) | None => src.element,
+            Some(FetchedFill::Straight) | Some(FetchedFill::Transposed) | None => src.element,
         })
     }
 
@@ -291,10 +445,16 @@ impl Tile {
         let turns = self.decoded_fetch_turns(src);
         let decoded_width = self.decoded_fetch_width(src);
         let per_load = self.decoded_scales_per_load(src);
+        let transposed = self.transposed_fetched_lines(src);
         comptime!(match fill {
             Some(FetchedFill::Straight) => {
                 let scalars = straight.expect("Stages: a register-staged fill has a known share");
                 (straight_width, scalars / straight_width, 1)
+            }
+            Some(FetchedFill::Transposed) => {
+                let (lines, width) =
+                    transposed.expect("Stages: a register-staged fill has a known share");
+                (width, lines, 1)
             }
             Some(FetchedFill::Decoded) => {
                 let turns = turns.expect("Stages: a register-staged fill has a known share");
@@ -315,6 +475,11 @@ impl Tile {
         let fill = self.register_fetch(src);
         match comptime!(fill) {
             Some(FetchedFill::Decoded) => self.fetch_decoded_from(src, lines, scales),
+            Some(FetchedFill::Transposed) => {
+                let space = comptime!(self.place.space.clone());
+                self.mem("fetch_from")
+                    .fetch_blocks(src.mem("fetch_from"), &space, lines)
+            }
             Some(FetchedFill::Straight) | None => self.fetch_from(src, lines),
         }
     }
@@ -330,6 +495,10 @@ impl Tile {
         let fill = self.register_fetch(src);
         match comptime!(fill) {
             Some(FetchedFill::Decoded) => self.store_decoded(src, lines, scales),
+            Some(FetchedFill::Transposed) => {
+                let space = comptime!(self.place.space.clone());
+                self.mem_mut("store_fetched").store_blocks(&space, lines)
+            }
             Some(FetchedFill::Straight) | None => self.store_fetched(lines),
         }
     }
@@ -340,7 +509,16 @@ impl Stages<OperandPair> {
     /// Whether `prefetched` holds the next stage in registers; false in the
     /// cases [`Prefetch::InRegisters`] lists.
     pub fn prefetches_in_registers(&self) -> comptime_type!(bool) {
+        let fills = self.fills_through_registers();
+        comptime!(fills && self.depth <= 2)
+    }
+
+    /// Whether every unit can hold its share of both operands' fill of a slot in registers
+    /// between the fill's loads and its stores: the cases [`Prefetch::InRegisters`] lists, but
+    /// for the depth.
+    pub(crate) fn fills_through_registers(&self) -> comptime_type!(bool) {
         let staged = self.slots.index(FIRST_SLOT);
+        let operands = comptime!(staged.data.staged);
         let fixed = staged.has_fixed();
         let lhs_beside = self.sources.lhs.scales_beside();
         let rhs_beside = self.sources.rhs.scales_beside();
@@ -355,16 +533,16 @@ impl Stages<OperandPair> {
             .rhs
             .register_fetched_registers(&self.sources.rhs);
         comptime!(
-            !fixed
+            operands == StagedOperands::Both
+                && !fixed
                 && !lhs_beside
                 && !rhs_beside
                 && self.fillers == 0
-                && self.depth <= 2
                 && lhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && rhs_delivery.holds(Prefetch::InRegisters).is_ok()
                 && matches!(
                     (lhs_registers, rhs_registers),
-                    (Some(l), Some(r)) if Prefetch::fits(l + r)
+                    (Some(l), Some(r)) if Prefetch::fits_registers(l + r)
                 )
         )
     }
@@ -440,39 +618,81 @@ impl Stages<OperandPair> {
             .rhs
             .register_store(&sources.rhs.at(region), rhs, rhs_scales);
     }
+
+    /// Fill slot `slot` from `sources` at `region` through registers: every unit issues its
+    /// loads of both operands, waits for the slot to be free, then stores them, so the loads'
+    /// round trips overlap one another and the wait rather than following each other. Only
+    /// where [`fills_through_registers`](Stages::fills_through_registers) holds.
+    #[allow(dead_code)] // Reached through its expand, from the slot schedule.
+    pub(crate) fn fill_through_registers<Lhs: Numeric, Rhs: Numeric>(
+        &mut self,
+        #[comptime] slot: usize,
+        sources: &OperandPair,
+        region: &Region,
+    ) {
+        let (mut lhs, mut rhs, mut lhs_scales, mut rhs_scales) = self.fetch_buffers::<Lhs, Rhs>();
+        self.fetch::<Lhs, Rhs>(
+            slot,
+            sources,
+            region,
+            &mut lhs,
+            &mut rhs,
+            &mut lhs_scales,
+            &mut rhs_scales,
+        );
+        // The loads stay ahead of the wait for the slot, and that wait ahead of the stores and
+        // the work between loads and stores (a transpose): a scheduler would otherwise sink the
+        // later loads past the first ones' stores, and the wait past the loads' arrival.
+        schedule_barrier();
+        self.slot_mut(slot).meeting.acquire_write();
+        schedule_barrier();
+        self.store::<Lhs, Rhs>(slot, sources, region, &lhs, &rhs, &lhs_scales, &rhs_scales);
+        self.slot_mut(slot).meeting.release_write();
+    }
 }
 
 // `consume` is spelled per payload shape, as [`Slot::consume`] is.
 impl Stages<OperandPair> {
-    /// Consume slot `slot`: one step of a [`Compute`](Role::Compute) plane's walk.
-    pub fn consume(&mut self, _slot: usize, _compute: impl FnOnce(&Tile, &Tile)) {
+    /// Consume slot `slot`, filled for `region`: one step of a [`Compute`](Role::Compute) plane's
+    /// walk.
+    pub fn consume(&mut self, _slot: usize, _region: &Region, _compute: impl FnOnce(&Tile, &Tile)) {
         unexpanded!()
     }
 }
 
 impl StagesExpand<OperandPair> {
-    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, slot: usize, compute: F)
-    where
+    pub fn __expand_consume_method<F>(
+        &mut self,
+        scope: &Scope,
+        slot: usize,
+        region: &RegionExpand,
+        compute: F,
+    ) where
         F: FnOnce(&Scope, &TileExpand, &TileExpand),
     {
-        self.__expand_slot_mut_method(scope, slot)
+        self.placed_slot(scope, slot, region)
             .__expand_consume_method(scope, compute);
     }
 }
 
 impl Stages<Tile> {
     /// [`consume`](Stages::consume) for the sole operand.
-    pub fn consume(&mut self, _slot: usize, _compute: impl FnOnce(&Tile)) {
+    pub fn consume(&mut self, _slot: usize, _region: &Region, _compute: impl FnOnce(&Tile)) {
         unexpanded!()
     }
 }
 
 impl StagesExpand<Tile> {
-    pub fn __expand_consume_method<F>(&mut self, scope: &Scope, slot: usize, compute: F)
-    where
+    pub fn __expand_consume_method<F>(
+        &mut self,
+        scope: &Scope,
+        slot: usize,
+        region: &RegionExpand,
+        compute: F,
+    ) where
         F: FnOnce(&Scope, &TileExpand),
     {
-        self.__expand_slot_mut_method(scope, slot)
+        self.placed_slot(scope, slot, region)
             .__expand_consume_method(scope, compute);
     }
 }

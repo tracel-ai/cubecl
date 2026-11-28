@@ -95,7 +95,7 @@ impl CubeTypeEnum {
         let scope = prelude_type("Scope");
         let clone = prelude_type("ExpandTypeClone");
         let into_expand = prelude_type("IntoExpand");
-        let into_mut = prelude_type("IntoMut");
+        let place_expand = prelude_type("PlaceExpand");
         let as_ref = prelude_type("AsRefExpand");
         let as_mut = prelude_type("AsMutExpand");
         let debug = prelude_type("CubeDebug");
@@ -136,11 +136,18 @@ impl CubeTypeEnum {
                 }
             }
 
-            impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(mut self, scope: &#scope) -> Self {
+            impl #generics #place_expand for #name_expand #generic_names #where_clause {
+                fn create_mut_place(mut self, scope: &#scope) -> Self {
                     Self {
-                        discriminant: #into_mut::into_mut(self.discriminant, scope),
-                        value: #into_mut::into_mut(self.value, scope)
+                        discriminant: #place_expand::create_mut_place(self.discriminant, scope),
+                        value: #place_expand::create_mut_place(self.value, scope)
+                    }
+                }
+
+                fn read_place(mut self, scope: &#scope) -> Self {
+                    Self {
+                        discriminant: #place_expand::read_place(self.discriminant, scope),
+                        value: #place_expand::read_place(self.value, scope)
                     }
                 }
             }

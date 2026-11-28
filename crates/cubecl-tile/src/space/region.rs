@@ -82,8 +82,8 @@ impl Region {
         }
     }
 
-    /// The region one level below the root at trailing-two coordinates `(c0, c1)` under `level`,
-    /// `0` elsewhere, for a tile at `depth`. Comptime coordinates stay constant.
+    /// The region one level below the root at coordinates `(c0, c1)` along the innermost two
+    /// dimensions longer than one under `level`, `0` elsewhere, for a tile at `depth`. Comptime coordinates stay constant.
     pub fn trailing(
         #[comptime] depth: usize,
         #[comptime] space: Space,
@@ -151,6 +151,12 @@ impl Region {
     pub fn coord(&self, #[comptime] dimension: Dimension) -> usize {
         let last = comptime!(self.path.len() - 1);
         self.step(last).coord(dimension)
+    }
+
+    /// The line of a copy walk ([`Walk::copy`]) this region is: its coordinate along the walk's
+    /// one dimension.
+    pub(crate) fn copied_line(&self) -> usize {
+        self.coord(Level::COPIED)
     }
 
     /// The first coordinate along `dimension` of the box this region covers, counted from its

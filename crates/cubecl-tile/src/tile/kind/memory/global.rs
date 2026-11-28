@@ -308,14 +308,10 @@ impl Memory {
             )
             .unwrap_or_else(|why| panic!("GlobalOperand: {vector_size} values a load: {why}"))
         );
-        let parts = load.parts(&spec.stored_tiles, &projection.dense_labels(), rank);
+        let parts = load.parts(&spec.stored_tiles, &projection);
         // A stated tile's extent is the statement's, not read off the buffer: the reads over it
         // divide by a constant.
-        let stated = comptime!(VectorTile::stated_extents(
-            &spec.stored_tiles,
-            &projection.dense_labels(),
-            rank
-        ));
+        let stated = comptime!(VectorTile::stated_extents(&spec.stored_tiles, &projection));
         let mut physical_shape = Coords::<u32>::new();
         let mut physical_strides = Coords::<u32>::new();
         #[unroll]
@@ -352,6 +348,7 @@ impl Memory {
                 physical_strides,
                 projection: gmem_projection,
                 rows: RowArrangement::InOrder,
+                order: StageOrder::AsSource,
                 paging,
             },
             window: Window::new(
@@ -430,6 +427,7 @@ fn top_window(
     let mut extent = Coords::<u32>::new();
     let mut residues = Coords::<u32>::new();
     let rank = projection.physical_rank();
+    let digit_starts = Coords::constant(comptime!(vec![0; projection.digit_dimensions().len()]));
 
     #[unroll]
     for pa in 0..rank {
@@ -456,6 +454,7 @@ fn top_window(
         RuntimeMap {
             coefficients,
             residues,
+            digit_starts,
         },
     )
 }

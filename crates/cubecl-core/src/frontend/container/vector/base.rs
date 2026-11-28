@@ -209,7 +209,7 @@ mod empty {
         pub fn empty() -> Self {
             intrinsic!(|scope| {
                 let value = Self::__expand_default(scope);
-                value.into_mut(scope)
+                value.create_mut_place(scope)
             })
         }
     }

@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 
+use crate::ops::softmax::Rescale;
 use crate::*;
 
 /// Who keeps a tile's slices, and so how a slice is read whole.
@@ -233,6 +234,24 @@ impl DimensionSlices {
         }
     }
 
+    /// This tile, what a softmax's earlier blocks were summed into, under `rescale`
+    /// ([`OnlineSoftmax::step`](crate::ops::softmax::OnlineSoftmax::step)): each slice by its
+    /// factor, which a state kept as this tile's slices are cut holds ([`mul`](Self::mul)), and
+    /// skipped where no factor the unit holds moved.
+    pub fn rescale<E: Float>(&mut self, rescale: &Rescale<E>) {
+        if comptime!(!rescale.lazy) || rescale.moved {
+            self.mul::<E>(&rescale.factors);
+        }
+    }
+
+    /// [`rescale`](Self::rescale) by a softmax holding one factor for every slice of the tile in
+    /// every unit ([`mul_every_slice`](Self::mul_every_slice)).
+    pub fn rescale_every_slice<E: Float>(&mut self, rescale: &Rescale<E>) {
+        if comptime!(!rescale.lazy) || rescale.moved {
+            self.mul_every_slice::<E>(&rescale.factors);
+        }
+    }
+
     /// `self[c] = exp(self[c] · scale + bias[c] − logsumexp[c])`: the probabilities of a softmax
     /// whose logsumexp is known, read back from it instead of walking the score again. `logsumexp`
     /// is a window of memory that omits the dimension the softmax ran along, which it broadcasts
@@ -413,7 +432,7 @@ pub(crate) struct Broadcast {
 
 impl Broadcast {
     /// How a tile over `space` reads one over `broadcast`, whose every dimension is one of
-    /// `space`'s at its extent, or one wide.
+    /// `space`'s at its extent, or one wide where `space` omits it.
     ///
     /// # Panics
     ///
@@ -427,7 +446,7 @@ impl Broadcast {
                     false => broadcast.extent(dimension) == 1,
                 }),
             "Broadcast::new: every dimension of {broadcast:?} is one of {space:?}'s at its extent, or \
-             one wide"
+             one wide where it is none of them"
         );
         let stride = |dimension: Dimension| {
             (broadcast.position(dimension) + 1..broadcast.rank())

@@ -266,8 +266,11 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             AccCoords::Cells,
         );
 
-        let in_vec =
-            Vector::<Acc, V>::cast_from(read_or_identity::<In, V>(in_view, in_coords, monoid));
+        let in_vec = Vector::<Acc, V>::cast_from(read_or_identity::<In, V>(
+            in_view,
+            in_coords.clone(),
+            monoid,
+        ));
         // A line lies under one scale (a scaled operand's lines never straddle one), read at
         // its first value; values the tile carries no scales for are read as they are.
         let scaled = comptime!(factor.scaled());
@@ -286,10 +289,12 @@ fn element_lines<Acc: Numeric, In: Numeric, V: Size>(
             };
             let scale = Vector::<Acc, V>::cast_from(scale);
             acc_vec = if comptime!(monoid == Monoid::Sum) {
-                // One fused multiply-add a value.
+                // One fused multiply-add a value; past the edge the value is zero, its identity.
                 Semiring::SumProd.step::<Vector<Acc, V>>(in_vec, scale, acc_vec)
             } else {
-                monoid.combine::<Vector<Acc, V>>(acc_vec, in_vec * scale)
+                let valid = in_view.is_in_bounds(in_coords);
+                let identity = Vector::<Acc, V>::new(Monoid::identity::<Acc>(monoid));
+                monoid.combine::<Vector<Acc, V>>(acc_vec, select(valid, in_vec * scale, identity))
             };
         } else {
             acc_vec = monoid.combine::<Vector<Acc, V>>(acc_vec, in_vec);
@@ -353,7 +358,7 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
             AccCoords::Cells,
         );
 
-        let in_vec = read_or_identity::<In, V>(in_view, in_coords, monoid);
+        let in_vec = read_or_identity::<In, V>(in_view, in_coords.clone(), monoid);
         let in_val = if vw <= 1 {
             in_vec.extract(0usize)
         } else {
@@ -382,6 +387,13 @@ fn element_scalars<Acc: Numeric, In: Numeric, V: Size>(
                 )
         } else if placed {
             in_cast * Acc::cast_from(lift)
+        } else {
+            in_cast
+        };
+        // Past the edge the value is the identity, whatever scale lies there.
+        let in_cast = if comptime!(monoid != Monoid::Sum && (factor.scaled() || placed)) {
+            let valid = in_view.is_in_bounds(in_coords);
+            select(valid, in_cast, Monoid::identity::<Acc>(monoid))
         } else {
             in_cast
         };

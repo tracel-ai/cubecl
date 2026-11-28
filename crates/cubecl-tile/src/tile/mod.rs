@@ -2,6 +2,7 @@
 
 pub(crate) mod accumulator;
 pub(crate) mod base;
+pub(crate) mod cell_scales;
 pub(crate) mod factor;
 pub(crate) mod held;
 pub(crate) mod index;
@@ -11,6 +12,7 @@ pub(crate) mod placement;
 pub(crate) mod slices;
 
 pub(crate) use accumulator::*;
+pub(crate) use cell_scales::*;
 pub(crate) use factor::*;
 pub(crate) use held::Held;
 pub(crate) use index::*;

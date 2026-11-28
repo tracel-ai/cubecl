@@ -3,6 +3,7 @@
 
 use cubecl::prelude::*;
 
+use super::base::store_line;
 use super::padded::read_stage_line;
 use super::straight::fill_extent;
 use crate::*;
@@ -28,7 +29,7 @@ impl Memory {
     #[allow(dead_code)] // Reached through its expand, from `fetch_straight` and `store_fetched`.
     fn turns(&self) -> comptime_type!(usize) {
         let turns = self.known_turns();
-        comptime!(turns.expect("Memory: a stage fetched into registers has a known share"))
+        comptime!(turns.expect("Memory: a stage fetched into registers should have a known share"))
     }
 
     /// Scalars of this stage one unit holds in registers between fetch and store, unless its share
@@ -40,12 +41,13 @@ impl Memory {
     }
 
     /// Whether this stage is filled from `src` by copying its lines as they lie, each unit's share
-    /// known: all [`fetch_straight`](Memory::fetch_straight) moves.
+    /// known, in its source's order: all [`fetch_straight`](Memory::fetch_straight) moves.
     #[allow(dead_code)] // Reached through its expand, from `Tile::fetches_straight_from`.
     pub(crate) fn fetches_straight(&self, src: &Memory) -> comptime_type!(bool) {
         let turns = self.known_turns();
         comptime!(
             turns.is_some()
+                && self.layout.order == StageOrder::AsSource
                 && self.store.packing.as_stored()
                 && src.store.packing.as_stored()
                 && self.access.whole
@@ -58,7 +60,7 @@ impl Memory {
     }
 
     /// This stage's line count.
-    fn stage_lines(&self) -> usize {
+    pub(crate) fn stage_lines(&self) -> usize {
         let shape = self.layout.physical_shape.clone();
         let plen = shape.len().comptime();
         shape
@@ -75,7 +77,13 @@ impl Memory {
         #[comptime] space: &Space,
         fetched: &mut Array<Vector<T, W>>,
     ) {
-        self.refuse_unfetchable(src);
+        // Only past `fetches_straight`: the schedule fetches no other stage into registers.
+        let straight = self.fetches_straight(src);
+        comptime!(assert!(
+            straight,
+            "Memory::fetch_straight: only a plain, direct, whole stage of a known share, filled \
+             at its source's width, should be fetched into registers"
+        ));
         let w = comptime!(self.store.vector_size);
         let fetched_width = W::value();
         comptime!(assert_eq!(
@@ -95,15 +103,15 @@ impl Memory {
         #[unroll]
         for t in 0..turns {
             if lines.takes_turn(t) {
-                let i = lines.region(t).coord(Level::COPIED);
-                fetched[t] =
-                    read_stage_line::<T, W, W>(&s, &layout.line_coords(i), comptime!(None));
+                let coords = layout.line_coords(lines.copied_line(t));
+                fetched[t] = read_stage_line::<T, W, W>(&s, &coords, comptime!(None));
             }
         }
     }
 
-    /// Write this unit's `fetched` lines into the stage. The caller must `sync_cube` before (after
-    /// the stage's last read) and after (before the next read).
+    /// Write this unit's `fetched` lines into the stage. The caller must synchronize the stage's owner
+    /// before (after the stage's last read) and after (before the next read): the cube, or the plane
+    /// for a stage a plane owns.
     #[allow(dead_code)] // Reached through its expand, from `Stages::prefetched`.
     pub(crate) fn store_fetched<T: Numeric, W: Size>(&mut self, fetched: &Array<Vector<T, W>>) {
         let turns = self.turns();
@@ -113,18 +121,8 @@ impl Memory {
         #[unroll]
         for t in 0..turns {
             if lines.takes_turn(t) {
-                d[layout.line_offset(lines.region(t).coord(Level::COPIED))] = fetched[t];
+                store_line::<T, W>(d, &layout, lines.copied_line(t), fetched[t]);
             }
         }
-    }
-
-    /// Refuse a pairing this transport cannot move.
-    fn refuse_unfetchable(&self, src: &Memory) {
-        let straight = self.fetches_straight(src);
-        comptime!(assert!(
-            straight,
-            "Memory::fetch_straight: only a plain, direct, whole stage of a known share, filled \
-             at its source's width, is fetched into registers"
-        ));
     }
 }

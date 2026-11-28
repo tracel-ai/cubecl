@@ -34,13 +34,15 @@ impl Tile {
         let form = comptime!(StageForm::dense(
             &space,
             1,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(elem_bytes)
         ));
         let cells = form.cells();
-        let values = Shared::<[Atomic<A>]>::new_slice(cells);
-        // The previous open from this call site may still be read; let it finish first.
+        // The previous open from this call site may still be read; let it finish first. Met
+        // before the declaration, the barrier lets the accumulator take the bytes of shared memory
+        // freed before it, which the compiler reuses only past a barrier ahead of the first use.
         sync_cube();
+        let values = Shared::<[Atomic<A>]>::new_slice(cells);
         let mut cell = UNIT_POS as usize;
         while cell < cells {
             values[cell].store(A::from_int(0));

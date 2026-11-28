@@ -1,5 +1,8 @@
 use cubecl_core::ir::{
-    dialect::math::{Dp4aOp, SaturatingSAddOp, SaturatingSSubOp},
+    dialect::{
+        bitwise::BytePermuteOp,
+        math::{Dp4aOp, SaturatingSAddOp, SaturatingSSubOp},
+    },
     interfaces::TypedExt,
     prelude::*,
 };
@@ -34,6 +37,15 @@ impl LowerOp<Cuda> for Dp4aOp {
         )]
     }
 }
+
+// `__byte_perm` reads a selector a nibble: each one is moved beside the one below it, and the two
+// pairs side by side.
+cuda_op_with_out!(BytePermuteOp, |op, ctx| {
+    let low = op.low(ctx).name(ctx);
+    let high = op.high(ctx).name(ctx);
+    let selectors = op.selectors(ctx).name(ctx);
+    format!("__byte_perm({low}, {high}, __byte_perm({selectors} | ({selectors} >> 4), 0u, 0x20u))")
+});
 
 ptx_with_out!(
     SaturatingSAddOp,

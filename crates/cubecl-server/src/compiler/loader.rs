@@ -4,8 +4,10 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use cubecl_common::hash::StableHash;
 use cubecl_common::profile::Instant;
 use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_environment::environment::{BuildStamp, UsedContent, WorkUses};
 use cubecl_runtime::execution::{
     KernelHandling, KernelOutcome, KernelRegistration, LaunchPurpose, SettledKernel,
     StatisticsRecorder,
@@ -13,8 +15,9 @@ use cubecl_runtime::execution::{
 use cubecl_runtime::id::KernelId;
 
 use super::{
-    ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationOutcome,
-    CompilationRecording, CompilationTarget, VariantOf, WorkLaunchStore,
+    ArtifactCompiler, ArtifactId, BatchOutcome, CompilationBatchRecording, CompilationError,
+    CompilationOutcome, CompilationRecording, CompilationTarget, SpillReport, VariantOf,
+    persistent_store,
 };
 use crate::config::RuntimeConfig;
 use crate::kernel::CubeKernel;
@@ -38,9 +41,11 @@ use crate::server::LaunchError;
 pub struct KernelLoader<T: CompilationTarget> {
     target: T,
     loaded: CompilationCache<ArtifactId<VariantOf<T>>, LoadedKernel<T::Loaded>>,
-    /// Where the kernels the work launches are recorded, when the target
-    /// keeps what it compiles.
-    work: Option<WorkLaunchStore>,
+    /// Where the kernels the work launches are recorded, by the stable hash
+    /// of their id, whatever shape or variant they were launched for: kept
+    /// only when the target keeps what it compiles, under the same switch,
+    /// since with nothing compiled kept there is nothing to record either.
+    work: Option<WorkUses<StableHash>>,
     /// The kernels queued and not compiled yet.
     queue: KernelQueue<VariantOf<T>>,
     /// Why each queued kernel of the latest batch that failed to compile
@@ -52,6 +57,9 @@ pub struct KernelLoader<T: CompilationTarget> {
     failed: HashMap<ArtifactId<VariantOf<T>>, LaunchError>,
     /// How many threads compile at once.
     parallelism: usize,
+    /// Whether an artifact whose compiler reported a register spill fails
+    /// rather than loads.
+    refuse_register_spills: bool,
 }
 
 impl<T: CompilationTarget> KernelLoader<T> {
@@ -61,12 +69,11 @@ impl<T: CompilationTarget> KernelLoader<T> {
         let bound = target.persists();
         let loaded = CompilationCache::new(bound);
         let work = match bound {
-            true => WorkLaunchStore::new(),
+            true => persistent_store(UsedContent::Kernels.namespace(BuildStamp::current()))
+                .map(WorkUses::from_store),
             false => None,
         };
-        let parallelism = crate::config::CubeClRuntimeConfig::get()
-            .compilation
-            .parallelism();
+        let config = crate::config::CubeClRuntimeConfig::get();
 
         Self {
             target,
@@ -74,7 +81,8 @@ impl<T: CompilationTarget> KernelLoader<T> {
             work,
             queue: KernelQueue::new(),
             failed: HashMap::new(),
-            parallelism,
+            parallelism: config.compilation.parallelism(),
+            refuse_register_spills: config.compilation.refuse_register_spills,
         }
     }
 
@@ -124,7 +132,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         if !loaded.recorded && LaunchPurpose::running().is_works() {
             loaded.recorded = true;
             if let Some(work) = self.work.as_mut() {
-                work.record(&id.kernel);
+                work.record(&id.kernel.stable_hash());
             }
         }
         Some(loaded.kernel.clone())
@@ -233,7 +241,7 @@ impl<T: CompilationTarget> KernelLoader<T> {
         if purpose.is_works()
             && let Some(work) = self.work.as_mut()
         {
-            work.record(&id.kernel);
+            work.record(&id.kernel.stable_hash());
         }
         if self.loaded.contains(&id) {
             return;
@@ -359,9 +367,10 @@ impl<T: CompilationTarget> KernelLoader<T> {
             }
         }
 
+        let refuse_register_spills = self.refuse_register_spills;
         let outcomes: Vec<JobOutcome<T>> = jobs
             .into_iter()
-            .map(|job| job.load(&mut self.target))
+            .map(|job| job.load(&mut self.target, refuse_register_spills))
             .collect();
         batch.close(BatchOutcome {
             kernels: jobs_len,
@@ -794,7 +803,11 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
     /// A waiting job takes what the kernel it waited for stored, now that the
     /// batch has stored it, and finalizes its own only when there is no store
     /// to take it from.
-    fn load(mut self, target: &mut T) -> JobOutcome<T> {
+    ///
+    /// With `refuse_register_spills`, an artifact whose compiler reported a
+    /// spill fails as one the device refused, before the device sees it, and
+    /// is never stored.
+    fn load(mut self, target: &mut T, refuse_register_spills: bool) -> JobOutcome<T> {
         if let Step::Waiting { .. } = self.step {
             let Step::Waiting { lowered, source } =
                 core::mem::replace(&mut self.step, Step::Missing)
@@ -828,7 +841,18 @@ impl<'k, T: CompilationTarget> Job<'k, T> {
                 outcome,
             } => {
                 let started = Instant::now();
-                match target.load(&self.id, &artifact) {
+                let spill = refuse_register_spills
+                    .then(|| T::Compiler::spill_report(&artifact))
+                    .flatten()
+                    .filter(SpillReport::spills);
+                let loaded = match spill {
+                    Some(report) => Err(CompilationError::RegisterSpill {
+                        kernel: self.kernel.name().into(),
+                        report,
+                    }),
+                    None => target.load(&self.id, &artifact),
+                };
+                match loaded {
                     Ok(loaded) => {
                         self.recording.worked(started.elapsed());
                         // What the store gave is in it already.
@@ -958,7 +982,9 @@ mod tests {
     use alloc::vec;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use cubecl_environment::backtrace::BackTrace;
-    use cubecl_environment::persistence::MemoryStorage;
+    use cubecl_environment::persistence::{
+        CacheOption, MemoryStorage, Namespace, Store, StoreOptions,
+    };
     use std::sync::Mutex;
 
     /// Nothing compiles before something asks: queuing is free, and a load
@@ -1241,6 +1267,86 @@ mod tests {
         );
     }
 
+    /// With spills refused, a kernel whose compiler reports one fails with
+    /// the report the compiler gave.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_is_refused_when_spills_are_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert!(matches!(
+            refused,
+            Err(LaunchError::CompilationError(
+                CompilationError::RegisterSpill { report: SPILL, .. }
+            ))
+        ));
+    }
+
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_loads_when_spills_are_accepted() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = false;
+        let logger = ServerLogger::default();
+
+        let loaded = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert_eq!(loaded.unwrap(), SPILLING);
+    }
+
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_refused_kernel_is_not_stored() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(SPILLING), &id(SPILLING), &logger);
+
+        assert!(refused.is_err());
+        assert!(loader.target.by_source.is_empty(), "nothing was stored");
+    }
+
+    /// An artifact the store gives, here one another kernel finalized from
+    /// the same source, is checked as one just compiled is.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_spilling_kernel_from_the_store_is_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        loader.target.compiler.shared_source = true;
+        loader.target.by_source.insert("shared".into(), SPILLING);
+        let logger = ServerLogger::default();
+
+        let refused = loader.load(&Numbered(1), &id(1), &logger);
+
+        assert!(matches!(
+            refused,
+            Err(LaunchError::CompilationError(
+                CompilationError::RegisterSpill { .. }
+            ))
+        ));
+    }
+
+    /// A compiler that reports nothing, as wgpu's, Metal's and the CPU's,
+    /// never has a kernel refused.
+    #[test]
+    #[serial_test::serial(records)]
+    fn a_kernel_without_a_report_loads_when_spills_are_refused() {
+        let mut loader = loader(1);
+        loader.refuse_register_spills = true;
+        let logger = ServerLogger::default();
+
+        let loaded = loader.load(&Numbered(UNREPORTED), &id(UNREPORTED), &logger);
+
+        assert_eq!(loaded.unwrap(), UNREPORTED);
+    }
+
     /// A failure the next batch finds unreported is dropped, not kept: the
     /// kernel's launch compiles it again.
     #[test]
@@ -1478,19 +1584,19 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_race_load_then_a_work_load_records_the_kernel() {
-        let mut loader = loader(1);
+        let (mut loader, mut recorded) = recording_loader(1);
         let logger = ServerLogger::default();
-        let kernel = Numbered(0).id();
+        let kernel = Numbered(0).id().stable_hash();
 
         IssuedLaunch::new(LaunchPurpose::Race)
             .run(|| loader.load(&Numbered(0), &id(0), &logger))
             .unwrap();
-        assert!(!loader.work.as_mut().unwrap().holds(&kernel), "raced only");
+        assert!(recorded.get_mut(&kernel).is_none(), "raced only");
 
         IssuedLaunch::new(LaunchPurpose::Work)
             .run(|| loader.load(&Numbered(0), &id(0), &logger))
             .unwrap();
-        assert!(loader.work.as_mut().unwrap().holds(&kernel));
+        assert!(recorded.get_mut(&kernel).is_some());
     }
 
     /// A kernel queued for the work is recorded, as a compile-only pass of
@@ -1498,14 +1604,19 @@ mod tests {
     #[test]
     #[serial_test::serial(records)]
     fn a_kernel_queued_is_recorded_for_the_work_only() {
-        let mut loader = loader(1);
+        let (mut loader, mut recorded) = recording_loader(1);
 
         IssuedLaunch::new(LaunchPurpose::Race).run(|| loader.enqueue(Box::new(Numbered(1)), ()));
         IssuedLaunch::new(LaunchPurpose::Work).run(|| loader.enqueue(Box::new(Numbered(2)), ()));
 
-        let work = loader.work.as_mut().unwrap();
-        assert!(!work.holds(&Numbered(1).id()), "queued for a race");
-        assert!(work.holds(&Numbered(2).id()), "queued for the work");
+        assert!(
+            recorded.get_mut(&Numbered(1).id().stable_hash()).is_none(),
+            "queued for a race"
+        );
+        assert!(
+            recorded.get_mut(&Numbered(2).id().stable_hash()).is_some(),
+            "queued for the work"
+        );
     }
 
     /// A kernel the work queued that fails in its batch is listed among the
@@ -1628,14 +1739,27 @@ mod tests {
     /// A loader over a fake target, recording the work's launches in memory
     /// of its own.
     fn loader(parallelism: usize) -> KernelLoader<Fake> {
+        recording_loader(parallelism).0
+    }
+
+    /// A loader as [`loader`] makes one, with a store reading what it
+    /// records of the work's launches.
+    fn recording_loader(parallelism: usize) -> (KernelLoader<Fake>, Store<StableHash, ()>) {
         static LOADERS: AtomicUsize = AtomicUsize::new(0);
 
         let mut loader = KernelLoader::new(Fake::default());
         loader.parallelism = parallelism;
         let number = LOADERS.fetch_add(1, Ordering::Relaxed);
         let storage = MemoryStorage::new(&alloc::format!("work-launches-{number}"));
-        loader.work = Some(WorkLaunchStore::over(Box::new(storage)));
-        loader
+        let store = || {
+            Store::new(
+                StoreOptions::new()
+                    .storage_with(Box::new(storage.clone()), Namespace::from("used"))
+                    .cache(CacheOption::Lazy),
+            )
+        };
+        loader.work = Some(WorkUses::from_store(store()));
+        (loader, store())
     }
 
     fn id(number: u32) -> ArtifactId<()> {
@@ -1677,6 +1801,16 @@ mod tests {
         /// The number of the kernel the device refuses to load.
         rejecting: Option<u32>,
     }
+
+    /// The number of the kernel whose compiler reports [`SPILL`].
+    const SPILLING: u32 = 40;
+    /// The number of the kernel whose compiler reports nothing of its spills.
+    const UNREPORTED: u32 = 41;
+    /// What the compiler reports of [`SPILLING`].
+    const SPILL: SpillReport = SpillReport {
+        spill_store_bytes: 4,
+        scratch_bytes: 64,
+    };
 
     #[derive(Debug, Default)]
     struct FakeCompiler {
@@ -1750,6 +1884,17 @@ mod tests {
 
         fn source(lowered: &(u32, Option<String>)) -> Option<&str> {
             lowered.1.as_deref()
+        }
+
+        fn spill_report(artifact: &u32) -> Option<SpillReport> {
+            match *artifact {
+                SPILLING => Some(SPILL),
+                UNREPORTED => None,
+                _ => Some(SpillReport {
+                    spill_store_bytes: 0,
+                    scratch_bytes: 64,
+                }),
+            }
         }
 
         fn finalize(

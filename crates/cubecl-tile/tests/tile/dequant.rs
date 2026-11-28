@@ -170,14 +170,24 @@ fn dequantize_into(
     out.dequantize_from(&weights);
 }
 
-/// `e2m1` codes decoded into `e4m3` under `f32` block scales that are not powers of two: each
-/// value is its code times its block's scale, which the decode multiplies in. A decode that moved
-/// the codes' exponents by the scale's alone would drop the scale's mantissa, `0.75` read as
-/// `0.5` and `1.25` as `1`.
+/// `e2m1` codes decoded into `e4m3` under `f32` block scales: each value is its code times its
+/// block's scale, rounded once. Some scales are no power of two, whose mantissa a decode that moved
+/// the codes' exponents would drop, and some so small that the products are subnormal `e4m3`
+/// values, or round to one or to zero.
 #[test]
-fn e2m1_codes_decode_into_e4m3_under_scales_that_are_not_powers_of_two() {
+fn e2m1_codes_decode_into_e4m3_under_any_scale() {
     const MAGNITUDES: [f32; 8] = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
     const CODES_PER_WORD: usize = 8;
+    const SCALES: [f32; 8] = [
+        0.75,
+        1.25,
+        1.0,
+        1.0 / (1 << 5) as f32,
+        1.0 / (1 << 6) as f32,
+        1.0 / (1 << 8) as f32,
+        1.0 / (1 << 10) as f32,
+        1.0 / (1 << 12) as f32,
+    ];
     let (rows, blocks, inside) = (4, 2, 32);
     let cols = blocks * inside;
     let client = cubecl::test_device().client();
@@ -198,10 +208,8 @@ fn e2m1_codes_decode_into_e4m3_under_scales_that_are_not_powers_of_two() {
                 .fold(0u32, |acc, (j, &code)| acc | (code << (4 * j)))
         })
         .collect();
-    // Scales whose every product with a code is an `e4m3` value.
-    let s: Vec<f32> = (0..rows * blocks)
-        .map(|i| if i % 2 == 0 { 0.75 } else { 1.25 })
-        .collect();
+    let s = SCALES.to_vec();
+    assert_eq!(s.len(), rows * blocks);
 
     let w_tensor = TensorHandle::new_contiguous(
         vec![rows, cols],
@@ -277,8 +285,8 @@ fn e2m1_codes_decode_into_e4m3_under_scales_that_are_not_powers_of_two() {
     for (at, &byte) in got.iter().enumerate() {
         let code = codes[at] as usize;
         let sign = if code & 8 != 0 { -1.0 } else { 1.0 };
-        let want = sign * MAGNITUDES[code & 7] * s[(at / cols) * blocks + (at % cols) / inside];
-        let have = cubecl_common::e4m3::from_bits(byte).to_f32();
-        assert_eq!(have, want, "value {at}");
+        let product = sign * MAGNITUDES[code & 7] * s[(at / cols) * blocks + (at % cols) / inside];
+        let want = cubecl_common::e4m3::from_f32(product);
+        assert_eq!(byte, want.to_bits(), "value {at}, {product}");
     }
 }

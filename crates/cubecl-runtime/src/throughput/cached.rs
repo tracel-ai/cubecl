@@ -1,7 +1,7 @@
 use crate::{
     config::CubeClRuntimeConfig,
     throughput::{
-        ThroughputCache, ThroughputError, ThroughputKey, ThroughputKeyable, ThroughputValue,
+        ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
 use alloc::sync::Arc;
@@ -15,7 +15,7 @@ pub struct CachedThroughput<K = ThroughputKey> {
     enabled: bool,
 }
 
-impl<K: ThroughputKeyable + Copy> CachedThroughput<K> {
+impl<K: ThroughputCacheKey + Copy> CachedThroughput<K> {
     /// The throughput `cache` holds, read through as the global configuration says.
     pub fn new(cache: Arc<Mutex<ThroughputCache<K>>>) -> Self {
         Self {
@@ -44,7 +44,7 @@ impl<K: ThroughputKeyable + Copy> CachedThroughput<K> {
 }
 
 /// What `cache` holds for `key`, or `None` when it holds nothing or is not `enabled`.
-fn cached_value<K: ThroughputKeyable>(
+fn cached_value<K: ThroughputCacheKey>(
     cache: &Mutex<ThroughputCache<K>>,
     enabled: bool,
     key: K,
@@ -56,7 +56,7 @@ fn cached_value<K: ThroughputKeyable>(
 }
 
 /// What `cache` holds for `key`, or what `probe` measures, kept in `cache` when it is `enabled`.
-fn measure_into<K: ThroughputKeyable + Copy>(
+fn measure_into<K: ThroughputCacheKey + Copy>(
     cache: &Mutex<ThroughputCache<K>>,
     enabled: bool,
     key: K,

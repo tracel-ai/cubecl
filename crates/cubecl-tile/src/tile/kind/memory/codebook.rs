@@ -138,8 +138,11 @@ impl ExpandTypeClone for CodebookExpand {
         self.clone()
     }
 }
-impl IntoMut for CodebookExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for CodebookExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }

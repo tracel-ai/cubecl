@@ -35,7 +35,7 @@ use cubecl_server::compiler::{ArtifactId, KernelLoader};
 use cubecl_server::compiler::{ArtifactRoot, compilation_store};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
-    relocation::{RelocatingStreams, RelocationReason},
+    relocation::{DeviceRelocator, RelocationReason},
 };
 use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -273,13 +273,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             }
         };
         // The handle moves into the pool rather than a clone of it: see
-        // `Command::initialize_memory`. A binding stays for a failure to land on.
-        let binding = memory.to_binding();
-        if let Err(err) = stream.memory.bind(reserved, memory, 0, failures) {
-            let err = ServerError::from(err);
-            failures.fail_unallocated(&binding, err.clone());
-            return Err(err);
-        }
+        // `Command::initialize_memory`.
+        stream.memory.bind(reserved, memory, 0, failures);
         Ok(())
     }
 

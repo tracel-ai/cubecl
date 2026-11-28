@@ -20,7 +20,7 @@ pub(crate) enum TileKind {
     PlaneTile(PlaneTile),
     /// The grid of plane tiles one plane owns; only comptime coordinates select through it.
     PlanePartition(PlanePartition),
-    /// A TMA tensor-map source, copied only in bulk into shared memory.
+    /// A TMA tensor map, copied only in bulk, into shared memory or out of it.
     TmaGmem(TmaData),
     /// A read-only source evaluated from logical coordinates with no backing buffer.
     Procedural(Procedural),

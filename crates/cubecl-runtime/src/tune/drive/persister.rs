@@ -1,0 +1,68 @@
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::time::Duration;
+use cubecl_environment::sync::Mutex;
+
+use crate::tune::cache::record::{Tune, TuneRecorder};
+use crate::tune::cache::tracker::TuneTracker;
+use crate::tune::{AutotuneKey, AutotuneLogContext, AutotuneResult, Bounds, StoredTune};
+
+/// Persists what one tune answered: its winner in the table, and the record of how it
+/// went.
+pub struct TunePersister<K: AutotuneKey> {
+    checksum: String,
+    limit: Option<Duration>,
+    bounds: Option<Bounds>,
+    recorder: TuneRecorder<K>,
+}
+
+impl<K: AutotuneKey> TunePersister<K> {
+    /// A persister of the tune of the candidate list `checksum` names, measured against `bounds`
+    /// and their `limit`, and recorded by `recorder`.
+    pub fn new(
+        checksum: String,
+        limit: Option<Duration>,
+        bounds: Option<Bounds>,
+        recorder: TuneRecorder<K>,
+    ) -> Self {
+        Self {
+            checksum,
+            limit,
+            bounds,
+            recorder,
+        }
+    }
+
+    /// Persist `winner_index` as the tune of `key`, with every candidate's `results`: in the
+    /// table of `tracker` unless it is `unmeasured`, locking it only for that insert, and in the
+    /// tune's record either way, with no lock held. Answers whether the table took it.
+    ///
+    /// An unmeasured decision is a guess, and the failures that produce one are transient.
+    /// Persisting it would freeze the guess into every later process and never measure the key
+    /// again; letting it expire with this one costs a re-tune and buys a real measurement.
+    pub fn persist(
+        self,
+        tracker: &Mutex<TuneTracker<K>>,
+        key: K,
+        results: Vec<AutotuneResult>,
+        winner_index: usize,
+        unmeasured: bool,
+        log_context: Option<&AutotuneLogContext>,
+    ) -> bool {
+        let value = StoredTune {
+            winner_index,
+            results,
+            bounds: self.bounds,
+            limit: self.limit,
+        };
+        let stored = !unmeasured && tracker.lock().store_tune(key, self.checksum, value);
+        self.recorder.record_tune(
+            Tune {
+                winner_index,
+                stored,
+            },
+            log_context,
+        );
+        stored
+    }
+}

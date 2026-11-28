@@ -75,10 +75,6 @@ impl StorageAllocator for PinnedMemoryStorage {
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         // SAFETY: Calling HIP FFI to allocate page-locked (pinned) host memory. The
         // `hipHostMallocMapped` flag makes the memory accessible from both host and device.
@@ -114,7 +110,6 @@ impl StorageAllocator for PinnedMemoryStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn deallocate(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
             self.allocated -= resource.size;

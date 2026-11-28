@@ -4,11 +4,12 @@
 
 use core::cmp::Reverse;
 
+use cubecl::cmma::MatrixLayout;
 use cubecl::ir::features::MmaConfig;
 use cubecl::ir::{DeviceProperties, ElemType, FloatKind, TargetProperties};
 
 use super::instruction::{FragmentSource, Instruction, OpenedBy, ShapedInstruction};
-use crate::launch::Delivery;
+use crate::launch::{Delivery, VectorRequirement};
 use crate::{ComputeScope, Scratch, StageStorage};
 
 /// The Step of a product a Scope holds: `m × n × k` of fragments loaded from `lhs` and `rhs`,
@@ -24,11 +25,26 @@ pub struct ProductStep {
 }
 
 /// What computing a [`ProductStep`] spends that a host sizes a launch by.
+///
+/// # Assumptions
+///
+/// - A drained sum's destination is bound at a width its
+///   [`line_requirement`](StepCost::line_requirement) admits.
+///
+/// # Guarantees
+///
+/// - A drained sum's cell is bounced only where the instruction computing the Step hides which
+///   unit holds a cell of its sum on the target ([`Instruction::hides_cell_positions`]), and a
+///   rescaled sum's only where the instruction is [`Instruction::Cmma`], whose sum a scratch
+///   backs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct StepCost {
     /// The cell a drained sum is spilled through shared memory in, one call's output; `None`
     /// where each unit holds its own cells and writes them where they go.
     pub bounced_cell: Option<[usize; 2]>,
+    /// The widest line along the sum's rows (`m`) and along its columns (`n`) that its units
+    /// write out of their registers where nothing bounces ([`Instruction::widest_line`]).
+    pub widest_line: [usize; 2],
 }
 
 impl ProductStep {
@@ -68,7 +84,7 @@ impl ProductStep {
     /// it on `device` compiling for `target`, which a host Declines.
     pub fn cost(&self, device: &DeviceProperties, target: &TargetProperties) -> Option<StepCost> {
         self.call(device, target, OpenedBy::Accumulator)
-            .map(|call| StepCost::of(call.instruction, call.cell()))
+            .map(|call| StepCost::drained(call, target, self.sum))
     }
 
     /// What this Step spends where its sum's rows are scaled between its products
@@ -80,7 +96,7 @@ impl ProductStep {
         target: &TargetProperties,
     ) -> Option<StepCost> {
         self.call(device, target, OpenedBy::RescaledAccumulator)
-            .map(|call| StepCost::of(call.instruction, call.cell()))
+            .map(StepCost::rescaled)
     }
 
     /// What computing `next` spends where it reads this Step's sum as its `A` where the sum lies,
@@ -100,7 +116,7 @@ impl ProductStep {
         };
         ProductStep { lhs: held, ..*next }
             .call(device, target, OpenedBy::Accumulator)
-            .map(|call| StepCost::of(call.instruction, call.cell()))
+            .map(|call| StepCost::drained(call, target, next.sum))
     }
 
     /// How a stage its operands are staged through lays its cells out, asked for as `stated` and
@@ -109,6 +125,11 @@ impl ProductStep {
     /// ([`RowChunks::read_by`](crate::stage::RowChunks)). What the kernel stages its operands as,
     /// and what the host sizes the stage by ([`StageStorage::bytes`]). `None` where the Lowering
     /// cannot compute the Step on `device` compiling for `target`.
+    ///
+    /// # Guarantees
+    ///
+    /// - The storage returned is one the instruction computing the Step reads and `delivery`
+    ///   writes, of the kind, block and order `stated` names.
     pub fn stage_storage(
         &self,
         stated: StageStorage,
@@ -119,7 +140,9 @@ impl ProductStep {
         self.call(device, target, OpenedBy::Accumulator)
             .map(|call| stated.read_by(call.instruction, delivery))
     }
+}
 
+impl ProductStep {
     /// The Lowering's call for this Step, opened by `opened_by`.
     fn call(
         &self,
@@ -141,16 +164,6 @@ impl ProductStep {
 }
 
 impl StepCost {
-    /// The cost of a Step computed by `instruction` in calls filling `cell`: a cmma fragment hides
-    /// which unit holds a cell, so its sum bounces through shared memory a cell at a time.
-    fn of(instruction: Instruction, cell: [usize; 2]) -> Self {
-        let bounced_cell = match instruction {
-            Instruction::Cmma => Some(cell),
-            Instruction::Registers { .. } | Instruction::Mma { .. } | Instruction::Wgmma => None,
-        };
-        Self { bounced_cell }
-    }
-
     /// Cells of shared memory a drain through `scratch` takes, of a sum over `out`, the `m × n` a
     /// Scope holds: none, one call's cell, or the whole output; none where nothing bounces.
     pub fn scratch_cells(self, out: [usize; 2], scratch: Scratch) -> usize {
@@ -161,6 +174,53 @@ impl StepCost {
             Scratch::None => 0,
             Scratch::OneTile => m * n,
             Scratch::WholeGrid => out[0] * out[1],
+        }
+    }
+
+    /// What the drained sum asks of `operand`, its destination, whose lines run along the sum's
+    /// rows where `layout` is row-major and along its columns where it is col-major: a width
+    /// dividing the bounced cell's side where a cell bounces, which its scratch is read back in,
+    /// and the [`widest_line`](StepCost::widest_line) along that side where nothing bounces. One
+    /// value a line for an [`Undefined`](MatrixLayout::Undefined) layout, which names no side.
+    ///
+    /// # Guarantees
+    ///
+    /// - Where nothing bounces, every width the requirement admits is one the units write out of
+    ///   their registers ([`CellLines::widest`](crate::CellLines::widest)).
+    pub fn line_requirement<O>(&self, operand: O, layout: MatrixLayout) -> VectorRequirement<O> {
+        let lines = self.bounced_cell.unwrap_or(self.widest_line);
+        let elements = match layout {
+            MatrixLayout::RowMajor => lines[1],
+            MatrixLayout::ColMajor => lines[0],
+            MatrixLayout::Undefined => 1,
+        };
+        VectorRequirement::Access { operand, elements }
+    }
+}
+
+impl StepCost {
+    /// The cost of a Step computed by `call` on `target` whose sum, held in `sum`, is drained: an
+    /// instruction that hides which unit holds a cell there
+    /// ([`Instruction::hides_cell_positions`]) bounces its sum through shared memory a call's
+    /// cell at a time, and any other writes lines out of its registers
+    /// ([`Instruction::widest_line`]).
+    fn drained(call: ShapedInstruction, target: &TargetProperties, sum: ElemType) -> Self {
+        Self {
+            bounced_cell: call
+                .instruction
+                .hides_cell_positions(target)
+                .then_some(call.cell()),
+            widest_line: call.instruction.widest_line(target, call.cell(), sum),
+        }
+    }
+
+    /// The cost of a Step computed by `call` whose sum's rows are scaled between its products: an
+    /// instruction that backs its sum with a scratch ([`Instruction::takes_scratch`]) scales it
+    /// through it, a call's cell at a time, wherever its cells' positions are stated.
+    fn rescaled(call: ShapedInstruction) -> Self {
+        Self {
+            bounced_cell: call.instruction.takes_scratch().then_some(call.cell()),
+            widest_line: [1, 1],
         }
     }
 }
@@ -187,11 +247,11 @@ impl core::fmt::Display for ProductStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Dimension;
     use crate::ops::matmul::instruction::tests::{
         F32, HALF, cuda, metal, plain, shape, sum_is_next_a, sum_is_not_next_a,
     };
     use crate::stage::RowChunks;
+    use crate::{Dimension, StageOrder};
 
     fn sizes(device: &DeviceProperties) -> Vec<[usize; 3]> {
         ProductStep::sizes(device, ComputeScope::Plane, HALF, HALF, F32)
@@ -207,20 +267,38 @@ mod tests {
         }
     }
 
-    /// An M2 allows one Step, `8 × 8 × 8`; an `sm_80` every shape it offers, the most contracted
-    /// first, then the squarest; an RDNA part its one `16 × 16 × 16`; a device with no matrix
-    /// instruction none, and a plane group none here.
+    /// An M2 allows one Step, `8 × 8 × 8`.
     #[test]
-    fn a_device_allows_the_steps_of_its_instructions() {
+    fn an_m2_allows_its_one_step() {
         assert_eq!(sizes(&metal()), vec![[8, 8, 8]]);
+    }
+
+    /// An `sm_80` allows every shape it offers, the most contracted first, then the squarest.
+    #[test]
+    fn an_sm_80_allows_its_steps_most_contracted_first() {
         assert_eq!(
             sizes(&cuda()),
             vec![[16, 16, 16], [8, 32, 16], [32, 8, 16], [16, 8, 16]]
         );
+    }
+
+    /// An RDNA part allows its one `16 × 16 × 16`.
+    #[test]
+    fn an_rdna_part_allows_its_one_step() {
         let mut rdna = plain();
         rdna.features.matmul.cmma.insert(shape(16, 16, 16));
         assert_eq!(sizes(&rdna), vec![[16, 16, 16]]);
+    }
+
+    /// A device with no matrix instruction allows no Step.
+    #[test]
+    fn a_device_without_matrix_instructions_allows_no_step() {
         assert_eq!(sizes(&plain()), Vec::<[usize; 3]>::new());
+    }
+
+    /// A plane group's Step is its own instruction's, so none is listed here.
+    #[test]
+    fn a_plane_group_is_allowed_no_step_here() {
         assert_eq!(
             ProductStep::sizes(&cuda(), ComputeScope::MMA_PLANE_GROUP, HALF, HALF, F32),
             Vec::<[usize; 3]>::new()
@@ -228,30 +306,45 @@ mod tests {
     }
 
     /// A drained sum through the fragment API bounces through shared memory a call's cell at a
-    /// time; through the crate's own transport each unit writes its cells. A Step two calls fill
-    /// costs the same as one. No Step is computed where the device offers nothing.
+    /// time.
     #[test]
-    fn a_step_says_what_its_drain_spends() {
+    fn a_fragment_api_step_bounces_a_cell_at_a_time() {
         let target = sum_is_next_a();
-        let metal = step([8, 8, 8]).cost(&metal(), &target);
         assert_eq!(
-            metal,
+            step([8, 8, 8]).cost(&metal(), &target),
             Some(StepCost {
-                bounced_cell: Some([8, 8])
+                bounced_cell: Some([8, 8]),
+                widest_line: [1, 1],
             })
         );
-        let wide = step([16, 16, 16]).cost(&cuda(), &target);
         assert_eq!(
-            wide,
+            step([16, 16, 16]).cost(&cuda(), &target),
             Some(StepCost {
-                bounced_cell: Some([16, 16])
+                bounced_cell: Some([16, 16]),
+                widest_line: [1, 1],
             })
         );
+    }
+
+    /// Through the crate's own transport each unit writes its cells, and a Step two calls fill
+    /// costs the same as one.
+    #[test]
+    fn a_transported_step_bounces_nothing() {
         let mut mma_only = plain();
         mma_only.features.matmul.mma.insert(shape(16, 8, 16));
-        let two_calls = step([16, 16, 16]).cost(&mma_only, &target);
-        assert_eq!(two_calls, Some(StepCost { bounced_cell: None }));
-        assert_eq!(step([16, 16, 16]).cost(&plain(), &target), None);
+        assert_eq!(
+            step([16, 16, 16]).cost(&mma_only, &sum_is_next_a()),
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
+        );
+    }
+
+    /// No Step is computed where the device offers nothing.
+    #[test]
+    fn a_step_the_device_cannot_compute_has_no_cost() {
+        assert_eq!(step([16, 16, 16]).cost(&plain(), &sum_is_next_a()), None);
     }
 
     /// A sum stays in its registers for the next product where the crate's transport computes its
@@ -263,7 +356,10 @@ mod tests {
         let narrow = step([16, 8, 16]);
         assert_eq!(
             narrow.kept_for(&narrow, &cuda(), &sum_is_next_a()),
-            Some(StepCost { bounced_cell: None })
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 1],
+            })
         );
         let wide = step([16, 16, 16]);
         assert_eq!(wide.kept_for(&wide, &cuda(), &sum_is_next_a()), None);
@@ -278,20 +374,27 @@ mod tests {
         );
     }
 
-    /// A stage asked to swizzle its rows is padded where the fragment API computes the Step (an
-    /// M2's `8 × 8 × 8`, an `sm_80`'s `16 × 16 × 16`), and stays swizzled where the crate's
-    /// transport does (an `sm_80`'s `16 × 8 × 16`); a stage a TMA box fills lands its rows in order
-    /// rather than padded, swizzled ones as they are. A stage of lines is no tiled one and stays.
-    #[test]
-    fn a_stage_is_arranged_as_its_step_reads_it() {
-        let target = sum_is_next_a();
-        let tiled = |chunks| StageStorage::Tiled {
+    fn tiled(chunks: RowChunks) -> StageStorage {
+        StageStorage::Tiled {
             block: vec![(Dimension(0), 16), (Dimension(1), 16), (Dimension(2), 32)],
             chunks,
-        };
-        let staged = |step: ProductStep, device: &DeviceProperties, chunks, delivery| {
-            step.stage_storage(tiled(chunks), delivery, device, &target)
-        };
+            order: StageOrder::AsSource,
+        }
+    }
+
+    fn staged(
+        step: ProductStep,
+        device: &DeviceProperties,
+        chunks: RowChunks,
+        delivery: Delivery,
+    ) -> Option<StageStorage> {
+        step.stage_storage(tiled(chunks), delivery, device, &sum_is_next_a())
+    }
+
+    /// A stage asked to swizzle its rows is padded where the fragment API computes the Step: an
+    /// M2's `8 × 8 × 8` and an `sm_80`'s `16 × 16 × 16`.
+    #[test]
+    fn a_fragment_api_step_pads_a_swizzled_stage() {
         let sync = Delivery::SyncPerUnit;
         assert_eq!(
             staged(step([8, 8, 8]), &metal(), RowChunks::Swizzled, sync),
@@ -301,10 +404,25 @@ mod tests {
             staged(step([16, 16, 16]), &cuda(), RowChunks::Swizzled, sync),
             Some(tiled(RowChunks::Padded))
         );
-        assert_eq!(
-            staged(step([16, 8, 16]), &cuda(), RowChunks::Swizzled, sync),
-            Some(tiled(RowChunks::Swizzled))
-        );
+    }
+
+    /// A stage stays swizzled where the crate's transport computes the Step, an `sm_80`'s
+    /// `16 × 8 × 16`, whoever fills it.
+    #[test]
+    fn a_transported_step_keeps_a_swizzled_stage() {
+        for delivery in [Delivery::SyncPerUnit, Delivery::Tma] {
+            assert_eq!(
+                staged(step([16, 8, 16]), &cuda(), RowChunks::Swizzled, delivery),
+                Some(tiled(RowChunks::Swizzled)),
+                "{delivery:?}"
+            );
+        }
+    }
+
+    /// A stage a TMA box fills lands its rows in order rather than padded, a swizzle the fragment
+    /// API cannot read included.
+    #[test]
+    fn a_box_lands_a_padded_stage_in_order() {
         assert_eq!(
             staged(
                 step([16, 16, 16]),
@@ -315,28 +433,35 @@ mod tests {
             Some(tiled(RowChunks::InOrder))
         );
         assert_eq!(
-            staged(
-                step([16, 8, 16]),
-                &cuda(),
-                RowChunks::Swizzled,
-                Delivery::Tma
-            ),
-            Some(tiled(RowChunks::Swizzled))
-        );
-        assert_eq!(
             staged(step([16, 8, 16]), &cuda(), RowChunks::Padded, Delivery::Tma),
             Some(tiled(RowChunks::InOrder))
         );
+    }
+
+    /// A stage in order, or no tiled one, stays as it is.
+    #[test]
+    fn a_stage_in_order_stays_as_it_is() {
+        let sync = Delivery::SyncPerUnit;
         assert_eq!(
             staged(step([8, 8, 8]), &metal(), RowChunks::InOrder, sync),
             Some(tiled(RowChunks::InOrder))
         );
         assert_eq!(
-            step([8, 8, 8]).stage_storage(StageStorage::Strided, sync, &metal(), &target),
-            Some(StageStorage::Strided)
+            step([8, 8, 8]).stage_storage(StageStorage::STRIDED, sync, &metal(), &sum_is_next_a()),
+            Some(StageStorage::STRIDED)
         );
+    }
+
+    /// No storage is chosen where the device cannot compute the Step.
+    #[test]
+    fn a_step_the_device_cannot_compute_stages_nothing() {
         assert_eq!(
-            staged(step([16, 16, 16]), &plain(), RowChunks::Swizzled, sync),
+            staged(
+                step([16, 16, 16]),
+                &plain(),
+                RowChunks::Swizzled,
+                Delivery::SyncPerUnit
+            ),
             None
         );
     }
@@ -347,12 +472,88 @@ mod tests {
     fn scratch_takes_a_cell_or_the_whole_output() {
         let bounced = StepCost {
             bounced_cell: Some([16, 8]),
+            widest_line: [1, 1],
         };
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::None), 0);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::OneTile), 128);
         assert_eq!(bounced.scratch_cells([32, 32], Scratch::WholeGrid), 1024);
-        let written = StepCost { bounced_cell: None };
+        let written = StepCost {
+            bounced_cell: None,
+            widest_line: [1, 1],
+        };
         assert_eq!(written.scratch_cells([32, 32], Scratch::WholeGrid), 0);
+    }
+
+    /// RDNA3's target, its fragments' positions stated as its LLVM compiler states them.
+    fn rdna3_stated() -> TargetProperties {
+        use cubecl::ir::FragmentPositions;
+        use cubecl_ir::amd::{AmdMatrixCore, AmdWmma};
+        let mut mma = AmdMatrixCore::Wmma(AmdWmma::Rdna3).mma_properties();
+        mma.fragment_positions = FragmentPositions::AsElementPositions;
+        TargetProperties { mma }
+    }
+
+    /// A device offering the `16 × 16 × 16` fragment alone.
+    fn rdna() -> DeviceProperties {
+        let mut rdna = plain();
+        rdna.features.matmul.cmma.insert(shape(16, 16, 16));
+        rdna
+    }
+
+    /// On a target that states its fragments' positions, a drained cmma sum bounces nothing and
+    /// writes the lines its lanes hold, while a rescaled one still scales through its scratch.
+    #[test]
+    fn a_stated_fragment_is_drained_from_registers_but_rescaled_through_its_scratch() {
+        let target = rdna3_stated();
+        let sum = step([16, 16, 16]);
+        assert_eq!(
+            sum.cost(&rdna(), &target),
+            Some(StepCost {
+                bounced_cell: None,
+                widest_line: [1, 8],
+            })
+        );
+        assert_eq!(
+            sum.rescaled_cost(&rdna(), &target),
+            Some(StepCost {
+                bounced_cell: Some([16, 16]),
+                widest_line: [1, 1],
+            })
+        );
+    }
+
+    /// A sum written out of registers asks for lines dividing its widest along the side the
+    /// destination's lines run along, and one value a line for a layout that names no side.
+    #[test]
+    fn line_requirement_follows_the_destination_layout() {
+        let written = StepCost {
+            bounced_cell: None,
+            widest_line: [2, 8],
+        };
+        let requirement = |layout| written.line_requirement(0usize, layout);
+        let access = |elements| VectorRequirement::Access {
+            operand: 0usize,
+            elements,
+        };
+        assert_eq!(requirement(MatrixLayout::RowMajor), access(8));
+        assert_eq!(requirement(MatrixLayout::ColMajor), access(2));
+        assert_eq!(requirement(MatrixLayout::Undefined), access(1));
+    }
+
+    /// A bounced sum is read back out of its scratch in lines that divide its cell's side.
+    #[test]
+    fn a_bounced_sum_asks_for_lines_dividing_its_cell() {
+        let bounced = StepCost {
+            bounced_cell: Some([16, 8]),
+            widest_line: [1, 1],
+        };
+        assert_eq!(
+            bounced.line_requirement(0usize, MatrixLayout::RowMajor),
+            VectorRequirement::Access {
+                operand: 0usize,
+                elements: 8
+            }
+        );
     }
 
     #[test]

@@ -3377,7 +3377,7 @@ fn field_staged_for_a_walk(
     let walk = space.walk();
     let first = walk.region(0);
     let source = input.at(&first);
-    let mut staged = source.stage_for(&walk, StageStorage::Strided, decoded);
+    let mut staged = source.stage_for(&walk, StageStorage::STRIDED, decoded);
     staged.copy_from(&source);
     sync_cube();
     let mut out = output.at(&first);

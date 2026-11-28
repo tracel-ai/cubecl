@@ -9,7 +9,10 @@ use cubecl_server::{
     command::{Command, DeviceStream, Graph, Window},
     id::GraphId,
     logging::ServerLogger,
-    memory_management::MemoryLocation,
+    memory_management::{
+        MemoryLocation,
+        relocation::{DeviceRelocator, RelocationReason, RelocationScope},
+    },
     server::{Handle, IoError, ServerError},
     stream::MultiStream,
 };
@@ -455,4 +458,27 @@ fn a_fresh_capture_forgets_a_refused_recording() {
     let (_graph, _output) = record(&mut server, OWNER);
 
     assert!(!server.prepare_retry(OWNER).unwrap());
+}
+
+/// A relocation asked for while a stream records moves nothing, though something is outdated:
+/// the pages a recording touches keep their addresses until it seals.
+#[test]
+fn a_relocation_asked_for_while_recording_moves_nothing() {
+    let mut server = FakeServer::new();
+    let small = server.work_of(OWNER, MIB).unwrap();
+    // A larger page size leaves the small allocation's page outdated.
+    let _large = server.work_of(OWNER, 64 * MIB).unwrap();
+    let before = location(&small);
+    // Bound, it stays where it is through the relocation the capture runs first.
+    let pinned = small.memory.clone().binding();
+    server.prepare(OWNER);
+    server.plan(OWNER);
+    server.begin(OWNER);
+    drop(pinned);
+
+    server
+        .command(OWNER)
+        .relocate_memory(RelocationScope::Device, RelocationReason::Explicit);
+
+    assert_eq!(location(&small), before);
 }

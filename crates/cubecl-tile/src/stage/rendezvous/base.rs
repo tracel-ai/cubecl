@@ -15,7 +15,7 @@ pub(crate) enum Rendezvous {
     /// Every plane of the cube still has to reach the same count of them: a backend with no
     /// plane-wide barrier (WGSL) lowers `sync_plane` to the workgroup's.
     Plane,
-    /// Async copy (TMA, `cp.async`) over a `full`/`empty` mbarrier pair.
+    /// A `full`/`empty` mbarrier pair: an async copy (TMA, `cp.async`), or planes that only fill.
     Barrier,
 }
 
@@ -281,9 +281,9 @@ impl Meeting {
         match self {
             Meeting::Barrier { full, elected, .. } => match (&mut dst.kind, &src.kind) {
                 (TileKind::Memory(d), TileKind::TmaGmem(s)) => {
-                    d.issue_box::<Served>(s, full, *elected)
+                    issue_box::<Served>(d, s, full, *elected)
                 }
-                (TileKind::Memory(d), TileKind::Memory(s)) => d.fill_from::<Served>(s, space),
+                (TileKind::Memory(d), TileKind::Memory(s)) => fill_from::<Served>(d, s, space),
                 (TileKind::Memory(d), TileKind::Procedural(s)) => {
                     d.fill_procedural::<Served>(s, space)
                 }

@@ -6,8 +6,8 @@ use cubecl::{
     future::block_on,
     ir::{ElemType, FloatKind},
     logging::{
-        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration, Timed,
-        TimingRequest,
+        Execution, ExecutionObservation, ExecutionObserver, Measurement, ProfileDuration,
+        TimedExecutions, TimingRequest,
     },
     prelude::*,
     server::{Handle, ReduceOperation},
@@ -41,13 +41,13 @@ struct Keeps {
 }
 
 impl ExecutionObserver for Keeps {
-    fn issued(&self, _execution: &Execution) {}
+    fn observe(&self, _execution: &Execution) {}
 
     fn timing(&self) -> TimingRequest {
         self.timing
     }
 
-    fn measured(&self, _execution: &Execution, measurement: Measurement) {
+    fn observe_measurement(&self, _execution: &Execution, measurement: Measurement) {
         if let Measurement::Unread(measurement) = measurement {
             self.unread.lock().unwrap().push(measurement);
         }
@@ -65,10 +65,10 @@ enum Observed {
 fn pass(group: &ClientGroup, states: &[Handle], observed: Observed) -> (Duration, Duration) {
     let keeps = match observed {
         Observed::Not => None,
-        Observed::Kernels => Some(TimingRequest::Deferred(Timed::Kernels)),
-        Observed::KernelsAndCommunications => {
-            Some(TimingRequest::Deferred(Timed::KernelsAndCommunications))
-        }
+        Observed::Kernels => Some(TimingRequest::Deferred(TimedExecutions::Kernels)),
+        Observed::KernelsAndCommunications => Some(TimingRequest::Deferred(
+            TimedExecutions::KernelsAndCommunications,
+        )),
     }
     .map(|timing| {
         Arc::new(Keeps {

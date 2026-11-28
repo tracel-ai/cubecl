@@ -230,3 +230,41 @@ const_eval!(FindFirstSetOp, {
         IntegerAttr::new(u32_ty(ctx), APInt::from_u32(out, bw(32)))
     },
 });
+
+/// Four bytes picked out of the eight of `low` and `high`: byte `i` of `selectors` names the one
+/// byte `i` of the result is, `0..4` those of `low` and `4..8` those of `high`. A selector is below
+/// 8.
+#[cubecl_macros_internal::cube_op(name = "bitwise.byte_permute")]
+#[result_ty(same_as = low)]
+#[crate::prelude::op_interfaces(
+    SameOperandsType,
+    SameOperandsAndResultType,
+    crate::interfaces::TriviallyUnrollable
+)]
+#[crate::prelude::op_traits(crate::CanMaterialize, crate::Pure, crate::PropagatesUniformity)]
+pub struct BytePermuteOp {
+    pub low: Value,
+    pub high: Value,
+    pub selectors: Value,
+}
+const_eval!(BytePermuteOp, {
+    IntegerAttr(u32): |low, high, selectors| permuted_bytes(low, high, selectors),
+});
+
+fn permuted_bytes(low: u32, high: u32, selectors: u32) -> u32 {
+    let bytes = (u64::from(high) << 32 | u64::from(low)).to_le_bytes();
+    u32::from_le_bytes(selectors.to_le_bytes().map(|at| bytes[at as usize]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::permuted_bytes;
+
+    #[test]
+    fn a_selector_below_four_names_a_byte_of_low_and_any_other_one_of_high() {
+        assert_eq!(
+            permuted_bytes(0x4433_2211, 0x8877_6655, 0x0700_0403),
+            0x8811_5544
+        );
+    }
+}

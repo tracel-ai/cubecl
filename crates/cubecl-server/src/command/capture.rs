@@ -14,8 +14,8 @@
 
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
-use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
-use crate::memory_management::{ManagedMemoryBinding, PageGuard};
+use crate::memory_management::relocation::{DeviceRelocator, RelocationReason};
+use crate::memory_management::{ManagedMemoryBinding, PageGuard, SharedMemoryBindings};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -98,6 +98,9 @@ pub struct Graph<D: GraphDriver> {
     /// its owner for the graph's lifetime: every replay dereferences the same
     /// addresses.
     _retained_peers: Vec<BufferBinding>,
+    /// The memory of the device's other streams the recorded launches bind, kept from being
+    /// freed or reused for the graph's lifetime: every replay reads it again.
+    _retained_shared: SharedMemoryBindings,
     /// The memory the recorded run placed as outputs, held for the graph's lifetime: every
     /// replay writes it, so it is never handed to another allocation, even once the work let
     /// it go.
@@ -239,7 +242,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// The stream's refusal, when it is not in a state a window can open from.
     pub fn prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.stream().capturing().prepare(stream_id)?;
-        RelocatingStreams::relocate_device(self.command, RelocationReason::Capture);
+        DeviceRelocator::relocate_device(self.command, RelocationReason::Capture);
         Ok(())
     }
 
@@ -254,7 +257,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         if !self.stream().capturing().prepare_retry(stream_id)? {
             return Ok(false);
         }
-        RelocatingStreams::relocate_device(self.command, RelocationReason::Capture);
+        DeviceRelocator::relocate_device(self.command, RelocationReason::Capture);
         Ok(true)
     }
 
@@ -392,6 +395,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
         // no graph they drop here, since its copies never ran and never will.
         let retained_host = stream.capturing().take_retained_host();
         let retained_peers = stream.capturing().take_retained_peers();
+        let retained_shared = stream.capturing().take_retained_shared();
         let retained_outputs: Vec<_> = stream.capturing().drain_retained_outputs().collect();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
@@ -429,6 +433,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
                     _guards: guards,
                     _retained_host: retained_host,
                     _retained_peers: retained_peers,
+                    _retained_shared: retained_shared,
                     _retained_outputs: retained_outputs,
                     written,
                 })

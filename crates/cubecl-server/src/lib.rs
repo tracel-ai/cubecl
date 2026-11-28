@@ -16,6 +16,23 @@
 //! [`stream::Failures`] and [`stream::ExecuteScope`] are the four pieces, and
 //! `ERROR_HANDLING.md` at the repository root is the argument for why they are
 //! shaped that way — read it before changing any of them.
+//!
+//! # Memory management
+//!
+//! A stream's device memory is a [`memory_management::MemoryManagement`],
+//! built from [`memory_management::MemoryManagementOptions`]; the failures
+//! its allocations carry are [`memory_management::FailureId`]s held in an
+//! [`memory_management::ErrorGraph`] and claimed per allocation by a
+//! [`memory_management::Taint`]. Host memory a copy still reads is kept by
+//! `memory_management::drop_queue::PendingDropQueue` until the device is done
+//! with it.
+//!
+//! # Host memory
+//!
+//! A runtime imports host memory through its [`storage::HostMemoryApi`], the driver's pinning
+//! calls: a [`storage::HostImports`] in each stream's storage imports a
+//! [`storage::HostRange`] for its device, and the runtime's [`storage::HostPins`] pins each
+//! memory once for all of them.
 
 #[cfg(feature = "std")]
 extern crate std;

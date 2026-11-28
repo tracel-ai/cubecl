@@ -35,7 +35,7 @@ use cubecl::{
     future::block_on,
     prelude::*,
     server::Handle,
-    tune::{CloneInputGenerator, LocalTuner, Tunable, TunableSet, local_tuner},
+    tune::{LocalTuner, Tunable, TunableSet, local_tuner},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -180,15 +180,12 @@ fn workload(client: &Client, factors: [u32; 6]) {
 /// The candidates autotune picks among for one `factor`: every vector size
 /// at every amount of work per unit.
 fn scale_candidates(client: &Client, factor: u32) -> TunableSet<String, Vec<Handle>, ()> {
-    let mut set = TunableSet::new(
-        move |inputs: &Vec<Handle>| {
-            format!(
-                "scale-x{factor}-{}",
-                inputs[0].size() as usize / size_of::<f32>()
-            )
-        },
-        CloneInputGenerator,
-    );
+    let mut set = TunableSet::new_cloning_inputs(move |inputs: &Vec<Handle>| {
+        format!(
+            "scale-x{factor}-{}",
+            inputs[0].size() as usize / size_of::<f32>()
+        )
+    });
     for vector_size in VECTOR_SIZES {
         for vectors_per_unit in VECTORS_PER_UNIT {
             let shape = ScaleShape {

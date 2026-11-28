@@ -1,20 +1,29 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
 use crate::shared::offline_kernels::{
-    ProductA, Wait, bf16_math_kernel, carried_sum_around_walk_kernel, counted_walk_kernel,
-    fence_poll_kernel, fence_send_kernel, keep_largest_kernel, keep_largest_rounds_kernel,
-    mma_rounds_kernel, nested_calls_kernel, nested_calls_with_source_kernel, plane_moves_kernel,
-    relay_kernel, scale_kernel, strided_walk_kernel, struct_fields_kernel, tally_kernel,
-    tile_product_kernel,
+    ProductA, Wait, bf16_math_kernel, byte_permutes_kernel, carried_sum_around_walk_kernel,
+    counted_walk_kernel, fence_poll_kernel, fence_send_kernel, fragment_registers_kernel,
+    keep_largest_kernel, keep_largest_rounds_kernel, mma_rounds_kernel, nested_calls_kernel,
+    nested_calls_with_source_kernel, plane_moves_kernel, relay_kernel, scale_kernel,
+    strided_walk_kernel, struct_fields_kernel, tally_kernel, tile_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
-use cubecl_core::ir::{AddressType, nvidia::SmArch, settings::DebugInfo};
+use cubecl_core::ir::{
+    AddressType, FragmentPositions, TargetProperties, nvidia::SmArch, settings::DebugInfo,
+};
 use cubecl_core::prelude::{MemoryOrder, SyncScope};
 use cubecl_core::runtime_tests::offline::SOURCE_PATH;
 use cubecl_runtime::kernel::CubeKernel;
 use std::ffi::CStr;
+
+/// A byte permute is one instruction past the one that packs its selectors into nibbles.
+#[test]
+fn a_byte_permute_is_a_prmt() {
+    let ptx = ptx_of(byte_permutes_kernel(), 60);
+    assert_eq!(ptx.matches("prmt.b32").count(), 2, "{ptx}");
+}
 
 #[test]
 fn a_1d_cube_reads_only_the_x_thread_id() {
@@ -817,6 +826,18 @@ fn an_mma_of_mismatched_operands_is_a_compile_error() {
         format!("{error:?}").contains("no `mma` instruction multiplies"),
         "{error:?}"
     );
+}
+
+/// A fragment copied into registers is refused as a compile error: `wmma` hides which lane holds
+/// a cell, so NVPTX has no lowering for the copy, even where a target claims to state it.
+#[test]
+fn a_fragment_copied_into_registers_is_a_compile_error() {
+    let mut target = TargetProperties::default();
+    target.mma.fragment_positions = FragmentPositions::AsElementPositions;
+    let Err(error) = compile(fragment_registers_kernel::<f32>(target, 32), 80) else {
+        panic!("NVPTX should not lower a fragment's registers");
+    };
+    assert!(format!("{error:?}").contains("RegistersOp"), "{error:?}");
 }
 
 /// `memcpy_async` copies synchronously: on a unit barrier there is nothing to wait for, and a

@@ -106,11 +106,46 @@ impl From<usize> for Divisor {
     }
 }
 
-/// One dimension's contribution to one physical axis: `coordinate * scale`.
+/// One digit of a coordinate folded from several dimensions ([`Projection::folded`](crate::Projection::folded)):
+/// `(coordinate / place_value) % extent`, or the whole quotient for the outermost dimension of
+/// the fold ([`Quotient::Whole`]), so a position past the fold never wraps onto another
+/// position's data; the operand bounding the fold masks it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct Digit {
+    /// The product of the extents of the dimensions folded inside this one.
+    pub place_value: usize,
+    pub extent: usize,
+    pub quotient: Quotient,
+}
+
+/// What a [`Digit`] keeps of `coordinate / place_value`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum Quotient {
+    /// Its remainder by the digit's extent: a dimension folded inside another.
+    Modulo,
+    /// All of it: the outermost dimension of the fold.
+    Whole,
+}
+
+/// One dimension's contribution to one physical axis: its coordinate, or one [`Digit`] of it,
+/// times `scale`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct DimensionTerm {
     pub dimension: Dimension,
     pub scale: Scale,
+    pub digit: Option<Digit>,
+}
+
+impl DimensionTerm {
+    /// The largest coordinate the term takes over a region `extent` long. For a digit this is
+    /// its own `extent - 1`, an upper bound whatever extent and start the region has, since a
+    /// window is never moved along a digit.
+    pub(crate) fn largest_coordinate(&self, extent: usize) -> usize {
+        match self.digit {
+            Some(digit) => digit.extent - 1,
+            None => extent - 1,
+        }
+    }
 }
 
 /// Whether a physical axis's terms can land on the same cell, as stated by the caller.
@@ -134,6 +169,8 @@ pub struct PhysicalAxisMap {
     offset: Offset,
     divisor: Divisor,
     composition: Composition,
+    /// Which piece of its dimension an axis stored as one of several is, the coarsest the first.
+    piece: usize,
 }
 
 /// What a physical axis is addressed by.
@@ -141,6 +178,8 @@ pub struct PhysicalAxisMap {
 pub(crate) enum Addressed {
     /// The leading dimension of this map's terms, naming its coordinate group.
     By(Dimension),
+    /// A digit of a folded dimension: a coordinate of its own, never grouped with another axis.
+    ByDigit,
     /// Nothing: every position resolves to the same element.
     Broadcast,
 }
@@ -151,15 +190,23 @@ impl PhysicalAxisMap {
         PhysicalAxisMap::scaled(&[])
     }
 
+    /// `dimension` whole, or the coarsest of the pieces it is stored as.
     pub fn of(dimension: Dimension) -> Self {
+        PhysicalAxisMap::piece_of(dimension, 0)
+    }
+
+    /// One of the pieces `dimension` is stored as, an axis each, `piece` of them coarser.
+    pub fn piece_of(dimension: Dimension, piece: usize) -> Self {
         PhysicalAxisMap {
             terms: SmallVec::from_slice(&[DimensionTerm {
                 dimension,
                 scale: Scale::Static(1),
+                digit: None,
             }]),
             offset: Offset::Static(0),
             divisor: Divisor::Static(1),
             composition: Composition::Disjoint,
+            piece,
         }
     }
 
@@ -202,11 +249,16 @@ impl PhysicalAxisMap {
         PhysicalAxisMap {
             terms: terms
                 .iter()
-                .map(|&(dimension, scale)| DimensionTerm { dimension, scale })
+                .map(|&(dimension, scale)| DimensionTerm {
+                    dimension,
+                    scale,
+                    digit: None,
+                })
                 .collect(),
             offset: Offset::Static(0),
             divisor: Divisor::Static(1),
             composition,
+            piece: 0,
         }
     }
 
@@ -229,6 +281,50 @@ impl PhysicalAxisMap {
         self
     }
 
+    /// The same map with each term on a dimension of `fold` read as its digit of `into`
+    /// ([`Projection::folded`](crate::Projection::folded)), `fold` outermost first.
+    pub(crate) fn folded(mut self, into: Dimension, fold: &[(Dimension, usize)]) -> Self {
+        let mut read = false;
+        for term in self.terms.iter_mut() {
+            let Some(at) = fold.iter().position(|&(d, _)| d == term.dimension) else {
+                continue;
+            };
+            assert!(
+                !read,
+                "PhysicalAxisMap::folded: this axis reads two dimensions of the fold; one digit an \
+                 axis"
+            );
+            assert!(
+                matches!(term.scale, Scale::Static(s) if s > 0),
+                "PhysicalAxisMap::folded: {:?} steps by {:?}; a digit takes a static forward \
+                 coefficient",
+                term.dimension,
+                term.scale
+            );
+            read = true;
+            *term = DimensionTerm {
+                dimension: into,
+                scale: term.scale,
+                digit: Some(Digit {
+                    place_value: fold[at + 1..].iter().map(|&(_, e)| e).product(),
+                    extent: fold[at].1,
+                    quotient: match at {
+                        0 => Quotient::Whole,
+                        _ => Quotient::Modulo,
+                    },
+                }),
+            };
+        }
+        if read {
+            assert!(
+                self.divisor.is_unit(),
+                "PhysicalAxisMap::folded: a digit under a division is refused"
+            );
+            self.composition = Composition::Overlapping;
+        }
+        self
+    }
+
     /// The same combination divided by `divisor`, floored; a divisor every coefficient cancels
     /// is reduced away.
     pub fn over(mut self, divisor: impl Into<Divisor>) -> Self {
@@ -246,6 +342,10 @@ impl PhysicalAxisMap {
             divisor.is_unit() || !self.has_negative_scale(),
             "PhysicalAxisMap::over: a negative coefficient under a division floors the wrong way \
              and is refused"
+        );
+        assert!(
+            divisor.is_unit() || self.digit_dimension().is_none(),
+            "PhysicalAxisMap::over: a digit under a division is refused"
         );
         self.divisor = divisor;
         self.composition = Composition::Overlapping;
@@ -275,6 +375,9 @@ impl PhysicalAxisMap {
 
     /// What this physical axis is addressed by.
     pub(crate) fn addressed(&self) -> Addressed {
+        if self.digit_dimension().is_some() {
+            return Addressed::ByDigit;
+        }
         match self.terms().first() {
             Some(term) => Addressed::By(term.dimension),
             None => Addressed::Broadcast,
@@ -283,6 +386,25 @@ impl PhysicalAxisMap {
 
     pub(crate) fn terms(&self) -> &[DimensionTerm] {
         &self.terms
+    }
+
+    /// The dimension this axis reads a digit of, `None` when it reads none.
+    pub(crate) fn digit_dimension(&self) -> Option<Dimension> {
+        self.terms
+            .iter()
+            .find(|term| term.digit.is_some())
+            .map(|term| term.dimension)
+    }
+
+    /// How many of the pieces its dimension is stored as are coarser.
+    pub(crate) fn piece(&self) -> usize {
+        self.piece
+    }
+
+    /// This axis and the other pieces of its dimension as one axis.
+    pub(crate) fn whole(mut self) -> Self {
+        self.piece = 0;
+        self
     }
 
     /// How this dimension's terms sit on it ([`Composition`]).
@@ -313,17 +435,25 @@ impl PhysicalAxisMap {
         self.divisor
     }
 
-    /// Whether stepping term `term` is an addition: its dimension is not kept inside a floor.
+    /// Whether stepping term `term` is an addition: its dimension is not kept inside a floor or
+    /// read as a digit, which wraps, so the ends of a run along it do not bound its middle.
     pub(crate) fn steps_by_add(&self, term: usize) -> bool {
-        !self.is_rational() || self.static_offset_step(term).is_some()
+        self.terms[term].digit.is_none()
+            && (!self.is_rational() || self.static_offset_step(term).is_some())
     }
 
-    /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor.
+    /// Term `term`'s static additive step, `None` if dynamic; panics for one kept inside a floor
+    /// and for a digit, which has no step.
     pub(crate) fn additive_step(&self, term: usize) -> Option<isize> {
         assert!(
+            self.terms[term].digit.is_none(),
+            "PhysicalAxisMap::additive_step: {:?} is read as a digit, which has no step",
+            self.terms()[term].dimension
+        );
+        assert!(
             self.steps_by_add(term),
-            "ProjectionInKernel::advance: {:?} stays inside this dimension's floor, so stepping it is \
-             not an addition and the map has to be summed at every position",
+            "PhysicalAxisMap::additive_step: {:?} stays inside this dimension's floor, so stepping \
+             it is not an addition and the map has to be summed at every position",
             self.terms()[term].dimension
         );
         if self.is_rational() {
@@ -403,6 +533,7 @@ impl PhysicalAxisMap {
                 DimensionTerm {
                     dimension,
                     scale: Scale::Static(1),
+                    digit: None,
                 },
             ] if self.offset == Offset::Static(0) && self.divisor.is_unit() => Some(*dimension),
             _ => None,
@@ -420,7 +551,11 @@ impl PhysicalAxisMap {
         &self,
         space: &Space,
     ) -> Option<SmallVec<[Dimension; Space::MAX_RANK]>> {
-        if self.terms.is_empty() || self.offset != Offset::Static(0) || !self.divisor.is_unit() {
+        if self.terms.is_empty()
+            || self.offset != Offset::Static(0)
+            || !self.divisor.is_unit()
+            || self.digit_dimension().is_some()
+        {
             return None;
         }
         let mut terms = self
@@ -753,6 +888,49 @@ mod tests {
             PhysicalAxisMap::of(A).over(4).composition(),
             Composition::Overlapping
         );
+    }
+
+    const C: Dimension = Dimension(2);
+    const P: Dimension = Dimension(3);
+    /// `P = a * 7 + b`, `a` under 5.
+    const FOLD: [(Dimension, usize); 2] = [(A, 5), (B, 7)];
+
+    /// `h = a * 2 + tap - 1` folded: `a`'s term becomes the outermost digit of `P`, in place, and
+    /// the axis is a coordinate of its own.
+    #[test]
+    fn a_folded_term_reads_its_digit_in_place() {
+        let map = PhysicalAxisMap::affine(&[(A, 2), (C, 1)])
+            .shifted(-1)
+            .folded(P, &FOLD);
+        assert_eq!(map.digit_dimension(), Some(P));
+        assert_eq!(map.addressed(), Addressed::ByDigit);
+        assert_eq!(
+            map.terms()[0].digit,
+            Some(Digit {
+                place_value: 7,
+                extent: 5,
+                quotient: Quotient::Whole
+            })
+        );
+        assert_eq!(map.scale(P), 2);
+        assert_eq!(map.offset(), Offset::Static(-1));
+        assert!(!map.steps_by_add(0));
+        assert_eq!(map.additive_step(1), Some(1));
+        assert_eq!(map.composition(), Composition::Overlapping);
+        assert!(map.claimed_radices().is_empty());
+        assert_eq!(map.terms()[0].largest_coordinate(64), 4);
+        assert_eq!(map.terms()[1].largest_coordinate(3), 2);
+
+        let columns = PhysicalAxisMap::affine(&[(C, 1), (B, 1)]).folded(P, &FOLD);
+        assert_eq!(
+            columns.terms()[1].digit,
+            Some(Digit {
+                place_value: 1,
+                extent: 7,
+                quotient: Quotient::Modulo
+            })
+        );
+        assert_eq!(columns.addressed(), Addressed::ByDigit);
     }
 
     #[test]

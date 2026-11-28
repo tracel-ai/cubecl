@@ -1,6 +1,9 @@
+use crate::compute::events::Hip;
 use crate::compute::status::checked;
 use cubecl_core::server::IoError;
-use cubecl_server::storage::{StorageAllocator, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{
+    HostImports, HostRange, StorageAllocator, StorageHandle, StorageId, StorageUtilization,
+};
 use std::collections::HashMap;
 
 use crate::AMD_MAX_BINDINGS;
@@ -15,6 +18,7 @@ pub struct GpuStorage {
     allocated: u64,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
+    host_imports: HostImports<Hip>,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -28,27 +32,12 @@ pub struct GpuResource {
     pub size: u64,
 }
 
-impl Default for GpuStorage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GpuStorage {
-    /// Creates an empty storage.
-    pub fn new() -> Self {
-        Self {
-            memory: HashMap::new(),
-            allocated: 0,
-            deallocations: Vec::new(),
-            ptr_bindings: PtrBindings::new(),
-        }
-    }
-
     /// Deallocates buffers marked for deallocation.
     ///
     /// This method processes all pending deallocations by freeing the associated GPU memory.
     pub fn perform_deallocations(&mut self) {
+        self.host_imports.release_after_stream(&self.deallocations);
         for id in self.deallocations.drain(..) {
             if let Some((ptr, size)) = self.memory.remove(&id) {
                 self.allocated -= size;
@@ -62,6 +51,24 @@ impl GpuStorage {
                     log::warn!("releasing a device page failed: {err}");
                 }
             }
+        }
+    }
+}
+
+impl GpuStorage {
+    /// Storage whose imports `stream`'s work reads.
+    ///
+    /// # Safety
+    ///
+    /// `stream` outlives the storage: the release of every import is recorded on it.
+    pub unsafe fn on_stream(stream: cubecl_hip_sys::hipStream_t) -> Self {
+        Self {
+            memory: HashMap::new(),
+            allocated: 0,
+            deallocations: Vec::new(),
+            ptr_bindings: PtrBindings::new(),
+            // SAFETY: the caller keeps `stream` alive for as long as the storage.
+            host_imports: unsafe { HostImports::on_stream(stream) },
         }
     }
 }
@@ -111,10 +118,14 @@ impl StorageAllocator for GpuStorage {
     type Resource = GpuResource;
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let (ptr, _) = *self
-            .memory
-            .get(&handle.id)
-            .expect("the handle should name a live allocation of this storage");
+        let ptr = match self.memory.get(&handle.id) {
+            Some((ptr, _)) => *ptr,
+            None => self
+                .host_imports
+                .device_ptr(&handle.id)
+                .expect("the handle should name a live allocation of this storage")
+                as cubecl_hip_sys::hipDeviceptr_t,
+        };
         let ptr = ptr as u64;
 
         let offset = handle.offset();
@@ -128,10 +139,6 @@ impl StorageAllocator for GpuStorage {
         )
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         // Plain (synchronous) `hipMalloc` on purpose: `hipMallocAsync` draws
@@ -163,7 +170,10 @@ impl StorageAllocator for GpuStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    fn import_host_memory(&mut self, host: &HostRange) -> Result<StorageHandle, IoError> {
+        self.host_imports.import(host)
+    }
+
     fn deallocate(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }

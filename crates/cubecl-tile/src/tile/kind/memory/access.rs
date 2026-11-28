@@ -68,6 +68,12 @@ impl Tile {
 
     pub fn view_mut<T: Numeric, W: Size>(&mut self) -> ViewMut<'_, Vector<T, W>, CoordsDyn> {
         let g = self.mem_mut("view_mut");
+        comptime!({
+            if !g.store.packing.as_stored() {
+                panic!("Tile::view_mut: a packed tile's words are not the values a write means")
+            }
+        });
+        g.write_check();
         g.window_view_mut::<T, W>(comptime!(Guard::Checked))
     }
 }
@@ -213,6 +219,22 @@ impl Memory {
         }
     }
 
+    /// What a checked read past this window's edge does: a launched source's read runs its
+    /// caller's code ([`GlobalOperand::source`]), so it runs only where it has a value to give.
+    /// A source over shared memory is this crate's, and only loads.
+    fn past_edge(&self) -> comptime_type!(PastEdge) {
+        let backing = match &self.store.backing {
+            Backing::Buffer(_) | Backing::ReadBuffer(_) | Backing::WriteCall(_) => {
+                comptime!(PastEdge::Clamp)
+            }
+            Backing::ReadCall(_) => comptime!(PastEdge::Skip),
+        };
+        comptime!(match self.address {
+            AddressSpace::Global => backing,
+            AddressSpace::Shared => PastEdge::Clamp,
+        })
+    }
+
     /// The window as a view over its own coordinates, served at `T` grouped `W` wide.
     fn window_view<T: Numeric, W: Size>(
         &self,
@@ -227,6 +249,7 @@ impl Memory {
             WindowStorage::Stored(_) => WindowedView::new(
                 self.read_view::<T, W>(self.base()),
                 self.window().with_guard(guard),
+                self.past_edge(),
             )
             .view(),
         }
@@ -246,6 +269,7 @@ impl Memory {
             WindowStorage::Stored(_) => WindowedView::new(
                 self.lines_storage::<I, WP>().view(self.base()),
                 self.window().with_guard(guard),
+                comptime!(PastEdge::Clamp),
             )
             .view(),
         }
@@ -297,6 +321,7 @@ impl Memory {
             physical_strides: strides,
             projection: comptime!(Projection::direct(positional.dimensions())),
             rows: RowArrangement::InOrder,
+            order: StageOrder::AsSource,
             paging: ComptimeOption::new_None(),
         }
     }
@@ -399,8 +424,8 @@ impl Memory {
     }
 
     /// Whether each row of this window is one run of cells, the next row a fixed stride on: a
-    /// direct, untiled store, its rows unswizzled and never paged, read with no overhang to mask,
-    /// and every dimension of `space` but the last two a single cell. The second-to-last dimension
+    /// direct, untiled store laid down in its source's order, its rows unswizzled and never paged,
+    /// read with no overhang to mask, and every dimension of `space` but the last two a single cell. The second-to-last dimension
     /// then steps through the rows by [`row_stride_at`](Memory::row_stride_at) and the last through
     /// a row's cells, so a cell lies its row times the stride plus its column past the first.
     pub(crate) fn rows_step_by_stride(&self, #[comptime] space: &Space) -> comptime_type!(bool) {
@@ -411,6 +436,7 @@ impl Memory {
                 && !self.layout.projection.is_tiled()
                 && self.layout.paging.is_none()
                 && self.layout.rows.rows_are_runs()
+                && self.layout.order == StageOrder::AsSource
                 && !self.access.overhang.masks()
                 && self.store.packing == Packing::Plain
                 && rank >= 2
@@ -924,6 +950,7 @@ impl Memory {
         let map = RuntimeMap {
             coefficients: self.map.coefficients.clone(),
             residues,
+            digit_starts: digit_starts_descent(&self.projection, step, &self.map),
         };
         (origin, extent, advances, map)
     }
@@ -1017,7 +1044,8 @@ impl Memory {
         )
     }
 
-    /// This window one wide at `coord` on `dimension`, which is not the innermost: what a level
+    /// This window one wide at `coord` on `dimension`, read one value a line where that is the
+    /// innermost: what a level
     /// cutting the dimension to one would hand out at that coordinate, read off data instead. The
     /// dimension is one axis of the buffer, which the storage tiling of the others leaves whole, so
     /// the window moves by its stride.
@@ -1089,6 +1117,12 @@ impl Memory {
         ));
         let rank = proj.physical_rank();
         let at = proj.position(dimension);
+        comptime!(assert!(
+            !moved || at + 1 < rank || self.store.vector_size == 1,
+            "Memory::within: a window moves along {dimension:?} by elements, and this operand is read \
+             {} a line along it",
+            self.store.vector_size
+        ));
 
         let mut origin = Coords::<i32>::new();
         let mut bound = Coords::<u32>::new();
@@ -1153,7 +1187,30 @@ impl Memory {
     }
 }
 
+/// Where the cut starts along each folded dimension: the window's start plus the cut's.
+#[cube]
+fn digit_starts_descent(
+    #[comptime] projection: &Projection,
+    cut: &Step,
+    map: &RuntimeMap,
+) -> Coords<u32> {
+    let dimensions = projection.digit_dimensions();
+    let mut starts = Coords::<u32>::new();
+    #[unroll]
+    for i in 0..dimensions.len() {
+        let dimension = comptime!(dimensions[i]);
+        let edge = comptime!(cut.level.extent_in(&cut.space, dimension).get() as u32);
+        starts.push(
+            map.digit_starts
+                .at(i)
+                .plus(cut.coord(dimension).cast::<u32>().times(edge.runtime())),
+        );
+    }
+    starts
+}
+
 /// One gathered physical axis's descent: its window move, leftover phase and receptive field.
+/// A digit term moves no window and spans the whole digit ([`digit_starts_descent`]).
 #[cube]
 fn gathered_dimension_descent(
     #[comptime] projection: &Projection,
@@ -1175,6 +1232,12 @@ fn gathered_dimension_descent(
         let term = comptime!(axis_map.terms()[t]);
         let edge = comptime!(cut.level.extent_in(&cut.space, term.dimension).get());
         match term.scale {
+            Scale::Static(s) if term.digit.is_some() => {
+                terms.push(comptime!(0u32).runtime());
+                spans.push(
+                    comptime!((term.largest_coordinate(edge) * s.unsigned_abs()) as u32).runtime(),
+                );
+            }
             Scale::Static(s) => {
                 let step_sign = comptime!(s.signum());
                 let s = comptime!(s.unsigned_abs());

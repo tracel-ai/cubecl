@@ -10,8 +10,9 @@ use cubecl_core::{
 use cubecl_cpp::{formatter::format_cpp, shared::signature::source_forbids_contraction};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::get_hip_include_path;
+use cubecl_llvm::amdgpu::code_object::CodeObject;
 use cubecl_server::compiler::{
-    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording,
+    ArtifactCompiler, ArtifactId, CompilationError, CompilationRecording, SpillReport,
 };
 use cubecl_server::kernel::{BufferIOAttr, CompiledKernel, CubeKernel, DebugInformation};
 use cubecl_server::logging::ServerLogger;
@@ -146,6 +147,11 @@ impl ArtifactCompiler for HipArtifactCompiler {
             binary,
             io,
         })
+    }
+
+    /// What the code object's HSA metadata reports, which both backends' code objects carry.
+    fn spill_report(artifact: &HipArtifact) -> Option<SpillReport> {
+        CodeObject::from_bytes(&artifact.binary).spill_report()
     }
 }
 

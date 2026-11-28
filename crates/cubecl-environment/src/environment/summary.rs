@@ -14,10 +14,11 @@ pub struct EnvironmentSummary {
     /// that maps a source to a kernel names a kernel counted already, and is
     /// not counted.
     pub kernels: u64,
-    /// The autotune answers, one per key and candidate list a tuner stored
-    /// the fastest candidate for. An environment keeps every answer, so one
-    /// to a list no tuner runs any more still counts.
-    pub autotune_answers: u64,
+    /// The tunes, one per key and candidate list a tuner stored
+    /// the fastest candidate for. An environment keeps every tune until a
+    /// prune asked to keep only the used ones, so one to a list no tuner runs
+    /// any more still counts.
+    pub tunes: u64,
     /// The build records, each one entry.
     pub records: u64,
 }
@@ -25,13 +26,13 @@ pub struct EnvironmentSummary {
 impl EnvironmentSummary {
     /// Counts `namespaces`, each by its [root](NamespaceRoot). An
     /// application's own namespaces, the throughput measurements and the
-    /// work's launches count as none of the three.
+    /// records of what the work used count as none of the three.
     pub fn new(namespaces: &[NamespaceSummary]) -> Self {
         let mut summary = Self::default();
         for namespace in namespaces {
             let count = match NamespaceRoot::new(&namespace.namespace).content() {
                 NamespaceContent::Kernels => &mut summary.kernels,
-                NamespaceContent::AutotuneAnswers => &mut summary.autotune_answers,
+                NamespaceContent::Tunes => &mut summary.tunes,
                 NamespaceContent::Records => &mut summary.records,
                 NamespaceContent::KernelSources | NamespaceContent::Other => continue,
             };
@@ -63,7 +64,7 @@ mod tests {
             namespace(&["autotune", "0.12.0/layout-v1/hardware/reduce"], 1),
             namespace(&["records", "v1/sessions"], 3),
             namespace(&["records", "v1/spans"], 4),
-            namespace(&["launched", "0.12.0/00ff"], 11),
+            namespace(&["used", "0.12.0/00ff/kernels"], 11),
             namespace(&["throughput", "0.12.0/probe-v2"], 13),
             namespace(&["my-application", "0.1.0/settings"], 17),
             namespace(&["autotune-notes", "0.1.0"], 19),
@@ -75,7 +76,7 @@ mod tests {
             summary,
             EnvironmentSummary {
                 kernels: 1 + 2 + 3 + 4 + 5,
-                autotune_answers: 5 + 1,
+                tunes: 5 + 1,
                 records: 3 + 4,
             }
         );

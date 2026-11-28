@@ -73,10 +73,6 @@ impl StorageAllocator for PinnedMemoryStorage {
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, size))
-    )]
     fn allocate_bytes(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         // SAFETY: Calling CUDA driver FFI to allocate page-locked (pinned) host memory.
         // The returned pointer is stored and freed via `cuMemFreeHost` on deallocation.
@@ -109,7 +105,6 @@ impl StorageAllocator for PinnedMemoryStorage {
         ))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn deallocate(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
             self.allocated -= resource.size;

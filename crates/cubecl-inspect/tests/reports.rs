@@ -19,8 +19,8 @@ use cubecl_server::memory_management::{
     StreamMemoryReport,
 };
 use cubecl_server::tune::{
-    AutotuneError, AutotuneOutcome, AutotuneResult, PersistentCacheKey, PersistentCacheValue,
-    Placement, PlannedCandidate, Trial, TuneRecord,
+    AutotuneError, AutotuneOutcome, AutotuneResult, Placement, PlannedCandidate, StoredTune, Trial,
+    TuneEntry, TuneRecord,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,7 +29,7 @@ const GEMM: &str = "autotune/0.11.0/hip-kernel_gfx1151/hip-0/matmul-tune-gemm";
 const NORM: &str = "autotune/0.11.0/hip-kernel_gfx1151/hip-0/rms-norm";
 const MATMUL: u128 = 0xabcd_ef01_2345_6789_abcd_ef01_2345_6789;
 
-/// A tuner's key: what cubecl's `PersistentCacheKey` serializes to.
+/// A tuner's key: what cubecl's `TuneEntry` serializes to.
 #[derive(serde::Serialize)]
 struct StoredKey<K> {
     key: K,
@@ -120,7 +120,7 @@ fn failed(error: AutotuneError) -> AutotuneResult {
 fn fixture(dir: &Path) -> PathBuf {
     let path = dir.join("fixture.cubecl");
     let database = Database::open_at(&path, Access::ReadWrite).expect("creates");
-    let insert = |namespace: &str, key: Vec<u8>, value: PersistentCacheValue| {
+    let insert = |namespace: &str, key: Vec<u8>, value: StoredTune| {
         database.insert(namespace, &key, &cbor(&value), Origin::Local);
     };
 
@@ -133,8 +133,8 @@ fn fixture(dir: &Path) -> PathBuf {
             },
             checksum: "list-a",
         }),
-        PersistentCacheValue {
-            fastest_index: 1,
+        StoredTune {
+            winner_index: 1,
             results: vec![
                 measured("tiled", 1, 10),
                 measured("naive", 0, 40),
@@ -159,8 +159,8 @@ fn fixture(dir: &Path) -> PathBuf {
             },
             checksum: "list-a",
         }),
-        PersistentCacheValue {
-            fastest_index: 1,
+        StoredTune {
+            winner_index: 1,
             results: vec![measured("tiled", 1, 20), measured("naive", 0, 22)],
             bounds: None,
             limit: None,
@@ -172,8 +172,8 @@ fn fixture(dir: &Path) -> PathBuf {
             key: 8u32,
             checksum: "list-b",
         }),
-        PersistentCacheValue {
-            fastest_index: 0,
+        StoredTune {
+            winner_index: 0,
             results: vec![measured("row", 0, 5)],
             bounds: None,
             limit: None,
@@ -208,14 +208,14 @@ fn fixture(dir: &Path) -> PathBuf {
         },
         record: TuneRecord {
             table: GEMM.to_string(),
-            entry: PersistentCacheKey {
+            entry: TuneEntry {
                 key: GemmKey {
                     m: 64,
                     elem: Elem::Float("F16"),
                 },
                 checksum: "list-a".to_string(),
             },
-            winner: 1,
+            winner_index: 1,
             trials: vec![
                 trial("tiled", 100),
                 trial("naive", 300),
@@ -339,6 +339,14 @@ fn fixture(dir: &Path) -> PathBuf {
                         dynamic: vec![pool.clone()],
                         persistent: pool.clone(),
                         dedicated: pool,
+                        imported: MemoryPoolReport {
+                            kind: MemoryPoolKind::Direct,
+                            usage: MemoryUsage::default(),
+                            page_count: 0,
+                            peak_page_count: 0,
+                            unmapped_page_count: 0,
+                            largest_alloc_bytes: 0,
+                        },
                     },
                     auxiliary: Vec::new(),
                 }],
@@ -392,7 +400,7 @@ fn the_summary_totals_every_namespace_by_root() {
     let summary = inspector.summary();
 
     assert_eq!(summary.entries(), 13);
-    assert_eq!(summary.autotune_answers(), 4);
+    assert_eq!(summary.tunes(), 4);
     let roots: Vec<(String, u64)> = summary
         .roots()
         .into_iter()
@@ -789,10 +797,7 @@ fn a_stripped_copy_keeps_the_caches_and_drops_the_records() {
             .iter()
             .all(|row| row.root().as_str() != "records")
     );
-    assert_eq!(
-        stripped.autotune_answers(),
-        Inspector::new(file).summary().autotune_answers()
-    );
+    assert_eq!(stripped.tunes(), Inspector::new(file).summary().tunes());
     assert_eq!(
         stripped.manifest.expect("an export carries one").name,
         "fixture"
@@ -833,14 +838,14 @@ fn a_tune_of_an_unlisted_session_joins_its_key() {
             },
             record: TuneRecord {
                 table: GEMM.to_string(),
-                entry: PersistentCacheKey {
+                entry: TuneEntry {
                     key: GemmKey {
                         m: 64,
                         elem: Elem::Float("F16"),
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 1,
+                winner_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(40),
@@ -967,14 +972,14 @@ fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
             5_000,
             TuneRecord {
                 table: GEMM.to_string(),
-                entry: PersistentCacheKey {
+                entry: TuneEntry {
                     key: GemmKey {
                         m: 128,
                         elem: Elem::Float("F16"),
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 0,
+                winner_index: 0,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(1),
@@ -1004,14 +1009,14 @@ fn a_key_tuned_twice_joins_its_latest_tune() {
             5_000,
             TuneRecord {
                 table: GEMM.to_string(),
-                entry: PersistentCacheKey {
+                entry: TuneEntry {
                     key: GemmKey {
                         m: 64,
                         elem: Elem::Float("F16"),
                     },
                     checksum: "list-a".to_string(),
                 },
-                winner: 1,
+                winner_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(900),
@@ -1123,8 +1128,8 @@ fn rebuilt(dir: &Path) -> PathBuf {
     database.replace(
         GEMM,
         &key(128),
-        &cbor(&PersistentCacheValue {
-            fastest_index: 0,
+        &cbor(&StoredTune {
+            winner_index: 0,
             results: vec![measured("naive", 0, 20), measured("tiled", 1, 21)],
             bounds: None,
             limit: None,
@@ -1135,8 +1140,8 @@ fn rebuilt(dir: &Path) -> PathBuf {
     database.insert(
         GEMM,
         &key(256),
-        &cbor(&PersistentCacheValue {
-            fastest_index: 1,
+        &cbor(&StoredTune {
+            winner_index: 1,
             results: vec![measured("tiled", 1, 30)],
             bounds: None,
             limit: None,
@@ -1200,8 +1205,8 @@ fn a_diff_tells_apart_keys_of_two_adapters() {
                 },
                 checksum: "list-a",
             }),
-            &cbor(&PersistentCacheValue {
-                fastest_index: 0,
+            &cbor(&StoredTune {
+                winner_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,
@@ -1243,8 +1248,8 @@ fn a_diff_reads_a_keys_newest_version() {
                 },
                 checksum: "list-a",
             }),
-            &cbor(&PersistentCacheValue {
-                fastest_index: 0,
+            &cbor(&StoredTune {
+                winner_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,
@@ -1300,7 +1305,7 @@ fn pruning_keeps_the_newest_sessions_records() {
             .all(|key| key.tune.is_none())
     );
     assert!(inspector.kernels().kernels.is_empty());
-    assert_eq!(summary.autotune_answers(), 4, "the caches are untouched");
+    assert_eq!(summary.tunes(), 4, "the caches are untouched");
 }
 
 /// Pruning a shipped file in place leaves it shipped: out of WAL, so it

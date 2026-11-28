@@ -23,6 +23,8 @@ pub(crate) struct StageSpec {
     pub(crate) depth: usize,
     pub(crate) storage: StageStorage,
     pub(crate) width: Option<usize>,
+    /// The Dimension a contraction sums the staged operands along, where the caller states one.
+    pub(crate) contracted: Option<Dimension>,
     /// The element a stage that decodes its operand holds; `f32` where `None`.
     pub(crate) decoded: Option<ElemType>,
     pub(crate) owner: StageOwner,
@@ -31,8 +33,9 @@ pub(crate) struct StageSpec {
 /// One operand or two, staged and filled as one.
 #[cube]
 pub(crate) trait Payload<Me: CubeType>: CubeType {
-    /// These operands as a slot plans them, in the order this payload holds them.
-    fn operands(&self) -> comptime_type!(Vec<StageOperand>);
+    /// These operands as a slot plans them, in the order this payload holds them: `None` for one
+    /// read where it lies.
+    fn operands(&self) -> comptime_type!(Vec<Option<StageOperand>>);
 
     /// A staged copy of these operands, reusing `first`'s buffer where `refills` marks it
     /// [`Shared`](Refill::Shared).
@@ -45,6 +48,11 @@ pub(crate) trait Payload<Me: CubeType>: CubeType {
 
     /// Free the shared memory this payload's stages hold, for what is declared after it to take.
     fn free(&self);
+
+    /// This payload as its reader takes it at `region`: what it stages, and `src`'s window of each
+    /// operand `refills` reads in place ([`InPlace`](Refill::InPlace)).
+    #[allow(dead_code)] // Reached through its expand, from the schedules.
+    fn placed_at(&self, src: &Me, region: &Region, #[comptime] refills: Vec<Refill>) -> Me;
 
     /// These operands read where a walk proved its region inside their runs
     /// ([`Tile::inside_run`]).
@@ -78,6 +86,7 @@ pub(crate) fn stage_one(operand: &Tile, #[comptime] spec: StageSpec) -> Tile {
         spec.width,
         spec.owner,
         spec.decoded,
+        spec.contracted,
     );
     let stage = Tile::new::<Staged>(
         stage.kind,

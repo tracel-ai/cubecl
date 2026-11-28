@@ -1,11 +1,11 @@
-//! The scale a tile carries ([`Tile::mul`](crate::Tile::mul)): a scale tile windowed with the
-//! values, never applied by the tile itself. The scale tile is a [`Tile`] of its own and may carry
-//! a scale in turn, each covering more than the one inside it: NVFP4's values are under their block
-//! scales, which are under the per-tensor scale.
+//! The tiles a tile's stored values are multiplied by ([`Tile::mul`](crate::Tile::mul)): the right
+//! sides of its pairs, each windowed with the values and read where they are, never applied by the
+//! tile itself. `((c, g), t)` is `c` under `[g, t]`, and `(c, (g, t))` is `c` under `[g]`, `g`
+//! itself under `[t]`.
 
-use std::sync::Arc;
-
-use cubecl::frontend::{AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, IntoMut};
+use cubecl::frontend::{
+    AsMutExpand, AsRefExpand, CubeDebug, ExpandTypeClone, IntoExpand, PlaceExpand,
+};
 use cubecl::ir::{ExpandValue, Scope, types::Fp8Format};
 use cubecl::prelude::*;
 use cubecl::quant::scheme::QuantValue;
@@ -15,19 +15,21 @@ use cubecl_std::tensor::layout::Coords2d;
 use crate::stage::pipeline::payload::base::{StageOperand, StageSpec, stage_one};
 use crate::*;
 
-/// The scale a tile carries: none, or a scale tile, itself under its own scale or none.
-/// What [`Tile::factor`](crate::Tile::factor) takes out of a tile and
-/// [`Tile::scaled`](crate::Tile::scaled) puts on one.
+/// The tiles a tile's stored values are multiplied by, in the order they were
+/// ([`Tile::mul`](crate::Tile::mul)), each a tile of its own.
 #[derive(Clone)]
-pub struct Factor;
+pub(crate) struct Factor;
 
 #[derive(Clone, Default)]
-pub struct FactorExpand {
-    // `Arc`: a tile holds its scale, and the scale is a tile.
-    scale: Option<Arc<TileExpand>>,
+pub(crate) struct FactorExpand {
+    /// The right side of each pair, the innermost first.
+    scales: Vec<TileExpand>,
     /// Whether a stage keeps these scales beside the values though they are not words of block
     /// scales ([`Tile::scales_kept_beside`](crate::Tile::scales_kept_beside)).
     kept_beside: bool,
+    /// The element a stage holds the values in once its fill decodes them under these scales,
+    /// where the reader stated it ([`Tile::decoded_into`](crate::Tile::decoded_into)).
+    decoded_into: Option<ElemType>,
 }
 
 impl Factor {
@@ -60,20 +62,32 @@ impl Factor {
         unexpanded!()
     }
 
-    /// The scale covering the value at `coords`: the product down the chain, each scale read
+    /// Values one innermost scale covers along the dims of `space` from position `from` in: the
+    /// extents of the innermost of them the scales do not vary along, up to the first they do. A
+    /// block-split `k` stated as its blocks and the position inside one gives the block, or the
+    /// part of one a window holds.
+    pub(crate) fn values_a_scale(&self, _space: Space, _from: usize) -> comptime_type!(usize) {
+        unexpanded!()
+    }
+
+    /// The scale covering the value at `coords`: the product of every scale, each scale read
     /// under `guard`. [`Guard::Proved`] where the reader proved the value's read in bounds, which
     /// puts the scales covering it in bounds.
     pub(crate) fn at_coords(&self, _coords: &Coords<u32>, _values: Space, _guard: Guard) -> f32 {
         unexpanded!()
     }
 
-    /// The one scale every value shares: the product down the chain, no scale of which varies along
-    /// any dimension. What a sum held outside any tile, in a unit's own registers, is multiplied by
-    /// where it takes on the per-tensor scale [`Tile::factor`](crate::Tile::factor) took out of an
-    /// operand it summed; `1` where the factor holds no scale.
+    /// The one scale every value shares: the product of scales none of which varies along any
+    /// dimension, `1` where there are none.
     ///
-    /// Expansion panics on a factor holding a scale that varies along a dimension.
-    pub fn whole(&self) -> f32 {
+    /// Expansion panics on a scale that varies along a dimension.
+    pub(crate) fn whole(&self) -> f32 {
+        unexpanded!()
+    }
+
+    /// These scales, read for the cells of a sum over `sum` whose rows and columns lie along
+    /// `dimensions`.
+    pub(crate) fn of_cells(&self, _sum: Space, _dimensions: MatrixDimensions) -> CellScales {
         unexpanded!()
     }
 
@@ -104,7 +118,7 @@ impl Factor {
         unexpanded!()
     }
 
-    /// How many scales the chain holds.
+    /// How many scales a value is under.
     pub(crate) fn depth(&self) -> comptime_type!(usize) {
         unexpanded!()
     }
@@ -116,9 +130,12 @@ impl Factor {
         unexpanded!()
     }
 
-    /// Whether every scale of the chain is a power of two, stored as `ue8m0`: what a decode that
-    /// moves a code's exponent by the scale's, rather than multiplying, takes exactly.
-    pub(crate) fn powers_of_two(&self) -> comptime_type!(bool) {
+    /// Whether all the values of `load`, one of a tile over `values`, are under one scale.
+    pub(crate) fn broadcasts_over(
+        &self,
+        _load: &VectorTile,
+        _values: Space,
+    ) -> comptime_type!(bool) {
         unexpanded!()
     }
 
@@ -166,23 +183,30 @@ impl Factor {
     }
 }
 
-// A scale is expand-time data, held by one thread: `Arc` as the erased tensors hold theirs.
-#[allow(clippy::arc_with_non_send_sync)]
 impl FactorExpand {
-    /// A factor of `scale`, read at the values' coordinates, under whatever scale it carries.
+    /// A factor of `scale` alone, read at the values' coordinates, under whatever it is multiplied
+    /// by in turn.
     pub(crate) fn of(scale: &TileExpand) -> Self {
-        FactorExpand {
-            scale: Some(Arc::new(scale.clone())),
-            kept_beside: false,
-        }
+        FactorExpand::default().and(scale)
     }
 
-    /// This factor, its scales kept beside the values by a stage as `from`'s are: a factor
-    /// windowed, split or staged off another keeps its choice.
-    fn keeping(self, from: &FactorExpand) -> Self {
+    /// This factor, the values under it multiplied by `scale` too, outside the rest.
+    pub(crate) fn and(mut self, scale: &TileExpand) -> Self {
+        self.scales.push(scale.clone());
+        self
+    }
+
+    /// This factor without its outermost scale, and that scale, where it has one.
+    pub(crate) fn split(mut self) -> (Self, Option<TileExpand>) {
+        let outermost = self.scales.pop();
+        (self, outermost)
+    }
+
+    /// This factor, each of its scales as `map` makes it.
+    fn mapped(&self, map: impl Fn(&TileExpand) -> TileExpand) -> Self {
         FactorExpand {
-            kept_beside: from.kept_beside,
-            ..self
+            scales: self.scales.iter().map(map).collect(),
+            ..self.clone()
         }
     }
 
@@ -193,6 +217,20 @@ impl FactorExpand {
         self.kept_beside
     }
 
+    /// The element a stage holds the values in once its fill decodes them, where the reader
+    /// stated it ([`Tile::decoded_into`](crate::Tile::decoded_into)).
+    pub(crate) fn decoded_element(&self) -> Option<ElemType> {
+        self.decoded_into
+    }
+
+    /// This factor, the values under it decoded by a stage's fill into `element`.
+    pub(crate) fn decoded_into(self, element: ElemType) -> Self {
+        FactorExpand {
+            decoded_into: Some(element),
+            ..self
+        }
+    }
+
     /// This factor, its scales kept beside the values by a stage.
     pub(crate) fn kept_beside(self) -> Self {
         FactorExpand {
@@ -201,79 +239,36 @@ impl FactorExpand {
         }
     }
 
-    /// The innermost scale tile, without the scale it carries in turn.
+    /// Every scale tile, the innermost first, under no scale of its own.
+    pub(crate) fn each_alone(&self) -> Vec<TileExpand> {
+        self.leaves()
+            .map(|scale| scale.with_factor(FactorExpand::default()))
+            .collect()
+    }
+
+    /// The innermost scale tile, under no scale of its own.
     pub(crate) fn innermost_tile(&self) -> Option<TileExpand> {
-        self.scale.as_deref().map(|scale| {
-            let mut alone = scale.clone();
-            alone.factor = FactorExpand::default();
-            alone
-        })
+        self.each_alone().into_iter().next()
     }
 
-    /// The scale tiles down the chain, innermost first.
-    fn chain(&self) -> impl Iterator<Item = &TileExpand> {
-        std::iter::successors(self.scale.as_deref(), |scale| scale.factor.scale.as_deref())
-    }
-
-    /// Whether `scale`'s own scales vary along a dimension outside `space`.
-    fn varies_outside(scope: &Scope, scale: &TileExpand, space: &Space) -> bool {
-        let projection = scale.clone().__expand_projection_method(scope);
-        scale
-            .place
-            .space
-            .dimensions()
-            .any(|dimension| projection.addresses(dimension) && !space.contains(dimension))
-    }
-
-    /// Whether a scale of this factor varies along a dimension of `space`: one a sum holding
-    /// `space` applies cell by cell, not as one number ([`whole`](Factor::whole)).
-    pub(crate) fn varies_within(&self, scope: &Scope, space: &Space) -> bool {
-        self.chain().any(|scale| {
-            let projection = scale.clone().__expand_projection_method(scope);
-            scale
-                .place
-                .space
-                .dimensions()
-                .any(|dimension| projection.addresses(dimension) && space.contains(dimension))
-        })
-    }
-
-    /// This factor cut in two: the inner scales, down to the last one that varies along a dimension
-    /// outside `space`, and the rest, which vary only along `space`. Each scale covers more than
-    /// the one inside it, so once one varies only along `space`, every one outside it does too.
-    pub(crate) fn split_on(&self, scope: &Scope, space: &Space) -> (FactorExpand, FactorExpand) {
-        let Some(scale) = self.scale.as_deref() else {
-            return (FactorExpand::default(), FactorExpand::default());
-        };
-        if !Self::varies_outside(scope, scale, space) {
-            return (FactorExpand::default().keeping(self), self.clone());
-        }
-        let (kept, taken) = scale.factor.split_on(scope, space);
-        let mut inner = scale.clone();
-        inner.factor = kept;
-        (FactorExpand::of(&inner).keeping(self), taken)
-    }
-
-    /// This factor with `coarser` outside it: under the last scale of its chain.
-    pub(crate) fn and(&self, coarser: FactorExpand) -> FactorExpand {
-        match self.scale.as_deref() {
-            None => coarser,
-            Some(scale) => {
-                let mut outer = scale.clone();
-                outer.factor = scale.factor.and(coarser);
-                FactorExpand::of(&outer)
-            }
-        }
+    /// The scale tiles read for a value, each read alone: every scale before the ones it is
+    /// itself under, the innermost first, but for those that are one everywhere
+    /// ([`Procedural::one`]), which no read multiplies by.
+    fn leaves(&self) -> Box<dyn Iterator<Item = &TileExpand> + '_> {
+        Box::new(
+            crate::nested::each_and_nested(&self.scales, |scale| scale.factor.leaves())
+                .filter(|scale| !scale.is_one()),
+        )
     }
 
     /// Whether these values carry a scale at all.
     pub(crate) fn scaled(&self) -> bool {
-        self.scale.is_some()
+        self.depth() > 0
     }
 
-    /// How many scales the chain holds.
+    /// How many scales a value is under.
     pub(crate) fn depth(&self) -> usize {
-        self.chain().count()
+        self.leaves().count()
     }
 
     /// This factor's innermost scale alone.
@@ -288,7 +283,7 @@ impl FactorExpand {
     pub(crate) fn coarse(&self, scope: &Scope) -> NativeExpand<f32> {
         let mut scaled: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
-        for scale in self.chain().skip(1) {
+        for scale in self.leaves().skip(1) {
             let origin = origin_of(scope, &scale.place.space);
             let one = scale_for(scope, scale, &origin, &scale.place.space, Guard::Checked);
             scaled = MulExpand::__expand_mul_method(scaled, scope, one);
@@ -297,13 +292,8 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_at_method(&self, scope: &Scope, step: &StepExpand) -> FactorExpand {
-        match self.scale.as_deref() {
-            // The scale's own scale is windowed with it, by its `at_step`.
-            Some(scale) => {
-                FactorExpand::of(&scale.clone().__expand_at_step_method(scope, step)).keeping(self)
-            }
-            None => FactorExpand::default(),
-        }
+        // What a scale is itself under is windowed with it, by its `at_step`.
+        self.mapped(|scale| scale.clone().__expand_at_step_method(scope, step))
     }
 
     pub(crate) fn __expand_placed_at_method(
@@ -312,7 +302,7 @@ impl FactorExpand {
         dimension: Dimension,
         coord: NativeExpand<u32>,
     ) -> FactorExpand {
-        self.spanning(dimension, |scale| {
+        self.spanning(dimension, &|scale| {
             scale.__expand_placed_at_method(scope, dimension, coord)
         })
     }
@@ -324,7 +314,7 @@ impl FactorExpand {
         from: NativeExpand<u32>,
         until: NativeExpand<u32>,
     ) -> FactorExpand {
-        self.spanning(dimension, |scale| {
+        self.spanning(dimension, &|scale| {
             scale.__expand_run_within_method(scope, dimension, from, until)
         })
     }
@@ -334,19 +324,12 @@ impl FactorExpand {
     pub(crate) fn spanning(
         &self,
         dimension: Dimension,
-        place: impl Fn(&TileExpand) -> TileExpand,
+        place: &dyn Fn(&TileExpand) -> TileExpand,
     ) -> FactorExpand {
-        match self.scale.as_deref() {
-            None => FactorExpand::default(),
-            Some(scale) if scale.place.space.contains(dimension) => {
-                FactorExpand::of(&place(scale)).keeping(self)
-            }
-            Some(scale) => {
-                let mut kept = scale.clone();
-                kept.factor = scale.factor.spanning(dimension, place);
-                FactorExpand::of(&kept).keeping(self)
-            }
-        }
+        self.mapped(|scale| match scale.place.space.contains(dimension) {
+            true => place(scale),
+            false => scale.with_factor(scale.factor.spanning(dimension, place)),
+        })
     }
 
     pub(crate) fn __expand_at_coords_method(
@@ -357,7 +340,7 @@ impl FactorExpand {
         guard: Guard,
     ) -> NativeExpand<f32> {
         let mut product: Option<NativeExpand<f32>> = None;
-        for scale in self.chain() {
+        for scale in self.leaves() {
             assert!(
                 !holds_words(scope, scale),
                 "Factor: these scales are words of block scales, which only the block-scaled \
@@ -372,10 +355,10 @@ impl FactorExpand {
         product.unwrap_or_else(|| ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into())
     }
 
-    pub fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
+    pub(crate) fn __expand_whole_method(&self, scope: &Scope) -> NativeExpand<f32> {
         let mut product: NativeExpand<f32> =
             ExpandValue::constant(1u64.into(), f32::elem_type(scope)).into();
-        for scale in self.chain() {
+        for scale in self.leaves() {
             let projection = scale.clone().__expand_projection_method(scope);
             assert!(
                 scale
@@ -393,6 +376,15 @@ impl FactorExpand {
         product
     }
 
+    pub(crate) fn __expand_of_cells_method(
+        &self,
+        scope: &Scope,
+        sum: Space,
+        dimensions: MatrixDimensions,
+    ) -> CellScalesExpand {
+        CellScalesExpand::new(scope, self, sum, dimensions)
+    }
+
     pub(crate) fn __expand_innermost_scale_method(&self, _scope: &Scope) -> TileExpand {
         self.innermost_tile()
             .expect("Tile::quantize_from: the values are written under the block scales they carry")
@@ -407,7 +399,7 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_fetches_as_words_method(&self, scope: &Scope) -> bool {
-        let Some(inner) = self.scale.as_deref() else {
+        let Some(inner) = self.leaves().next() else {
             return false;
         };
         let in_memory = matches!(inner.kind, TileKindExpand::Memory(_));
@@ -417,7 +409,7 @@ impl FactorExpand {
         );
         // A scale outside the innermost that addresses a dimension varies across the tile, and
         // `coarse` would read it at the origin alone.
-        let coarse_is_whole = self.chain().skip(1).all(|scale| {
+        let coarse_is_whole = self.leaves().skip(1).all(|scale| {
             let projection = scale.clone().__expand_projection_method(scope);
             !scale
                 .place
@@ -429,14 +421,20 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_inner_fp8_method(&self, scope: &Scope) -> Option<Fp8Format> {
-        fp8_format(scope, self.scale.as_deref()?)
+        fp8_format(scope, self.leaves().next()?)
     }
 
-    pub(crate) fn __expand_powers_of_two_method(&self, scope: &Scope) -> bool {
-        self.scale.is_some()
-            && self
-                .chain()
-                .all(|scale| fp8_format(scope, scale) == Some(Fp8Format::UE8M0))
+    pub(crate) fn __expand_broadcasts_over_method(
+        &self,
+        scope: &Scope,
+        load: &VectorTile,
+        values: Space,
+    ) -> bool {
+        self.leaves().all(|scale| {
+            values.dimensions().all(|dimension| {
+                !scale.varies_along(scope, dimension) || load.extent_along(dimension) == 1
+            })
+        })
     }
 
     pub(crate) fn __expand_scaled_method(&self, _scope: &Scope) -> bool {
@@ -444,14 +442,14 @@ impl FactorExpand {
     }
 
     pub(crate) fn __expand_word_field_method(&self, scope: &Scope) -> Option<Field> {
-        self.scale
-            .as_deref()
+        self.leaves()
+            .next()
             .and_then(|scale| word_field(scope, scale))
     }
 
     pub(crate) fn __expand_holds_words_method(&self, scope: &Scope) -> bool {
-        self.scale
-            .as_deref()
+        self.leaves()
+            .next()
             .is_some_and(|scale| holds_words(scope, scale))
     }
 
@@ -465,12 +463,12 @@ impl FactorExpand {
 
     /// The scale tile staged beside the values, which are under it alone.
     fn beside(&self) -> &TileExpand {
-        let scale = self
-            .scale
-            .as_deref()
-            .expect("Factor: these values carry no scale to stage beside them");
+        let mut scales = self.leaves();
+        let scale = scales
+            .next()
+            .expect("Factor: these values should carry a scale to stage beside them");
         assert!(
-            !scale.factor.scaled(),
+            scales.next().is_none(),
             "Factor: values under words of block scales carry no other scale, since the \
              block-scaled instruction that reads them holds one; take the coarser one out for the \
              sum (`Tile::factor`)"
@@ -479,14 +477,19 @@ impl FactorExpand {
     }
 
     /// This factor's stage as `spec` shapes the values': the scales staged beside them, laid out
-    /// plain whatever the values' storage, since no instruction fragment-loads them.
+    /// plain whatever the values' storage and contraction, since no instruction fragment-loads
+    /// them.
     pub(crate) fn staged(&self, scope: &Scope, spec: &StageSpec) -> FactorExpand {
         let spec = StageSpec {
-            storage: StageStorage::Strided,
+            storage: StageStorage::STRIDED,
             width: None,
+            contracted: None,
             ..spec.clone()
         };
-        FactorExpand::of(&stage_one::expand(scope, self.beside(), spec)).keeping(self)
+        FactorExpand {
+            scales: vec![stage_one::expand(scope, self.beside(), spec)],
+            ..self.clone()
+        }
     }
 
     /// Fill this factor's stage from `src`, the factor it stages windowed as the values are.
@@ -516,8 +519,8 @@ impl FactorExpand {
         values: Space,
     ) -> NativeExpand<u32> {
         let scale = self
-            .scale
-            .as_deref()
+            .leaves()
+            .next()
             .filter(|scale| holds_words(scope, scale))
             .expect("Factor::word_at: the innermost scales are no words of block scales");
         scale
@@ -710,8 +713,21 @@ impl FactorReader {
 }
 
 impl FactorExpand {
+    pub(crate) fn __expand_values_a_scale_method(
+        &self,
+        scope: &Scope,
+        space: Space,
+        from: usize,
+    ) -> usize {
+        (from..space.rank())
+            .rev()
+            .take_while(|&p| !self.__expand_varies_along_method(scope, space.dimension_at(p)))
+            .map(|p| space.extent_at(p))
+            .product()
+    }
+
     pub(crate) fn __expand_varies_along_method(&self, scope: &Scope, dimension: Dimension) -> bool {
-        self.scale.as_deref().is_some_and(|scale| {
+        self.leaves().next().is_some_and(|scale| {
             scale
                 .clone()
                 .__expand_projection_method(scope)
@@ -734,8 +750,11 @@ impl ExpandTypeClone for FactorExpand {
         self.clone()
     }
 }
-impl IntoMut for FactorExpand {
-    fn into_mut(self, _: &Scope) -> Self {
+impl PlaceExpand for FactorExpand {
+    fn create_mut_place(self, _: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _: &Scope) -> Self {
         self
     }
 }

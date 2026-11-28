@@ -349,7 +349,7 @@ __device__ void {name}(const {input}& input, {output}& output) {{
 pub(super) fn compile_fragment_intrinsic(ctx: &Context, mat_ty: &MatrixType) -> String {
     // A/B hold `k` elements per lane on RDNA3 and `k / 2` on RDNA4. Accumulators always hold 8
     // lanes' worth, but RDNA3's 16 bit ones are padded out to 32 bits per element.
-    let ab_elems = amd_wmma(ctx).frag_ab_elems(mat_ty.shape.k);
+    let ab_elems = amd_wmma(ctx).frag_ab_elems_at_depth(mat_ty.shape.k);
     let acc_elems = match amd_wmma(ctx) {
         AmdWmma::Rdna3 => 16,
         AmdWmma::Rdna4 => 8,

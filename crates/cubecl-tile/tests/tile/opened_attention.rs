@@ -147,7 +147,7 @@ impl ServedDestination for AttendingServed {
 impl OpenedDestination for Attention {
     fn consume(&mut self, at: &Region, sum: &Tile) {
         let correction = self.softmax.step(sum, &self.bias.at(at), self.scale);
-        self.acc.along(V).mul(&correction);
+        self.acc.along(V).rescale(&correction);
         self.acc.mma(sum, &self.v.at(at));
     }
 

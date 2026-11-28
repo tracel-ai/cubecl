@@ -11,7 +11,7 @@ use cubecl::{ir::ElemType, prelude::*, std::tensor::TensorHandle, zspace::shape}
 
 use cubecl_tile::launch::Grid;
 use cubecl_tile::space::CubeOrder;
-use cubecl_tile::stage::{Prefetch, RowChunks};
+use cubecl_tile::stage::{Prefetch, RowChunks, StagedOperands};
 use cubecl_tile::*;
 
 use half::f16;
@@ -219,7 +219,7 @@ fn contract_staged(
         c_w.zero();
     }
     let walk = owned.over(&steps);
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
@@ -259,7 +259,7 @@ fn matmul_smem_ring_scheduled(
             true => cube.over(&steps).unrolled(),
             false => cube.over(&steps),
         };
-        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+        let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
         if comptime!(schedule == Prefetch::InRegisters) {
             // A fallback to the slots would pass these tests too, so say where the stage waits:
             // a walk of one region holds its operands fixed, which the slots fill once, and a
@@ -307,7 +307,7 @@ fn matmul_smem_ring_accumulate(
     let b = b.tile(&space);
     let c = c.tile_mut(&space);
     let walk = space.over(&level);
-    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, depth, None);
+    let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
@@ -318,14 +318,16 @@ fn matmul_smem_ring_accumulate(
     });
 }
 
-/// `c = a · b` with the lhs alone staged, the rhs read where it lies, `depth` regions in flight.
+/// `c = a · b` with the operands `staged` names staged, the other read where it lies, `depth`
+/// regions in flight.
 #[cube(launch)]
-fn matmul_lhs_smem_ring(
+fn matmul_smem_ring_staging(
     a: &TileTensor<'_>,
     b: &TileTensor<'_>,
     c: &mut TileTensor<'_>,
     space: Partitioning,
     #[comptime] level: Level,
+    #[comptime] staged: StagedOperands,
     #[comptime] depth: usize,
 ) {
     let a = a.tile(&space);
@@ -333,14 +335,14 @@ fn matmul_lhs_smem_ring(
     let mut c = c.tile_mut(&space);
     c.zero();
     let walk = space.over(&level);
-    let mut stages = Stages::smem_single(&walk, &a, StageStorage::Strided, depth, None);
+    let mut stages =
+        Stages::smem_staging(&walk, &a, &b, staged, StageStorage::STRIDED, depth, None);
     stages.pipelined(walk, |slot, region| {
         let mut c_r = c
             .at(region)
             .accumulating(SOFTWARE_MATMUL, Semiring::SumProd);
-        let b_r = b.at(region);
-        slot.consume(|a_s| {
-            c_r.mma(a_s, &b_r);
+        slot.consume(|a_r, b_r| {
+            c_r.mma(a_r, b_r);
         });
     });
 }
@@ -369,7 +371,7 @@ fn matmul_padded_rhs_stage(
     let mut stages = Stages::smem_single_at(
         &walk,
         &b,
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         comptime!(Some(width)),
         1usize,
         None,
@@ -414,7 +416,7 @@ fn matmul_padded_lhs_stage_two_levels(
         let mut stages = Stages::smem_single_at(
             &walk,
             &a_o,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             comptime!(Some(width)),
             1usize,
             None,
@@ -580,7 +582,7 @@ fn block_matmul_two_levels_smem_below<E: Numeric>(
         let a_o = a.at(&outer);
         let b_o = b.at(&outer);
         let walk = outer.over(&inner).unrolled();
-        let mut stages = Stages::smem(&walk, &a_o, &b_o, StageStorage::Strided, 1usize, None);
+        let mut stages = Stages::smem(&walk, &a_o, &b_o, StageStorage::STRIDED, 1usize, None);
         stages.pipelined(walk, |slot, cell| {
             let mut acc_r = acc_o.at(cell);
             slot.consume(|a_s, b_s| {
@@ -653,6 +655,7 @@ fn cmma_matmul_two_levels_planes<E: Numeric>(
             .leaf()
             .extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         }),
         depth,
         None,
@@ -701,6 +704,7 @@ fn cmma_matmul_three_levels_planes_fragments<E: Numeric>(
             .leaf()
             .extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         }),
         depth,
         None,
@@ -753,6 +757,7 @@ fn cmma_matmul_partition_in_one_call<E: Numeric>(
             .leaf()
             .extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         }),
         depth,
         None,
@@ -809,6 +814,7 @@ fn cmma_matmul_five_levels<E: Numeric>(
             .leaf()
             .extents(),
             chunks: RowChunks::InOrder,
+            order: StageOrder::AsSource,
         }),
         depth,
         None,
@@ -1040,7 +1046,11 @@ impl Binding {
                 let space = input.space();
                 let dimensions: Vec<Dimension> =
                     (0..space.rank()).map(|i| space.dimension_at(i)).collect();
-                let mut spec = TileSpec::new(Projection::tiled(&dimensions, &dimensions.repeat(2)));
+                let pieces: Vec<(Dimension, usize)> = [0, 1]
+                    .into_iter()
+                    .flat_map(|piece| dimensions.iter().map(move |&d| (d, piece)))
+                    .collect();
+                let mut spec = TileSpec::new(Projection::tiled(&dimensions, &pieces));
                 spec.units = launcher.cube_dim().num_elems() as usize;
                 TileTensorLaunch::new(input.tensor_arg(1), input.handle().dtype, width, spec)
             }
@@ -1508,7 +1518,7 @@ fn check_matmul_broadcast(b0: usize, b1: usize, t: usize, levels: &[Level]) {
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
             launcher.partitioning().level(1),
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             1,
             1,
         ),
@@ -1931,7 +1941,7 @@ fn matmul_multilevel_staged_then_direct() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         launcher.partitioning().level(1),
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         1,
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, final_edge);
@@ -1984,8 +1994,9 @@ impl StageLayout {
             StageLayout::Tiled => StageStorage::Tiled {
                 block: launcher.partitioning().leaf().extents(),
                 chunks: RowChunks::InOrder,
+                order: StageOrder::AsSource,
             },
-            StageLayout::Strided => StageStorage::Strided,
+            StageLayout::Strided => StageStorage::STRIDED,
         }
     }
 }
@@ -2093,7 +2104,7 @@ fn matmul_staged_invariant_lhs() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         launcher.partitioning().level(1),
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         1,
         1,
     );
@@ -2157,7 +2168,7 @@ fn matmul_a_level_that_cuts_nothing_is_kept() {
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
         launcher.partitioning().level(1),
-        StageStorage::Strided,
+        StageStorage::STRIDED,
         1,
     );
     assert_matmul_arange(&client, c.handle(), m, n, k);
@@ -2220,21 +2231,21 @@ fn matmul_direct_vectorized() {
 /// Regression for the line-vs-scalar unit bug.
 #[test]
 fn matmul_staged_vectorized() {
-    check_matmul_vectorized((8, 8, 8), Staged::Both, 1);
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Both, 1);
 }
 
 /// The same operands through a depth-2 stages: each region's fill overlaps the previous region's
 /// compute. Depth is the only difference from the staged case above.
 #[test]
 fn matmul_double_buffered_vectorized() {
-    check_matmul_vectorized((8, 8, 8), Staged::Both, 2);
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Both, 2);
 }
 
 /// Depth 3: two fills in flight over one compute. Regression for stages whose drain leaves more
 /// than one slot outstanding.
 #[test]
 fn matmul_triple_buffered_vectorized() {
-    check_matmul_vectorized((8, 8, 8), Staged::Both, 3);
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Both, 3);
 }
 
 /// A depth deeper than the walk has regions: the prologue runs out of regions to prime and every
@@ -2242,7 +2253,7 @@ fn matmul_triple_buffered_vectorized() {
 /// regions: two operands per slot, and Metal caps a kernel's threadgroup arguments at 31.
 #[test]
 fn matmul_buffered_deeper_than_the_walk() {
-    check_matmul_vectorized((8, 8, 8), Staged::Both, 9);
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Both, 9);
 }
 
 /// A depth-2 stages whose walk cuts only `M`: `rhs` spans `K`/`N` alone, so the walk never moves
@@ -2250,20 +2261,32 @@ fn matmul_buffered_deeper_than_the_walk() {
 /// the one sound way for two slots to share a buffer, and why a stage count is derived, not stated.
 #[test]
 fn matmul_double_buffered_with_a_fixed_operand() {
-    check_matmul_vectorized((8, 4, 4), Staged::Both, 2);
+    check_matmul_vectorized((8, 4, 4), StagedOperands::Both, 2);
 }
 
 /// The same fixed operand three slots deep, so two slots reuse the first slot's buffer.
 #[test]
 fn matmul_triple_buffered_with_a_fixed_operand() {
-    check_matmul_vectorized((8, 4, 4), Staged::Both, 3);
+    check_matmul_vectorized((8, 4, 4), StagedOperands::Both, 3);
 }
 
 /// One operand staged beside one read where it lies, at depth 2: the slot rendezvouses for the
 /// staged one alone while the other is read where it lies, in every slot of the stages.
 #[test]
-fn matmul_double_buffered_mixed_residence_vectorized() {
-    check_matmul_vectorized((8, 8, 8), Staged::LhsOnly, 2);
+fn matmul_double_buffered_lhs_staged_vectorized() {
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Lhs, 2);
+}
+
+/// [`matmul_double_buffered_lhs_staged_vectorized`] with the rhs staged instead.
+#[test]
+fn matmul_double_buffered_rhs_staged_vectorized() {
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Rhs, 2);
+}
+
+/// One operand read where it lies beside a stage filled and read in turn.
+#[test]
+fn matmul_single_buffered_mixed_residence_vectorized() {
+    check_matmul_vectorized((8, 8, 8), StagedOperands::Rhs, 1);
 }
 
 /// Double buffering with only the lhs staged, on tiled buffers: `a` takes a shared stage while
@@ -2294,7 +2317,7 @@ fn matmul_double_buffered_with_only_the_lhs_staged() {
         .tile(&[tile_edge, tile_edge])
         .uniform(7, -100.0, 100.0);
 
-    matmul_lhs_smem_ring::launch(
+    matmul_smem_ring_staging::launch(
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
@@ -2303,19 +2326,13 @@ fn matmul_double_buffered_with_only_the_lhs_staged() {
         c.arg(&launcher, 1),
         launcher.partitioning_arg(),
         launcher.partitioning().level(0),
+        StagedOperands::Lhs,
         2,
     );
     assert_tiled_matmul(&client, c.handle(), m, n, k, tile_edge);
 }
 
-/// Which operands are staged.
-#[derive(Clone, Copy)]
-enum Staged {
-    Both,
-    LhsOnly,
-}
-
-fn check_matmul_vectorized((m, n, k): (usize, usize, usize), staged: Staged, depth: usize) {
+fn check_matmul_vectorized((m, n, k): (usize, usize, usize), staged: StagedOperands, depth: usize) {
     let client = cubecl::test_device().client();
     let (edge, v) = (4usize, 2usize);
     let launcher = implied(
@@ -2339,32 +2356,18 @@ fn check_matmul_vectorized((m, n, k): (usize, usize, usize), staged: Staged, dep
         .untiled()
         .zeros();
 
-    match staged {
-        Staged::Both => matmul_smem_ring::launch(
-            &client,
-            launcher.cube_count(),
-            launcher.cube_dim(),
-            a.arg(&launcher, v),
-            b.arg(&launcher, v),
-            c.arg(&launcher, v),
-            launcher.partitioning_arg(),
-            one_cube(),
-            None,
-            launcher.partitioning().level(0),
-            depth,
-        ),
-        Staged::LhsOnly => matmul_lhs_smem_ring::launch(
-            &client,
-            launcher.cube_count(),
-            launcher.cube_dim(),
-            a.arg(&launcher, v),
-            b.arg(&launcher, v),
-            c.arg(&launcher, v),
-            launcher.partitioning_arg(),
-            launcher.partitioning().level(0),
-            depth,
-        ),
-    }
+    matmul_smem_ring_staging::launch(
+        &client,
+        launcher.cube_count(),
+        launcher.cube_dim(),
+        a.arg(&launcher, v),
+        b.arg(&launcher, v),
+        c.arg(&launcher, v),
+        launcher.partitioning_arg(),
+        launcher.partitioning().level(0),
+        staged,
+        depth,
+    );
     assert_matmul_arange(&client, c.handle(), m, n, k);
 }
 
@@ -2663,7 +2666,7 @@ fn plane_staged_matmul<E: Numeric>(
                 Semiring::SumProd,
             );
             let walk = plane.walk();
-            let mut stages = Stages::smem(&walk, &a_p, &b_p, StageStorage::Strided, depth, None);
+            let mut stages = Stages::smem(&walk, &a_p, &b_p, StageStorage::STRIDED, depth, None);
             stages.pipelined(walk, |slot, step| {
                 let mut acc_s = acc.at(step);
                 slot.consume(|a_s, b_s| {
@@ -3717,7 +3720,7 @@ fn check_b_fragments_two_at_a_time(depth: usize) {
             c.arg(&launcher, 1),
             launcher.partitioning_arg(),
             launcher.partitioning().level(0),
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             1,
             None,
             f32_ty,

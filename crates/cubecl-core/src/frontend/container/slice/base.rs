@@ -69,7 +69,7 @@ fn buffer_binding(scope: &Scope, list: Value) -> BufferBindingAttr {
         // Op is only allowed as a source for pointers (i.e. slice), so chase the pointer to its root
         DefiningEntity::Op(_) => {
             let block = list
-                .get_root_defining_block(ctx)
+                .get_root_ptr_defining_block(ctx)
                 .expect("Should be block arg");
             let idx = list.find_root_index(ctx);
             (block, idx)
@@ -638,8 +638,11 @@ macro_rules! impl_expand_traits {
             }
         }
 
-        impl<$generic: $bound> IntoMut for $ty {
-            fn into_mut(self, _scope: &Scope) -> Self {
+        impl<$generic: $bound> PlaceExpand for $ty {
+            fn create_mut_place(self, _scope: &Scope) -> Self {
+                self
+            }
+            fn read_place(self, _scope: &Scope) -> Self {
                 self
             }
         }
@@ -766,7 +769,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &NativeExpand<E> {
-        read_offset::expand::<E>(scope, self, index, false)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, false))
     }
 
     #[doc(hidden)]
@@ -775,15 +778,27 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut NativeExpand<E> {
-        write_offset::expand::<E>(scope, self, index, false)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, false))
     }
 }
 
 impl<E: SliceElement> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
+    type PlaceOutput<'a>
+        = E::ExpandType
+    where
+        E: 'a;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
-        read_offset::expand::<E>(scope, self, index, true)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, true))
+    }
+
+    fn __expand_index_owned_method(
+        &self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> Self::Output {
+        elem_ptr::expand::<E>(scope, self, index, true)
     }
 }
 
@@ -793,7 +808,7 @@ impl<E: SliceElement> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut Self::Output {
-        write_offset::expand::<E>(scope, self, index, true)
+        scope.create_kernel_ref(elem_ptr::expand::<E>(scope, self, index, true))
     }
 }
 
@@ -832,30 +847,16 @@ fn elem_ptr<E: SliceElement>(
     index_expand(scope, list, index, checked)
 }
 
-mod read_offset {
+mod elem_ptr {
     use super::*;
 
-    pub fn expand<'a, E: SliceElement>(
+    pub(super) fn expand<E: SliceElement>(
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: NativeExpand<usize>,
         checked: bool,
-    ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
+    ) -> <E as cubecl::prelude::CubeType>::ExpandType {
         let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
-    }
-}
-
-mod write_offset {
-    use super::*;
-
-    pub fn expand<'a, E: SliceElement>(
-        scope: &Scope,
-        slice: &SliceExpand<E>,
-        index: <usize as CubeType>::ExpandType,
-        checked: bool,
-    ) -> &'a mut E::ExpandType {
-        let elem = elem_ptr(scope, slice, index, checked);
-        scope.create_kernel_ref(E::__expand_place(scope, elem.into()))
+        E::__expand_place(scope, elem.into())
     }
 }

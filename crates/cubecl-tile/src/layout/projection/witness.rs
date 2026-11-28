@@ -46,7 +46,7 @@ mod tests {
         assert_eq!(Witness::new(&gathered, A), None);
         assert_eq!(Witness::new(&gathered, B), None);
 
-        let tiled = Projection::tiled(&[A, B], &[A, B, B]);
+        let tiled = Projection::tiled(&[A, B], &[(A, 0), (B, 0), (B, 1)]);
         assert_eq!(Witness::new(&tiled, A).map(|w| w.axis()), Some(0));
         assert_eq!(Witness::new(&tiled, B), None);
     }

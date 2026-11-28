@@ -1,7 +1,7 @@
 # Configuration
 
-CubeCL provides a flexible and powerful configuration system to control logging, autotuning,
-profiling, and compilation behaviors.
+CubeCL provides a flexible and powerful configuration system to control logging, autotuning and
+compilation behaviors.
 
 ## Overview
 
@@ -17,9 +17,6 @@ debugging, or deployment scenarios.
 A typical `cubecl.toml` file might look like this:
 
 ```toml
-[profiling]
-logger = { level = "basic", stdout = true }
-
 [autotune]
 level = "balanced"
 logger = { level = "minimal", stdout = true }
@@ -30,31 +27,11 @@ logger = { level = "basic", file = "cubecl.log", append = true }
 
 Each section configures a different aspect of CubeCL:
 
-- **profiling**: Controls performance profiling and logging.
 - **autotune**: Configures the autotuning system, which benchmarks and selects optimal kernel
   parameters.
 - **compilation**: Manages kernel compilation logging and cache.
 
 ## Configuration Options
-
-### Profiling
-
-The `[profiling]` section controls how CubeCL logs profiling information.
-
-**Log Levels:**
-
-- `disabled`: No profiling logs.
-- `minimal`: Only logs which kernels run.
-- `basic`: Adds basic profiling info.
-- `medium`: More detailed profiling.
-- `full`: Maximum detail.
-
-**Example:**
-
-```toml
-[profiling]
-logger = { level = "basic", stdout = true }
-```
 
 ### Autotune
 
@@ -133,6 +110,15 @@ directory, and the debug data points to it (see
 
 **Pass timing** (`time_passes`): log how long each compiler pass takes, at the `info` level. Use
 it to find where kernel compilation time goes.
+
+**Register spills** (`refuse_register_spills`, default `false`): a kernel whose compiled code
+spills registers to scratch memory fails to compile with a register spill error. An autotune drops
+such a candidate, as it drops any candidate that fails to compile. A plain launch of the kernel
+fails, so it stays off by default: a kernel with no candidate that fits its registers would fail
+where it now runs slowly. HIP reports spills from the code object, and CUDA from the assembler's
+log, both for their LLVM and C++ backends. wgpu, Metal and the CPU runtime report none, so they
+never refuse a kernel. Autotune results measured with spills refused are stored apart from the
+others, so turning the option on retunes rather than serving a winner that spills.
 
 **Example:**
 
@@ -238,9 +224,7 @@ CubeCL supports several environment variables to override configuration at runti
   - `"0"`/`"false"`: Disable logging.
   - Any other value: Treated as a file path.
 - `CUBECL_DEBUG_OPTION`: Sets log verbosity.
-  - `"debug"`: Full compilation and autotune logs, medium profiling.
-  - `"debug-full"`: Full logs for all.
-  - `"profile"`, `"profile-medium"`, `"profile-full"`: Set profiling log level.
+  - `"debug"`, `"debug-full"`: Full compilation and autotune logs.
 - `CUBECL_AUTOTUNE_LEVEL`: Sets autotune level.
   - `"minimal"`/`"0"`
   - `"balanced"`/`"1"`
@@ -254,6 +238,8 @@ CubeCL supports several environment variables to override configuration at runti
 - `CUBECL_SPIRV_DEBUG_FORMAT`: Sets `compilation.spirv_debug_format`.
   - `"auto"`, `"op-line"`, `"non-semantic"`
 - `CUBECL_TIME_PASSES`: Sets `compilation.time_passes`.
+  - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
+- `CUBECL_REFUSE_REGISTER_SPILLS`: Sets `compilation.refuse_register_spills`.
   - `"1"`/`"true"`/`"on"`, `"0"`/`"false"`/`"off"`
 - `CUBECL_JIT_SYMBOLS`: The profiler symbol files of the `cpu` runtime (see
   [Profiling Kernels](./profiling.md)).
@@ -360,9 +346,6 @@ CubeClRuntimeConfig::save_default("cubecl.toml").unwrap();
 ## Example: Full Configuration
 
 ```toml
-[profiling]
-logger = { level = "medium", stdout = true }
-
 [autotune]
 level = "extensive"
 logger = { level = "full", file = "autotune.log", append = false }

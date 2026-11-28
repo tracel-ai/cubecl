@@ -1,6 +1,6 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
-use syn::{Token, Type, spanned::Spanned};
+use syn::{Type, spanned::Spanned};
 
 use crate::{
     expression::Expression,
@@ -59,9 +59,8 @@ impl Statement {
 
                 let init = match (is_mut, init) {
                     (true, Some(init)) => {
-                        let into_mut = frontend_type("IntoMut");
-                        let init_ty =
-                            quote_spanned![init.span()=> #into_mut::into_mut(#init, scope)];
+                        let place_expand = frontend_type("PlaceExpand");
+                        let init_ty = quote_spanned![init.span()=> #place_expand::create_mut_place(#init, scope)];
                         Some(quote! {{
                             #init_ty
                         }})
@@ -119,18 +118,11 @@ impl Statement {
                     #register
                 }
             }
-            Statement::Expression {
-                expression,
-                terminated,
-                ..
-            } => {
-                let terminator = terminated.then(|| Token![;](Span::call_site()));
-                if let Some(as_const) = expression.as_const(context) {
-                    quote![#as_const #terminator]
-                } else {
-                    let expression = expression.to_tokens(context);
-                    quote![#expression #terminator]
-                }
+            Statement::Expression { expression, .. } => {
+                let expression = expression
+                    .as_const(context)
+                    .unwrap_or_else(|| expression.to_tokens(context));
+                quote![#expression;]
             }
             Statement::Verbatim { tokens } => tokens.clone(),
         }

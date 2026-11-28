@@ -27,7 +27,7 @@ use crate::*;
 /// of the tile it was opened over, that `writers` writers reach exclusively, on the
 /// [`Cyclic`](Schedule::Cyclic) schedule.
 ///
-/// A writer drains its partial with [`drain`](SmemCyclicAccumulation::drain) (or
+/// A writer drains its partial with [`drain_at`](SmemCyclicAccumulation::drain_at) (or
 /// [`drain_at`](SmemCyclicAccumulation::drain_at) for a partial over one window), which runs every
 /// round and synchronizes the cube after each; once every writer has, [`source`] holds the sum.
 /// Every unit of the cube reaches the drain, each plane with the partial and window it holds.
@@ -62,12 +62,14 @@ impl Tile {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
-        let values = Shared::<[A]>::new_slice(comptime!(form.cells() * width));
-        // The previous open from this call site may still be read; let it finish first.
+        // The previous open from this call site may still be read; let it finish first. Met
+        // before the declaration, the barrier lets the accumulator take the bytes of shared memory
+        // freed before it, which the compiler reuses only past a barrier ahead of the first use.
         sync_cube();
+        let values = Shared::<[A]>::new_slice(comptime!(form.cells() * width));
 
         let units = self.units();
         let source = Memory::smem_backed::<Served>(
@@ -104,7 +106,7 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
         let form = comptime!(StageForm::dense(
             &space,
             width,
-            StageStorage::Strided,
+            StageStorage::STRIDED,
             LineBytes(A::size().comptime() * width)
         ));
         let units = self.like.units();
@@ -125,26 +127,11 @@ impl<A: Numeric> SmemCyclicAccumulation<A> {
         sink.nested_like(&self.like)
     }
 
-    /// Drain `partial`, an accumulator over the whole box, every round of the schedule, the cube
-    /// synchronized after each: each unit lands its plane's fragments of the round's chunk as
-    /// `writer`, its plane's place among the writers. Once every writer of the cube has, the sum is
-    /// in [`source`](SmemCyclicAccumulation::source).
-    pub fn drain(&self, partial: &Tile, writer: usize) {
-        let define!(Served) = partial.element;
-        #[unroll]
-        for round in 0..self.writers {
-            let turn = (writer + round) % comptime!(self.writers);
-            partial.drained_chunk_into::<Served, A>(
-                &self.sink(round),
-                turn,
-                comptime!(self.writers),
-            );
-            sync_cube();
-        }
-    }
-
-    /// [`drain`](SmemCyclicAccumulation::drain) for a partial over one `window` of the box, as a
-    /// kernel that walks its planes itself holds one.
+    /// Drain `partial`, an accumulator over one `window` of the box, as a kernel that walks its
+    /// planes itself holds one, every round of the schedule, the cube synchronized after each: each
+    /// unit lands its plane's fragments of the round's chunk as `writer`, its plane's place among
+    /// the writers. Once every writer of the cube has, the sum is in
+    /// [`source`](SmemCyclicAccumulation::source).
     #[doc(hidden)] // Public for its test only.
     pub fn drain_at(&self, partial: &Tile, window: &Region, writer: usize) {
         let define!(Served) = partial.element;

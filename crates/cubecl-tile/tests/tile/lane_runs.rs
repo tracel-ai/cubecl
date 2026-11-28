@@ -23,8 +23,8 @@ use cubecl::{
 use cubecl_common::{e2m1, e4m3};
 use cubecl_tile::stage::RowChunks;
 use cubecl_tile::{
-    Dimension, Level, Levels, Partitioning, Projection, Semiring, Space, StageStorage, Stages,
-    TileSpec, TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
+    Dimension, Level, Levels, Partitioning, Projection, Semiring, Space, StageOrder, StageStorage,
+    Stages, TileSpec, TileTensor, TileTensorLaunch, kind::Field, layout::PhysicalAxisMap,
 };
 use half::f16;
 
@@ -94,14 +94,13 @@ fn lane_run_matmul(
 ) {
     let a = a.tile(&space);
     let mut c = c.tile_mut(&space);
-    let b = b.tile(&space);
+    let (b, b_global) = b.tile(&space).factor();
     // `b` decodes as its fragments load, so the accumulator picks the manual mma, which decodes in
     // its registers.
     let acc = match first {
         First::Activation => c.accumulator::<f32>(&a, &b, Semiring::SumProd),
         First::Weight => c.accumulator::<f32>(&b, &a, Semiring::SumProd),
     };
-    let (b, b_factor) = b.factor(&acc);
     match staged {
         Staged::Nothing => {
             for region in space.over(&level) {
@@ -112,7 +111,7 @@ fn lane_run_matmul(
         }
         Staged::Activation => {
             let walk = space.over(&level);
-            let mut stages = Stages::smem_single(&walk, &a, StageStorage::Strided, 1usize, None);
+            let mut stages = Stages::smem_single(&walk, &a, StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, region| {
                 let mut acc_r = acc.at(region);
                 let b_r = acc_r.dequantized(&b.at(region), decoded);
@@ -123,7 +122,7 @@ fn lane_run_matmul(
         }
         Staged::Both => {
             let walk = space.over(&level);
-            let mut stages = Stages::smem(&walk, &a, &b, StageStorage::Strided, 1usize, None);
+            let mut stages = Stages::smem(&walk, &a, &b, StageStorage::STRIDED, 1usize, None);
             stages.pipelined(walk, |slot, region| {
                 let mut acc_r = acc.at(region);
                 slot.consume(|a_r, b_r| {
@@ -139,8 +138,9 @@ fn lane_run_matmul(
                 Staged::BothKeptTiled { chunks, block } => StageStorage::Tiled {
                     block: vec![(M, block.0), (N, block.1), (KB, 1), (KI, BLOCK)],
                     chunks,
+                    order: StageOrder::AsSource,
                 },
-                _ => StageStorage::Strided,
+                _ => StageStorage::STRIDED,
             });
             let mut stages = Stages::smem(&walk, &a, &b, storage, 1usize, None);
             stages.pipelined(walk, |slot, region| {
@@ -152,7 +152,7 @@ fn lane_run_matmul(
             });
         }
     }
-    c.dequantize_from(&acc.scaled(&b_factor));
+    c.dequantize_from(&acc.mul(&b_global));
 }
 
 /// The `m × n` of the 16-bit, 16-deep instruction the device lays lane runs out on: NVIDIA's
@@ -172,7 +172,7 @@ fn lane_run_instruction(client: &cubecl::client::Client) -> Option<(usize, usize
             })
     };
     let mma = &client.target_properties().mma;
-    match (mma.register_duplication_a, mma.register_duplication_b) {
+    match (mma.register_copy_count_a, mma.register_copy_count_b) {
         (1, 1) if offers(16, 8) => Some((16, 8)),
         (2, 2) if offers(16, 16) => Some((16, 16)),
         _ => None,
@@ -563,7 +563,10 @@ impl Nvfp4 {
             launcher.cube_dim(),
             a_op.arg(),
             match global {
-                None => b_op.arg().scales(s_op.arg()),
+                None => b_op
+                    .arg()
+                    .scales(s_op.arg())
+                    .scales(TileTensorLaunch::one()),
                 Some(value) => {
                     // One `f32` over the whole weight, read as the word it is stored in.
                     let global = launcher

@@ -16,7 +16,7 @@
 use crate::support::{HostData, HostDataType, TestInput, ValidationResult};
 use cubecl::{ir::ElemType, prelude::*, zspace::shape};
 use cubecl_tile::launch::Delivery;
-use cubecl_tile::stage::{Prefetch, RowChunks};
+use cubecl_tile::stage::{Prefetch, RowChunks, StagedOperands};
 use cubecl_tile::*;
 
 use super::{Form, implied};
@@ -136,7 +136,8 @@ fn walk_stages(
     #[comptime] depth: usize,
     #[comptime] schedule: Prefetch,
 ) {
-    let mut stages = Stages::smem(&walk, a, b, storage, depth, None);
+    let staged = comptime!(StagedOperands::Both);
+    let mut stages = Stages::smem_factors(&walk, a, b, staged, K, storage, depth, None);
     stages.walk(walk, schedule, |slot, region| {
         let acc_o = acc.at(region);
         slot.consume(|a_s, b_s| {
@@ -202,6 +203,8 @@ struct Case {
     mn: usize,
     /// How much of `K` one stage holds.
     stage_k: usize,
+    /// The blocks one stage holds along `K`, each `stage_k / k_blocks` deep.
+    k_blocks: usize,
     /// The width the operands are served in.
     v: usize,
     /// The rhs stored `{n, k}` rather than `{k, n}`.
@@ -225,6 +228,7 @@ impl Case {
         chunks: RowChunks::InOrder,
         mn: 16,
         stage_k: 32,
+        k_blocks: 1,
         v: 8,
         transposed: false,
         lhs_transposed: false,
@@ -241,6 +245,7 @@ fn check(case: Case) {
         chunks,
         mn,
         stage_k,
+        k_blocks,
         v,
         transposed,
         lhs_transposed,
@@ -352,8 +357,9 @@ fn check(case: Case) {
     let storage = step
         .stage_storage(
             StageStorage::Tiled {
-                block: vec![(M, edge_m), (N, edge_n), (K, stage_k)],
+                block: vec![(M, edge_m), (N, edge_n), (K, stage_k / k_blocks)],
                 chunks,
+                order: StageOrder::AsSource,
             },
             Delivery::default(),
             client.properties(),
@@ -672,6 +678,37 @@ fn the_ldmatrix_transport_reads_bf16() {
                 leaf: Leaf::Mma,
                 ..Case::DEFAULT
             });
+        }
+    }
+}
+
+/// A row-major rhs, and an lhs stored `{k, m}` beside it, read by the fragment API, filled in
+/// slots and through registers alike, over boxes of one and three blocks a side, one or two
+/// blocks deep, from 8- and 4-wide lines. Where the target's fragment load reads a run laid across
+/// its memory's rows more slowly than a contiguous one, each stage lays its `k` innermost, filled
+/// by blocks of source lines along `k` transposed in registers, every unit's blocks read before
+/// it stores any where each takes as many and block by block where some take more; elsewhere
+/// each keeps its source's order.
+#[test]
+fn transposed_fill_lands_every_cell() {
+    for mn in [16, 48] {
+        for schedule in [Prefetch::InSlots, Prefetch::InRegisters] {
+            for lhs_transposed in [false, true] {
+                for k_blocks in [1, 2] {
+                    for v in [8, 4] {
+                        check(Case {
+                            chunks: RowChunks::Padded,
+                            mn,
+                            k_blocks,
+                            v,
+                            lhs_transposed,
+                            schedule,
+                            leaf: Leaf::Cmma,
+                            ..Case::DEFAULT
+                        });
+                    }
+                }
+            }
         }
     }
 }

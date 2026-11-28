@@ -64,8 +64,8 @@ const FP8_LANES_PER_WORD: usize = 4;
 pub struct Fp8Unsupported(String);
 
 /// Rejects every fp8 value WGSL cannot lay out, before any pass runs on it. Both the cast
-/// lowering and the type printer below would otherwise hit the same rule with a panic, which the
-/// device thread swallows into a warning and hands the caller a zeroed buffer.
+/// lowering and the type printer below would otherwise hit the same rule with a panic, which
+/// reaches the caller only at its next sync or read, not as this launch's failure.
 pub fn check_fp8_lanes(ctx: &Context, module: Ptr<Operation>) -> Result<()> {
     let mut bad = None;
     visit_all_values(ctx, &mut bad, module, |ctx, bad, value| {

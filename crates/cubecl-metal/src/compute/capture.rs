@@ -289,7 +289,7 @@ impl GraphDriver for Metal {
 
         let mut queue = stream.queue();
         if let Some(last) = commands.last_replay.take() {
-            last.wait_async(&mut queue);
+            last.sync_device(&mut queue);
         }
         let batch = queue.batch();
         // SAFETY: both command buffers were made from the same descriptor for

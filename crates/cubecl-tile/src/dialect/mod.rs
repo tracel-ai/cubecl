@@ -19,10 +19,56 @@ pub use mma::MmaOp;
 pub use reduce::ReduceOp;
 
 use cubecl::ir::{OpInserter, Scope};
-use cubecl_ir::{dialect::branch::YieldOp, prelude::*};
+use cubecl_ir::{
+    dialect::branch::YieldOp,
+    interfaces::control_flow::{
+        InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+    },
+    prelude::*,
+};
 use pliron::{
     basic_block::BasicBlock, irbuild::inserter::OpInsertionPoint, linked_list::ContainsLinkedList,
 };
+
+// These tile operations execute their body once and then continue after the op.
+macro_rules! inline_region_control_flow {
+    ($($op:ty),+ $(,)?) => {$(
+        #[pliron::derive::op_interface_impl]
+        impl RegionBranchOpInterface for $op {
+            fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+                match pred {
+                    RegionPredecessor::Parent => vec![self.get_operation().deref(ctx).get_region(0).into()],
+                    RegionPredecessor::Terminator(_) => vec![RegionSuccessor::AfterOp],
+                }
+            }
+
+            fn successor_inputs(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+                match successor {
+                    RegionSuccessor::Region(_) => vec![],
+                    RegionSuccessor::AfterOp => self.get_operation().deref(ctx).results().collect(),
+                }
+            }
+
+            fn region_invocation_bounds(
+                &self,
+                _: &Context,
+                _: &[Option<pliron::attribute::AttrObj>],
+            ) -> Vec<InvocationBounds> {
+                vec![InvocationBounds::once()]
+            }
+        }
+    )+};
+}
+
+inline_region_control_flow!(
+    CopyOp,
+    DequantizeOp,
+    DrainOp,
+    LevelOp,
+    LogsumexpOp,
+    MmaOp,
+    ReduceOp
+);
 
 /// An op `T` with no operands and no results, whose one region holds what `body` traces:
 /// the shape of a tile op that stands for writes alone. The caller registers it with the scope.

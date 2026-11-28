@@ -46,7 +46,8 @@
 //! }
 //! ```
 
-use super::{CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, SliceExpand};
+use super::element_positions::expand_position;
+use super::{CubeDebug, CubePrimitive, CubeType, NativeExpand, PlaceExpand, SliceExpand};
 use crate::unexpanded;
 use crate::{self as cubecl, prelude::*};
 use core::marker::PhantomData;
@@ -54,11 +55,10 @@ use cubecl_macros::{comptime_type, cube, intrinsic};
 
 use alloc::format;
 use cubecl_ir::{
-    ExpandValue, Scope, VectorSize,
+    ElementPositions, ExpandValue, FragmentPositions, MmaProperties, OperandFact, Scope,
+    VectorSize,
     attributes::ZeroAttr,
-    dialect::matrix::{
-        ColIndexOp, LdMatrixOp, MmaManualOp, MmaManualScaledOp, RowIndexOp, StMatrixOp,
-    },
+    dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, RegistersOp, StMatrixOp},
     ident,
     interfaces::TypedExt,
     pliron::value::Value,
@@ -68,7 +68,7 @@ use cubecl_ir::{
 pub use cubecl_ir::types::matrix::{
     LdMatrixForm, MatrixIdent, MatrixLayout, MatrixShape, MatrixType, StMatrixForm,
 };
-use pliron::r#type::TypeHandle;
+use pliron::r#type::{TypeHandle, TypedHandle};
 
 #[derive(Clone, Copy)]
 pub struct Plane;
@@ -156,6 +156,32 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     pub unsafe fn downcast_unchecked<O: CubePrimitive>(&self) -> Matrix<O, S> {
         unexpanded!()
     }
+
+    /// The cells this lane holds of the fragment, `N` to a register, in the order
+    /// [`MmaDefinition::position_of_nth`] numbers a lane's elements of the manual MMA of the
+    /// fragment's role, shape and element.
+    ///
+    /// # Assumptions
+    ///
+    /// - The target states which lane holds which cell of a fragment
+    ///   ([`FragmentPositions::AsElementPositions`]).
+    /// - The target has element positions for the fragment's role, shape and element
+    ///   ([`MmaProperties::element_positions`]); on AMD, the fragment's tile is `16 × 16`.
+    /// - `N` divides the cells a lane holds.
+    ///
+    /// # Guarantees
+    ///
+    /// - Cell `i` of the registers, counted across them, is the fragment's cell at
+    ///   `position_of_nth(lane, i)`.
+    /// - The fragment is left as it is.
+    ///
+    /// # Panics
+    ///
+    /// - At expansion, where the target hides its fragments' positions or `N` does not divide the
+    ///   cells a lane holds.
+    pub fn to_registers<N: Size>(&self) -> Array<Vector<C::Scalar, N>> {
+        unexpanded!()
+    }
 }
 
 impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
@@ -174,6 +200,50 @@ impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
             "Matrix::downcast: the fragment holds {held:?}, not {named:?}"
         );
         self.__expand_downcast_unchecked_method(scope)
+    }
+
+    #[doc(hidden)]
+    pub fn __expand_to_registers_method<N: Size>(
+        &self,
+        scope: &Scope,
+    ) -> NativeExpand<Array<Vector<C::Scalar, N>>>
+    where
+        C: CubePrimitive,
+    {
+        let mma = &scope.state().target_properties.mma;
+        assert_eq!(
+            mma.fragment_positions,
+            FragmentPositions::AsElementPositions,
+            "Matrix::to_registers: the target should state which lane holds which cell of a \
+             fragment"
+        );
+        let matrix = {
+            let ctx = scope.ctx();
+            *self
+                .elem
+                .unwrap_ptr(ctx)
+                .deref(ctx)
+                .downcast_ref::<MatrixType>()
+                .expect("Matrix::to_registers: a fragment should point at a matrix")
+        };
+        let shape = matrix.shape;
+        let cells = match matrix.ident {
+            MatrixIdent::A => shape.m * shape.k,
+            MatrixIdent::B => shape.k * shape.n,
+            MatrixIdent::Accumulator => shape.m * shape.n,
+        };
+        let packing = matrix.elem_ty.packing_factor(scope.ctx());
+        let held = mma.elems_per_lane(matrix.ident, cells / packing);
+        let width = N::__expand_value(scope);
+        assert!(
+            held.is_multiple_of(width),
+            "Matrix::to_registers: {width}-wide registers should divide the {held} cells a lane \
+             holds"
+        );
+        let registers = Array::__expand_new(scope, held / width);
+        let out = registers.__extract_list(scope);
+        scope.register(&RegistersOp::new(scope.ctx_mut(), self.elem, out));
+        registers
     }
 
     #[doc(hidden)]
@@ -247,8 +317,11 @@ impl<C: CubeType, S: MatrixScope> IntoExpand for MatrixExpand<C, S> {
     }
 }
 
-impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<C: CubeType, S: MatrixScope> PlaceExpand for MatrixExpand<C, S> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -267,13 +340,46 @@ impl<A: CubeType, B: CubeType, CD: CubeType> IntoExpand for MmaDefinitionExpand<
     }
 }
 
-impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl<A: CubeType, B: CubeType, CD: CubeType> PlaceExpand for MmaDefinitionExpand<A, B, CD> {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }
 
 impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for MmaDefinitionExpand<A, B, CD> {}
+
+impl<A: CubeType, B: CubeType, CD: CubeType> MmaDefinitionExpand<A, B, CD> {
+    /// The type of the operand of role `ident`.
+    fn matrix_ty(&self, scope: &Scope, ident: MatrixIdent) -> TypedHandle<MatrixType> {
+        let storage = match ident {
+            MatrixIdent::A => self.a_type,
+            MatrixIdent::B => self.b_type,
+            MatrixIdent::Accumulator => self.cd_type,
+        };
+        MatrixType::get(
+            scope.ctx(),
+            ident,
+            self.shape,
+            storage,
+            MatrixLayout::ColMajor,
+            types::MatrixScope::Plane,
+        )
+    }
+
+    /// What the target states of the operand of role `ident`, through the fact `fact` picks.
+    fn operand_fact<T>(
+        &self,
+        scope: &Scope,
+        ident: MatrixIdent,
+        fact: impl FnOnce(&MmaProperties) -> &OperandFact<T>,
+    ) -> T {
+        let matrix_ty = self.matrix_ty(scope, ident);
+        fact(&scope.state().target_properties.mma).apply(scope.ctx(), ident, matrix_ty)
+    }
+}
 
 #[cube]
 impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
@@ -542,15 +648,11 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
-            let plane_dim = scope.state().target_properties.mma.const_plane_size as usize;
-            let duplication = match ident {
-                MatrixIdent::A => scope.state().target_properties.mma.register_duplication_a,
-                MatrixIdent::B => scope.state().target_properties.mma.register_duplication_b,
-                MatrixIdent::Accumulator => {
-                    scope.state().target_properties.mma.register_duplication_acc
-                }
-            };
-            (elems * duplication) / plane_dim
+            scope
+                .state()
+                .target_properties
+                .mma
+                .elems_per_lane(ident, elems)
         })
     }
 
@@ -583,36 +685,18 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Number of elements in each vector passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
     pub fn vector_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
-        intrinsic!(|scope| {
-            let storage = match ident {
-                MatrixIdent::A => self.a_type,
-                MatrixIdent::B => self.b_type,
-                MatrixIdent::Accumulator => self.cd_type,
-            };
-            let matrix_ty = MatrixType::get(
-                scope.ctx(),
-                ident,
-                self.shape,
-                storage,
-                MatrixLayout::ColMajor,
-                types::MatrixScope::Plane,
-            );
-            scope
-                .state()
-                .target_properties
-                .mma
-                .contiguous_elements
-                .apply(scope.ctx(), ident, matrix_ty)
-        })
+        intrinsic!(|scope| self.operand_fact(scope, ident, |mma| &mma.contiguous_elements))
     }
 
-    /// Returns the coordinates of the `nth` element handled by the `lane_id`
+    /// Returns the coordinates of the `nth` element handled by the `lane_id`, the unit's index in
+    /// its plane rather than in its cube.
     /// Each lane contains `elems_per_lane` elements in `vector_size` chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
-    /// # Note
-    /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
-    /// to a cube.
+    /// # Panics
+    ///
+    /// Panics on a device that states no element positions, one with no manual matrix
+    /// instruction.
     pub fn position_of_nth(
         &self,
         lane_id: u32,
@@ -620,36 +704,21 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] ident: MatrixIdent,
     ) -> (u32, u32) {
         intrinsic!(|scope| {
-            let lane_id = lane_id.read_value(scope);
-            let elem_idx = elem_idx.read_value(scope);
-
-            let ty = match ident {
-                MatrixIdent::A => self.a_type,
-                MatrixIdent::B => self.b_type,
-                MatrixIdent::Accumulator => self.cd_type,
-            };
-            let layout = match ident {
-                MatrixIdent::A => scope.state().target_properties.mma.register_layout_a,
-                MatrixIdent::B => scope.state().target_properties.mma.register_layout_b,
-                MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
-            };
-            let matrix_ty = MatrixType::get(
-                scope.ctx(),
-                ident,
-                self.shape,
-                ty,
-                layout,
-                types::MatrixScope::Plane,
-            );
-
-            let row_idx = RowIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
-            let col_idx = ColIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
-
-            let row = scope.register_with_result(&row_idx);
-            let col = scope.register_with_result(&col_idx);
-
-            (row.into(), col.into())
+            let positions = self
+                .__expand_element_positions_method(scope, ident)
+                .expect("a device with a manual mma should state where its lanes hold elements");
+            expand_position(scope, &positions, lane_id, elem_idx)
         })
+    }
+
+    /// What [`position_of_nth`](Self::position_of_nth) answers, for any lane and element, while the
+    /// kernel is built. `None` on a device with no manual matrix instruction.
+    #[allow(unused_variables)]
+    pub fn element_positions(
+        &self,
+        #[comptime] ident: MatrixIdent,
+    ) -> comptime_type!(Option<ElementPositions>) {
+        intrinsic!(|scope| self.operand_fact(scope, ident, |mma| &mma.element_positions))
     }
 
     /// Index of the scales for this thread, along the non-major dimension of the matrix.
@@ -1361,8 +1430,11 @@ impl ExpandTypeClone for MatrixLayout {
     }
 }
 
-impl IntoMut for MatrixLayout {
-    fn into_mut(self, _scope: &Scope) -> Self {
+impl PlaceExpand for MatrixLayout {
+    fn create_mut_place(self, _scope: &Scope) -> Self {
+        self
+    }
+    fn read_place(self, _scope: &Scope) -> Self {
         self
     }
 }

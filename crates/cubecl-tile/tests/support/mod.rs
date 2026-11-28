@@ -4,6 +4,7 @@
 mod correctness;
 mod hand_off;
 mod outcome;
+mod stored_spec;
 mod stubs;
 mod test_tensor;
 mod tile_input;
@@ -11,5 +12,6 @@ mod tile_input;
 pub use correctness::*;
 pub use hand_off::*;
 pub use outcome::*;
+pub use stored_spec::*;
 pub use test_tensor::*;
 pub use tile_input::*;
