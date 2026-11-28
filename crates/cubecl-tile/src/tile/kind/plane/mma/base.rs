@@ -832,7 +832,7 @@ impl MmaData {
         let run = comptime!(width.min(vector_size));
         let short = comptime!((rows, cols) != (m, k));
         let size!(W) = served;
-        let view = src.fragment_matrix_packed::<R, W>(rows, cols, comptime!(WalkUnits::none()));
+        let view = src.fragment_matrix_packed::<R, W>(rows, cols);
         match &mut self.fragment {
             MmaFragment::Lhs(fragment) => {
                 let fragment = fragment.at_mut::<T>();
@@ -1186,9 +1186,9 @@ fn load_strided<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeri
                 vector_layout == layout && keys == KeyOrder::AsLaid && rows_start_whole
             });
             let view = if transposed {
-                src.fragment_matrix_packed::<T, W>(cols, rows, comptime!(WalkUnits::none()))
+                src.fragment_matrix_packed::<T, W>(cols, rows)
             } else {
-                src.fragment_matrix_packed::<T, W>(rows, cols, comptime!(WalkUnits::none()))
+                src.fragment_matrix_packed::<T, W>(rows, cols)
             };
             let (first_row, first_col) = along_k(0u32, 0u32, ident, k_offset);
             let (first_line_row, first_cell) = if transposed {
@@ -1262,12 +1262,6 @@ pub(crate) fn key_row(row: u32, #[comptime] keys: KeyOrder) -> u32 {
 
 /// Manual load: each unit reads its own cells of `src` through the matrix view, `k_offset` along
 /// `k` into a window deeper than one instruction.
-///
-/// Read unmasked, where `k_offset` is a walk along the window's dimensions
-/// ([`MatrixDimensions::col_walk`]), each cell is read where it lies for `k_offset = 0`, one step
-/// of that walk past it ([`Projected::walked`]): every step of a deep fragment evaluates the
-/// window's map at the same positions, and adds the step's constants where the walk moves the
-/// map by constants.
 #[cube]
 fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric>(
     src: &Tile,
@@ -1305,41 +1299,11 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
          it, which a manual fragment load cannot read from inside the line; serve the operand at \
          most {line_edge} wide"
     ));
-    let (view_rows, view_cols) = comptime!(if transposed {
-        (cols, rows)
+    let view = if transposed {
+        src.fragment_matrix_packed::<T, W>(cols, rows)
     } else {
-        (rows, cols)
-    });
-    // `k` runs along the view's lines for a row-major `A` or a col-major `B`, along its rows
-    // otherwise; an accumulator is never moved along it.
-    let memory = src.mem("load_manual");
-    let masks = comptime!(memory.access.overhang.masks());
-    let walk = comptime!({
-        let space = &src.place.space;
-        let dimensions = MatrixDimensions::whole(space, view_rows, view_cols, width);
-        let counts = line_extents(space, width, 0, space.rank());
-        let along_lines = (ident == MatrixIdent::A) != transposed;
-        match (
-            masks || k_offset == 0 || ident == MatrixIdent::Accumulator,
-            along_lines,
-        ) {
-            (true, _) => None,
-            (false, true) if k_offset.is_multiple_of(width) => {
-                dimensions.col_walk(space, &counts, k_offset / width)
-            }
-            (false, true) => None,
-            (false, false) => dimensions.row_walk(space, &counts, k_offset),
-        }
-    });
-    let walked = comptime!(walk.is_some());
-    // Where the cells are asked for: `k_offset` along `k`, or at its start where the view walks
-    // there itself.
-    let asked_offset = comptime!(if walked { 0 } else { k_offset });
-    let view = src.fragment_matrix_packed::<T, W>(
-        view_rows,
-        view_cols,
-        comptime!(walk.unwrap_or_else(WalkUnits::none)),
-    );
+        src.fragment_matrix_packed::<T, W>(rows, cols)
+    };
     // Rows read in a run's order are not consecutive: each cell is read on its own.
     let along_lines = comptime!(vector_layout == layout && keys == KeyOrder::AsLaid);
     // A window that serves its cells as they lie is read where they lie, at the register's width
@@ -1359,15 +1323,9 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
     for i in 0..num_vectors {
         let mut vector = Vector::empty();
         if along_lines {
-            let (first_row, first_col) =
-                def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
-            let (row, col) = along_k(first_row, first_col, ident, k_offset);
-            let (asked_row, asked_col) = along_k(first_row, first_col, ident, asked_offset);
-            let (line_row, cell) = if transposed {
-                (asked_col, asked_row)
-            } else {
-                (asked_row, asked_col)
-            };
+            let (row, col) = def.position_of_nth(unit_id, comptime!(i * vector_size) as u32, ident);
+            let (row, col) = along_k(row, col, ident, k_offset);
+            let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
             // A register vector lies along the lines, so its cells share the row or column a
             // short window cuts.
             let covered = !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
@@ -1415,15 +1373,9 @@ fn load_manual<T: Numeric, W: Size, N: Size, A: Numeric, B: Numeric, CD: Numeric
             #[unroll]
             for e in 0..vector_size {
                 let elem_idx = i * vector_size + e;
-                let (first_row, first_col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
-                let first_row = key_row(first_row, keys);
-                let (row, col) = along_k(first_row, first_col, ident, k_offset);
-                let (asked_row, asked_col) = along_k(first_row, first_col, ident, asked_offset);
-                let (line_row, cell) = if transposed {
-                    (asked_col, asked_row)
-                } else {
-                    (asked_row, asked_col)
-                };
+                let (row, col) = def.position_of_nth(unit_id, elem_idx as u32, ident);
+                let (row, col) = along_k(key_row(row, keys), col, ident, k_offset);
+                let (line_row, cell) = if transposed { (col, row) } else { (row, col) };
                 vector.insert(e, T::from_int(0));
                 let covered =
                     !short || (row < comptime!(rows as u32) && col < comptime!(cols as u32));
