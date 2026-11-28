@@ -1,9 +1,11 @@
 use cubecl_common::device::ServiceId;
 use cubecl_environment::collections::{HashMap, HashSet};
 #[cfg(persistence)]
+use cubecl_environment::environment::{BuildStamp, UsedContent, WorkUses};
+#[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
-use cubecl_environment::persistence::{CacheOption, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
@@ -21,7 +23,7 @@ use alloc::string::String;
 #[derive(Debug)]
 pub enum TrackedKey {
     Done {
-        decided_index: usize,
+        winner_index: usize,
     },
     Pending,
     /// The key [answers `Compiled`](TuneAnswer::Compiled) on `services`. Never persisted.
@@ -60,16 +62,27 @@ pub struct TuneTracker<K> {
     /// file is ever touched. Lazy: an entry is read when [`Self::answers`] misses, then lives
     /// there.
     #[cfg(persistence)]
-    persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    persistent_cache: Option<PersistedTable<K>>,
     #[cfg(persistence)]
     table: TuneTable,
+}
+
+/// The table a [`TuneTracker`] persists its tunes to, and the record of the tunes this build's
+/// work used from it.
+#[cfg(persistence)]
+#[derive(Debug)]
+pub struct PersistedTable<K> {
+    /// The table's tunes, read lazily.
+    pub tunes: Store<PersistentCacheKey<K>, PersistentCacheValue>,
+    /// The table's entries this build's work used: those it loaded and those it stored.
+    pub uses: WorkUses<PersistentCacheKey<K>>,
 }
 
 /// What a tuner answers for a key.
 #[derive(Debug)]
 pub enum TuneAnswer {
-    /// The key is settled: callers run the candidate the tune decided.
-    Hit { decided_index: usize },
+    /// The key is settled: callers run the winner.
+    Hit { winner_index: usize },
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job. A card a tune found lost answers this for every key it has not settled,
@@ -125,8 +138,8 @@ impl<K: AutotuneKey> TuneTracker<K> {
         }
 
         match self.answers.get(key) {
-            Some(TrackedKey::Done { decided_index }) => TuneAnswer::Hit {
-                decided_index: *decided_index,
+            Some(TrackedKey::Done { winner_index }) => TuneAnswer::Hit {
+                winner_index: *winner_index,
             },
             Some(TrackedKey::Pending) => TuneAnswer::Pending,
             // Nothing was decided: a tune of the key is still owed.
@@ -195,20 +208,17 @@ impl<K: AutotuneKey> TuneTracker<K> {
         self.lost.insert(service);
     }
 
-    /// Track `decided_index` as the pick of `key`, in memory, and answer it.
-    pub fn track_answer(&mut self, key: K, decided_index: usize) -> TuneAnswer {
-        self.answers.insert(key, TrackedKey::Done { decided_index });
-        TuneAnswer::Hit { decided_index }
+    /// Track `winner_index` as the pick of `key`, in memory, and answer it.
+    pub fn track_answer(&mut self, key: K, winner_index: usize) -> TuneAnswer {
+        self.answers.insert(key, TrackedKey::Done { winner_index });
+        TuneAnswer::Hit { winner_index }
     }
 }
 
 #[cfg(persistence)]
 impl<K: AutotuneKey> TuneTracker<K> {
     /// A tracker over `persistent_cache`, its answers built for `table`.
-    pub fn with_store(
-        persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
-        table: TuneTable,
-    ) -> Self {
+    pub fn with_store(persistent_cache: Option<PersistedTable<K>>, table: TuneTable) -> Self {
         Self {
             answers: HashMap::new(),
             lost: HashSet::new(),
@@ -242,24 +252,26 @@ impl<K: AutotuneKey> TuneTracker<K> {
 
     /// Track the store's answer for `key` under the set's `checksum`, read once memory missed,
     /// and answer it. A miss costs one read of the store, under the tuner mutex, and a key read
-    /// counts as loaded. A stored index outside the `len` candidates of the set is a miss, and its
-    /// row is deleted from the table so the tune that follows can store its answer: the row was
-    /// written by another build, or edited.
+    /// counts as loaded and is recorded as one the work used. A stored index outside the `len`
+    /// candidates of the set is a miss, and its row is deleted from the table so the tune that
+    /// follows can store its answer: the row was written by another build, or edited. Such a row
+    /// is not recorded as used.
     pub fn track_stored(&mut self, key: &K, checksum: &str, len: usize) -> TuneAnswer {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
+        let Some(persisted) = self.persistent_cache.as_mut() else {
             return TuneAnswer::Miss;
         };
         let stored = PersistentCacheKey {
             key: key.clone(),
             checksum: checksum.into(),
         };
-        let Some(value) = persistent_cache.remove(&stored) else {
+        let Some(value) = persisted.tunes.remove(&stored) else {
             return TuneAnswer::Miss;
         };
-        if value.decided_index >= len {
-            persistent_cache.purge_key(&stored);
+        if value.winner_index >= len {
+            persisted.tunes.purge_key(&stored);
             return TuneAnswer::Miss;
         }
+        persisted.uses.record(&stored);
         let gathered = self
             .answers
             .remove(key)
@@ -267,17 +279,25 @@ impl<K: AutotuneKey> TuneTracker<K> {
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
-        self.track_answer(key.clone(), value.decided_index)
+        self.track_answer(key.clone(), value.winner_index)
     }
 
     /// Store an answer in the table, and say whether it took it: never when the cache is
     /// disabled.
+    ///
+    /// The entry is recorded as one the work used whether or not the table takes the value: when
+    /// it keeps another answer to the key, that answer is the one the next process loads. One
+    /// whose row the storage refused is recorded with no row, which neither a prune nor a save
+    /// reads as an answer.
     pub fn store_answer(&mut self, key: K, checksum: String, value: PersistentCacheValue) -> bool {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
+        let Some(persisted) = self.persistent_cache.as_mut() else {
             return false;
         };
 
-        let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) else {
+        let entry = PersistentCacheKey { key, checksum };
+        // Recorded before the table takes the entry, which then needs no clone.
+        persisted.uses.record(&entry);
+        let Err(err) = persisted.tunes.insert(entry, value) else {
             return true;
         };
         log_store_error(err);
@@ -314,15 +334,18 @@ impl<K: AutotuneKey> TuneTracker<K> {
             namespace: namespace.as_str().into(),
             generation: cubecl_environment::environment::generation(),
         };
-        let store = (!disabled).then(|| {
+        let uses = UsedContent::Entries {
+            namespace: table.namespace.clone(),
+        }
+        .namespace(BuildStamp::current());
+        let persisted = (!disabled).then(|| {
             TABLE_LAYOUT_VERSION.drop_earlier();
-            Store::new(
-                StoreOptions::new()
-                    .storage(namespace)
-                    .cache(CacheOption::Lazy),
-            )
+            PersistedTable {
+                tunes: lazy(namespace),
+                uses: WorkUses::from_store(lazy(uses)),
+            }
         });
-        Self::with_store(store, table)
+        Self::with_store(persisted, table)
     }
 
     /// Whether the environment switched since the answers were built. Never with persistence
@@ -332,6 +355,21 @@ impl<K: AutotuneKey> TuneTracker<K> {
         self.persistent_cache.is_some()
             && cubecl_environment::environment::generation() != self.table.generation
     }
+}
+
+/// A store over `namespace` in the active environment, read lazily.
+#[cfg(persistence)]
+fn lazy<
+    K: cubecl_environment::persistence::StoreKey,
+    V: cubecl_environment::persistence::StoreValue,
+>(
+    namespace: Namespace,
+) -> Store<K, V> {
+    Store::new(
+        StoreOptions::new()
+            .storage(namespace)
+            .cache(CacheOption::Lazy),
+    )
 }
 
 /// Log why the table did not take an answer.
@@ -409,7 +447,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.answer(&key(), service_at(0), false),
-            Some(TuneAnswer::Hit { decided_index: 3 })
+            Some(TuneAnswer::Hit { winner_index: 3 })
         ));
     }
 
@@ -441,7 +479,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.decided(&key()),
-            TuneAnswer::Hit { decided_index: 1 }
+            TuneAnswer::Hit { winner_index: 1 }
         ));
     }
 
@@ -516,7 +554,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.decided(&key()),
-            TuneAnswer::Hit { decided_index: 2 }
+            TuneAnswer::Hit { winner_index: 2 }
         ));
     }
 
@@ -533,7 +571,7 @@ mod small_tests {
     #[test]
     fn a_tracker_without_a_store_stores_nothing() {
         let value = PersistentCacheValue {
-            decided_index: 0,
+            winner_index: 0,
             results: Vec::new(),
             bounds: None,
             limit: None,

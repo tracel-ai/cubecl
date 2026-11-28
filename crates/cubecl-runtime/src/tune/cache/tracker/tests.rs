@@ -38,7 +38,7 @@ fn an_answer_to_the_current_list_is_served() {
 
     assert!(matches!(
         tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneAnswer::Hit { decided_index: 2 }
+        TuneAnswer::Hit { winner_index: 2 }
     ));
 }
 
@@ -145,6 +145,61 @@ fn opening_a_table_drops_the_earlier_layouts_only() {
     assert_eq!(left, kept);
 }
 
+#[test]
+#[serial_test::serial]
+fn a_loaded_answer_is_recorded_as_used() {
+    let table = "tune-cache-tests/used-loaded";
+    plant(table, KEY, CURRENT, 1);
+
+    tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3);
+
+    assert_eq!(used(table), [pair(KEY, CURRENT)]);
+}
+
+#[test]
+#[serial_test::serial]
+fn a_missed_answer_is_not_recorded_as_used() {
+    let table = "tune-cache-tests/used-missed";
+
+    tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3);
+
+    assert_eq!(used(table), []);
+}
+
+/// The work runs another candidate than one past the set, so that row is no answer it used.
+#[test]
+#[serial_test::serial]
+fn an_answer_past_the_set_is_not_recorded_as_used() {
+    let table = "tune-cache-tests/used-past-the-set";
+    plant(table, KEY, CURRENT, 3);
+
+    tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3);
+
+    assert_eq!(used(table), []);
+}
+
+#[test]
+#[serial_test::serial]
+fn a_stored_answer_is_recorded_as_used() {
+    let table = "tune-cache-tests/used-stored";
+
+    tracker_over(table).store_answer(KEY.to_string(), CURRENT.into(), answer_at(1));
+
+    assert_eq!(used(table), [pair(KEY, CURRENT)]);
+}
+
+/// The table keeps the answer it held, and that answer is the one the next process loads.
+#[test]
+#[serial_test::serial]
+fn the_answer_a_table_kept_is_recorded_as_used() {
+    let table = "tune-cache-tests/used-kept";
+    plant(table, KEY, CURRENT, 1);
+
+    tracker_over(table).store_answer(KEY.to_string(), CURRENT.into(), answer_at(2));
+
+    assert_eq!(used(table), [pair(KEY, CURRENT)]);
+}
+
 /// Storing an answer to the current list leaves the key's answer to an
 /// older list in the table: an environment never loses an answer, and the
 /// older one only costs a row, since no lookup for the current list reads
@@ -165,7 +220,10 @@ fn a_stored_answer_leaves_the_answers_to_older_lists() {
 /// A tracker over the in-memory table `table`.
 fn tracker_over(table: &str) -> TuneTracker<String> {
     TuneTracker::with_store(
-        Some(answers(table)),
+        Some(PersistedTable {
+            tunes: answers(table),
+            uses: WorkUses::from_store(uses(table)),
+        }),
         TuneTable {
             namespace: table.into(),
             generation: cubecl_environment::environment::generation(),
@@ -182,11 +240,32 @@ fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValu
     )
 }
 
-/// Stores in `table`, as a tune of `checksum`'s list would, `decided_index`
+/// The in-memory record of the entries of `table` the work used.
+fn uses(table: &str) -> Store<PersistentCacheKey<String>, ()> {
+    let namespace = alloc::format!("used-by-tests/{table}");
+    Store::new(
+        StoreOptions::new()
+            .storage_with(
+                Box::new(MemoryStorage::new(&namespace)),
+                Namespace::new(&namespace),
+            )
+            .cache(CacheOption::Lazy),
+    )
+}
+
+/// Every entry of `table` the work was recorded using, by key and list.
+fn used(table: &str) -> Vec<PersistentCacheKey<String>> {
+    let mut used = Vec::new();
+    uses(table).scan(|key, ()| used.push(key));
+    used.sort_by(|a, b| (&a.key, &a.checksum).cmp(&(&b.key, &b.checksum)));
+    used
+}
+
+/// Stores in `table`, as a tune of `checksum`'s list would, `winner_index`
 /// as the answer to `key`.
-fn plant(table: &str, key: &str, checksum: &str, decided_index: usize) {
+fn plant(table: &str, key: &str, checksum: &str, winner_index: usize) {
     answers(table)
-        .insert(pair(key, checksum), answer_at(decided_index))
+        .insert(pair(key, checksum), answer_at(winner_index))
         .unwrap();
 }
 
@@ -197,9 +276,9 @@ fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
     }
 }
 
-fn answer_at(decided_index: usize) -> PersistentCacheValue {
+fn answer_at(winner_index: usize) -> PersistentCacheValue {
     PersistentCacheValue {
-        decided_index,
+        winner_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

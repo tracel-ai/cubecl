@@ -377,8 +377,7 @@ fn test_object_bytes_not_retained() {
 /// race did.
 #[test]
 fn a_prune_keeps_only_the_kernel_the_work_launched() {
-    use cubecl_environment::environment::{EnvironmentId, PruneOptions};
-    use cubecl_server::compiler::WorkLaunchStore;
+    use cubecl_environment::environment::{BuildStamp, EnvironmentId, PruneOptions, UsedContent};
     use cubecl_server::prune::Prune;
     use cubecl_server::server::Handle;
     use cubecl_server::tune::{LocalTuner, Tunable, TunableSet};
@@ -431,12 +430,13 @@ fn a_prune_keeps_only_the_kernel_the_work_launched() {
     assert_eq!(pruned.kernels.removed, 1, "{pruned:?}");
     assert_eq!(pruned.kernels.kept, 1, "{pruned:?}");
     let database = Database::open_active().unwrap();
+    let recorded = UsedContent::Kernels.namespace(BuildStamp::current());
     let mut work = Vec::new();
     let mut stored = Vec::new();
     let mut variants = Vec::new();
     for namespace in database.namespaces() {
         database.scan(&namespace, &mut |key, value| {
-            if namespace.starts_with(WorkLaunchStore::ROOT) {
+            if namespace == recorded.as_str() {
                 work.push(ciborium::from_reader::<u128, _>(key).unwrap());
             } else if namespace.starts_with("cpu")
                 && let Some(artifact) = KernelCacheKey::from_entry(key, value)

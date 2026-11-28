@@ -146,7 +146,7 @@ impl TunedKey {
             table: table.clone(),
             key: stored.key,
             checksum: stored.checksum,
-            winner: value.decided_index,
+            winner: value.winner_index,
             results: value
                 .results
                 .into_iter()
