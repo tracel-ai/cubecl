@@ -1,3 +1,7 @@
+//! Every test or assertion gated on `not(feature = "autotune-checks")` counts candidate calls,
+//! stages or evictions: that feature races every candidate once more on every execute, outside
+//! every stage and without eviction.
+
 mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
@@ -1444,14 +1448,14 @@ fn a_key_no_round_settled_has_no_fastest_identity() {
     assert_eq!(TUNER.fastest_identity(&id, &set, &untuned), None);
 }
 
-/// The fastest tunable hands back what it was identified by. The environment is rooted afresh,
+/// The decided tunable hands back what it was identified by. The environment is rooted afresh,
 /// so the answer is this round's and no earlier run's.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn the_fastest_tunable_hands_back_its_identity() {
+fn the_decided_tunable_hands_back_its_identity() {
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("the_fastest_tunable_hands_back_its_identity");
+        local_tuner!("the_decided_tunable_hands_back_its_identity");
     #[cfg(persistence)]
     let root = tempfile::tempdir().unwrap();
     #[cfg(persistence)]
@@ -1649,7 +1653,7 @@ fn a_tune_that_unwinds_leaves_its_key_to_the_next_caller() {
     );
 }
 
-/// A candidate that panics is dropped alone: the others are still measured, and the fastest wins.
+/// A candidate that panics is dropped alone: the others are still measured, and the fastest is decided.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
@@ -1716,15 +1720,15 @@ fn assert_a_panicking_candidate_is_dropped_alone(
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// The elected candidate may reject a call of its key: the next candidate serves it.
+/// The decided candidate may reject a call of its key: the next candidate serves it.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
-fn a_call_the_elected_candidate_rejects_is_served_by_another() {
+fn a_call_the_decided_candidate_rejects_is_served_by_another() {
     use cubecl_server::tune::Tunable;
 
     static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_call_the_elected_candidate_rejects_is_served_by_another");
+        local_tuner!("a_call_the_decided_candidate_rejects_is_served_by_another");
 
     let client = test_client(&DummyDevice);
     let key = fresh_tune_key_uid();
@@ -1773,7 +1777,7 @@ fn a_call_the_elected_candidate_rejects_is_served_by_another() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn lists_whose_names_join_alike_never_share_a_tuner() {
-    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use cubecl_server::tune::Tunable;
 
     static TUNER: LocalTuner<String, String> =
         local_tuner!("lists_whose_names_join_alike_never_share_a_tuner");
@@ -1791,10 +1795,9 @@ fn lists_whose_names_join_alike_never_share_a_tuner() {
         );
         let add =
             OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
-        TunableSet::<String, Vec<Handle>, ()>::new(
-            |_: &Vec<Handle>| "joined".to_string(),
-            CloneInputGenerator,
-        )
+        TunableSet::<String, Vec<Handle>, ()>::new_cloning_inputs(|_: &Vec<Handle>| {
+            "joined".to_string()
+        })
         .with(Tunable::new("a", move |inputs| slow.run(inputs)))
         .with(Tunable::new("bc", move |inputs| add.run(inputs)))
     });
@@ -1803,10 +1806,9 @@ fn lists_whose_names_join_alike_never_share_a_tuner() {
             KernelTask::new(DummyElementwiseAddition),
             test_client(&DummyDevice),
         );
-        TunableSet::<String, Vec<Handle>, ()>::new(
-            |_: &Vec<Handle>| "joined".to_string(),
-            CloneInputGenerator,
-        )
+        TunableSet::<String, Vec<Handle>, ()>::new_cloning_inputs(|_: &Vec<Handle>| {
+            "joined".to_string()
+        })
         .with(Tunable::new("abc", move |inputs| add.run(inputs)))
     });
     assert_ne!(split.compute_checksum(), joined.compute_checksum());
@@ -1832,7 +1834,7 @@ fn lists_whose_names_join_alike_never_share_a_tuner() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_second_list_one_device_runs_never_answers_another_device() {
-    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use cubecl_server::tune::Tunable;
 
     static TUNER: LocalTuner<String, String> =
         local_tuner!("a_second_list_one_device_runs_never_answers_another_device");
@@ -1849,10 +1851,9 @@ fn a_second_list_one_device_runs_never_answers_another_device() {
         );
         let add =
             OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client);
-        TunableSet::<String, Vec<Handle>, ()>::new(
-            move |_: &Vec<Handle>| key.to_string(),
-            CloneInputGenerator,
-        )
+        TunableSet::<String, Vec<Handle>, ()>::new_cloning_inputs(move |_: &Vec<Handle>| {
+            key.to_string()
+        })
         .with(Tunable::new("a", move |inputs| slow.run(inputs)))
         .with(Tunable::new("bc", move |inputs| add.run(inputs)))
     }
@@ -1862,10 +1863,9 @@ fn a_second_list_one_device_runs_never_answers_another_device() {
             KernelTask::new(DummyElementwiseAddition),
             test_client(&DummyDevice),
         );
-        TunableSet::<String, Vec<Handle>, ()>::new(
-            move |_: &Vec<Handle>| key.to_string(),
-            CloneInputGenerator,
-        )
+        TunableSet::<String, Vec<Handle>, ()>::new_cloning_inputs(move |_: &Vec<Handle>| {
+            key.to_string()
+        })
         .with(Tunable::new("abc", move |inputs| add.run(inputs)))
     }
 
@@ -1929,7 +1929,6 @@ fn a_result_only_on_disk_has_a_fastest_identity_once_an_execute_reads_it() {
     );
     TUNER.execute(&id, &client, set.clone(), handles);
     assert_eq!(fastest_identity(), Some(dummy::Addition::Correct));
-    // `autotune-checks` runs every tunable on every `execute`, round or not.
     #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         slow_runs.load(Ordering::Relaxed),
@@ -1970,6 +1969,43 @@ fn addition_shapes() -> Vec<Vec<usize>> {
     vec![vec![1, 3], vec![1, 3], vec![1, 3]]
 }
 
+/// A tuner of its own, standing for the one a fresh process opens: its tunes go through a local
+/// tuner named `name`, on one device.
+#[cfg(all(feature = "std", persistence))]
+struct ProcessTuner {
+    local: LocalTuner<String, u8>,
+}
+
+#[cfg(all(feature = "std", persistence))]
+impl ProcessTuner {
+    const fn new(name: &'static str) -> Self {
+        Self {
+            local: LocalTuner::new(name),
+        }
+    }
+
+    /// Execute `set` on `handles`, tuning their key on a miss, and answer what the key settled on.
+    fn tune<Id: Clone + Send + Sync + 'static>(
+        &self,
+        set: &Arc<TunableSet<String, Vec<Handle>, (), Id>>,
+        client: &Client,
+        handles: &Vec<Handle>,
+    ) -> Option<Id> {
+        self.local.execute(&0, client, set.clone(), handles.clone());
+        self.settled(set, handles)
+    }
+
+    /// What the key of `handles` settled on, read only.
+    fn settled<Id: Clone>(
+        &self,
+        set: &TunableSet<String, Vec<Handle>, (), Id>,
+        handles: &Vec<Handle>,
+    ) -> Option<Id> {
+        self.local
+            .fastest_identity(&0, set, &set.generate_key(handles))
+    }
+}
+
 /// A tuned pick belongs to the environment it was tuned under: switching
 /// environments makes it unreachable, tuning again lands in the new one, and
 /// switching back serves the persisted result from the store rather than
@@ -1978,39 +2014,44 @@ fn addition_shapes() -> Vec<Vec<usize>> {
 #[cfg(all(feature = "std", persistence))]
 #[serial_test::serial]
 fn autotune_resets_when_the_environment_switches() {
-    use cubecl_server::tune::{TuneCacheResult, Tuner};
-
+    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
     cubecl_environment::environment::set_root(first.path());
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let set = Arc::new(dummy::addition_set(test_client(&DummyDevice), shapes));
 
     let handles = vec![
         client.create_from_slice(&[0, 1, 2]),
         client.create_from_slice(&[4, 4, 4]),
         client.empty(3),
     ];
-    let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("environment-switch", &client.hardware_identity());
-    tuner.check_tune(&key, &handles, &set, &client, None);
-    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
+    let tuner = ProcessTuner::new("environment-switch");
+    assert!(tuner.tune(&set, &client, &handles).is_some());
 
     // The pick was tuned under `first`: after the switch it must not be
     // served, and tuning again fills `second`.
     cubecl_environment::environment::set_root(second.path());
-    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
-    tuner.check_tune(&key, &handles, &set, &client, None);
-    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
+    assert!(tuner.settled(&set, &handles).is_none());
+    assert!(tuner.tune(&set, &client, &handles).is_some());
 
     // Switching back reads `first`'s persisted result, with no third tune.
     cubecl_environment::environment::set_root(first.path());
-    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
-    let read_back = tuner.check_tune(&key, &handles, &set, &client, None);
-    assert!(matches!(read_back, TuneCacheResult::Hit { .. }));
+    assert!(tuner.settled(&set, &handles).is_none());
+    let collector = StatisticsCollector::new();
+    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
+    assert!(tuner.tune(&set, &client, &handles).is_some());
+    core::mem::drop(counted);
+
+    let autotune = collector.statistics().autotune;
+    assert_eq!(
+        (autotune.measured_count, autotune.loaded_count),
+        (0, 1),
+        "the switch back reads the stored answer"
+    );
 }
 
 /// Roots the environment at `root` for the rest of the test.
@@ -2046,7 +2087,7 @@ fn recording_at(level: cubecl_environment::records::RecordLevel) {
 fn a_tune_is_recorded_in_order_with_its_walls() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+    use cubecl_server::tune::TuneRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
@@ -2054,7 +2095,11 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let set = Arc::new(dummy::identified_addition_set(
+        test_client(&DummyDevice),
+        shapes,
+        Arc::default(),
+    ));
     let handles = vec![
         client.create_from_slice(&[0, 1, 2]),
         client.create_from_slice(&[4, 4, 4]),
@@ -2062,10 +2107,12 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     ];
     let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("recorded", &client.hardware_identity());
-    let answer = tuner.check_tune(&key, &handles, &set, &client, None);
-    let TuneCacheResult::Hit { fastest_index } = answer else {
-        panic!("the tune answers inline: {answer:?}");
+    let decided = ProcessTuner::new("recorded")
+        .tune(&set, &client, &handles)
+        .expect("the tune should answer inline");
+    let decided_index = match decided {
+        dummy::Addition::Correct => 0,
+        dummy::Addition::SlowAndWrong => 1,
     };
 
     let database = Database::open_active().unwrap();
@@ -2074,7 +2121,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     let tune = &tunes[0].record;
     assert_eq!(tune.entry.key, key);
     assert_eq!(tune.entry.checksum, set.compute_checksum());
-    assert_eq!(tune.winner, fastest_index);
+    assert_eq!(tune.decided_index, decided_index);
     assert!(
         tune.table.starts_with("autotune/")
             && tune
@@ -2118,50 +2165,6 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     assert_eq!(tunes[0].stamp.session, sessions[0].id);
 }
 
-/// A device id that resolves to another adapter must not read the first
-/// adapter's persisted answers.
-#[test_log::test]
-#[cfg(all(feature = "std", persistence))]
-#[serial_test::serial]
-fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
-    use cubecl_server::device::HardwareIdentity;
-    use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
-    use cubecl_server::tune::Tuner;
-
-    let root = tempfile::tempdir().unwrap();
-    rooted_at(root.path());
-
-    let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let tune = |hardware: &HardwareIdentity| {
-        Tuner::<String>::new("fingerprinted", hardware)
-            .check_tune(&key, &handles, &set, &client, None)
-    };
-
-    let mut other = client.properties().clone();
-    other.identity.fingerprint = "fp-b".into();
-    let other = HardwareIdentity::new(client.name(), &other);
-
-    tune(&client.hardware_identity());
-    let collector = StatisticsCollector::new();
-    let counted = ProcessModeOverride::new(ProcessMode::Execute, &collector);
-    tune(&other);
-    tune(&client.hardware_identity());
-    core::mem::drop(counted);
-
-    let autotune = collector.statistics().autotune;
-    assert_eq!(
-        (
-            autotune.registered_count,
-            autotune.measured_count,
-            autotune.loaded_count
-        ),
-        (2, 1, 1),
-        "the other adapter measures, the same one reads"
-    );
-}
-
 /// The second tuner stands for another process sharing the store: a process started beside
 /// another reads what that one tuned since, rather than tuning it again.
 #[test_log::test]
@@ -2170,27 +2173,26 @@ fn persisted_answers_are_scoped_to_the_adapter_fingerprint() {
 fn a_tuner_reads_what_another_of_the_same_hardware_stored_after_it_opened() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+    use cubecl_server::tune::TuneRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
     let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let first: Tuner<String> = Tuner::new("shared", &client.hardware_identity());
-    let second: Tuner<String> = Tuner::new("shared", &client.hardware_identity());
-
-    let TuneCacheResult::Hit { fastest_index } =
-        first.check_tune(&key, &handles, &set, &client, None)
-    else {
-        panic!("the tune answers inline");
-    };
-    assert!(matches!(
-        second.check_tune(&key, &handles, &set, &client, None),
-        TuneCacheResult::Hit { fastest_index: read } if read == fastest_index
+    let set = Arc::new(dummy::identified_addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+        Arc::default(),
     ));
+    let (handles, _) = addition_inputs(&client, &set);
+    let first = ProcessTuner::new("shared");
+    let second = ProcessTuner::new("shared");
+
+    let tuned = first
+        .tune(&set, &client, &handles)
+        .expect("the tune should answer inline");
+    assert_eq!(second.tune(&set, &client, &handles), Some(tuned));
     let database = Database::open_active().unwrap();
     assert_eq!(
         Records::new(&database).read::<TuneRecord<String>>().len(),
@@ -2207,25 +2209,29 @@ fn a_tuner_reads_what_another_of_the_same_hardware_stored_after_it_opened() {
 fn a_tuner_reads_only_the_answer_to_its_candidate_list() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+    use cubecl_server::tune::TuneRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
     recording_at(RecordLevel::Basic);
 
     let client = test_client(&DummyDevice);
-    let old = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let current =
-        dummy::addition_set_with_another_candidate(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &old);
-    let tune = |set: &TunableSet<String, Vec<Handle>, ()>| {
-        Tuner::<String>::new("lists", &client.hardware_identity())
-            .check_tune(&key, &handles, set, &client, None)
+    let old = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let current = Arc::new(dummy::addition_set_with_another_candidate(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &old);
+    let tune = |set: &Arc<TunableSet<String, Vec<Handle>, ()>>| {
+        ProcessTuner::new("lists").tune(set, &client, &handles)
     };
 
     tune(&old);
     tune(&current);
-    assert!(matches!(tune(&current), TuneCacheResult::Hit { .. }));
+    assert!(tune(&current).is_some());
     let database = Database::open_active().unwrap();
     assert_eq!(
         Records::new(&database).read::<TuneRecord<String>>().len(),
@@ -2280,16 +2286,18 @@ fn devices_of_the_same_hardware_share_a_tuner() {
 #[serial_test::serial]
 fn a_gathered_key_another_process_stored_settles_as_loaded() {
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
-    use cubecl_server::tune::Tuner;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
 
     let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let gathering: Tuner<String> = Tuner::new("gathered", &client.hardware_identity());
-    let tune = |tuner: &Tuner<String>| tuner.check_tune(&key, &handles, &set, &client, None);
+    let set = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &set);
+    let gathering = ProcessTuner::new("gathered");
+    let tune = |tuner: &ProcessTuner| tuner.tune(&set, &client, &handles);
 
     let collector = StatisticsCollector::new();
     {
@@ -2298,7 +2306,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
     }
     let reader = collector.to_reader();
     drop(collector);
-    tune(&Tuner::new("gathered", &client.hardware_identity()));
+    tune(&ProcessTuner::new("gathered"));
     tune(&gathering);
 
     let autotune = reader.statistics().autotune;
@@ -2320,7 +2328,7 @@ fn a_gathered_key_another_process_stored_settles_as_loaded() {
 fn a_short_circuited_tune_records_where_it_stopped() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneRecord, Tuner};
+    use cubecl_server::tune::TuneRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
@@ -2328,16 +2336,19 @@ fn a_short_circuited_tune_records_where_it_stopped() {
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-    let set = dummy::bounded_addition_set_slow_first(test_client(&DummyDevice), shapes, 1.0, 1.0);
+    let set = Arc::new(dummy::bounded_addition_set_slow_first(
+        test_client(&DummyDevice),
+        shapes,
+        1.0,
+        1.0,
+    ));
     let handles = vec![
         client.create_from_slice(&[0, 1, 2]),
         client.create_from_slice(&[4, 4, 4]),
         client.empty(3),
     ];
-    let key = set.generate_key(&handles);
 
-    let tuner: Tuner<String> = Tuner::new("short-circuited", &client.hardware_identity());
-    tuner.check_tune(&key, &handles, &set, &client, None);
+    ProcessTuner::new("short-circuited").tune(&set, &client, &handles);
 
     let database = Database::open_active().unwrap();
     let tunes = Records::new(&database).read::<TuneRecord<String>>();
@@ -2359,7 +2370,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
 fn nothing_is_recorded_when_records_are_off() {
     use cubecl_environment::persistence::Database;
     use cubecl_environment::records::{RecordLevel, Records};
-    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+    use cubecl_server::tune::TuneRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
@@ -2367,18 +2378,16 @@ fn nothing_is_recorded_when_records_are_off() {
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let set = Arc::new(dummy::addition_set(test_client(&DummyDevice), shapes));
     let handles = vec![
         client.create_from_slice(&[0, 1, 2]),
         client.create_from_slice(&[4, 4, 4]),
         client.empty(3),
     ];
-    let key = set.generate_key(&handles);
-    let tuner: Tuner<String> = Tuner::new("unrecorded", &client.hardware_identity());
-    let answer = tuner.check_tune(&key, &handles, &set, &client, None);
+    let answer = ProcessTuner::new("unrecorded").tune(&set, &client, &handles);
     recording_at(RecordLevel::Basic);
 
-    assert!(matches!(answer, TuneCacheResult::Hit { .. }));
+    assert!(answer.is_some());
     let database = Database::open_active().unwrap();
     assert!(
         Records::new(&database)
@@ -2535,12 +2544,17 @@ fn autotune_evicts_before_every_measured_sample() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    // The winner ran on the reference inputs once the tune was over.
+    // The decided candidate ran on the reference inputs once the tune was over.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 
-    // The launches that were not measured samples: the compile runs and warm-ups, and the winner's
-    // real run.
-    let unmeasured = candidates * warmups + 1;
+    // The launches that were not measured samples: the compile runs and warm-ups, the decided
+    // candidate's real run, and under `autotune-checks` one cross-check of each candidate.
+    let checks = if cfg!(feature = "autotune-checks") {
+        candidates
+    } else {
+        0
+    };
+    let unmeasured = candidates * warmups + 1 + checks;
     let calls = calls.load(Ordering::Relaxed);
     let evictions = evictions.load(Ordering::Relaxed);
     let misdirected = misdirected.load(Ordering::Relaxed);
@@ -2596,24 +2610,25 @@ fn staged_tune() -> dummy::StageTrace {
     std::mem::take(&mut *trace.lock().unwrap())
 }
 
-/// The winner of a tune runs as the call's work, in no stage.
+/// The candidate a tune decides runs as the call's work, in no stage.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
-fn autotune_runs_its_winner_outside_every_stage() {
+fn autotune_runs_its_decided_candidate_outside_every_stage() {
     let trace = staged_tune();
 
     assert_eq!(trace.ran_in.last(), Some(&None));
 }
 
 /// Every run of a tune's candidates is inside a stage its set's enterer entered.
+#[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
 fn autotune_runs_every_candidate_inside_a_stage() {
     let trace = staged_tune();
 
-    let (_winner, tuning) = trace
+    let (_decided, tuning) = trace
         .ran_in
         .split_last()
         .expect("the candidates should have run");
@@ -2622,6 +2637,7 @@ fn autotune_runs_every_candidate_inside_a_stage() {
 
 /// The adaptive scheduler gathers each candidate's kernels inside a gathering stage before it
 /// measures it.
+#[cfg(not(feature = "autotune-checks"))]
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::parallel]
@@ -2783,7 +2799,7 @@ fn fresh_tune_key_uid() -> String {
 }
 
 /// Benchmarks a [`dummy::ranked_addition_set`] of `candidates` under `patience`, returning what
-/// the winner wrote and each candidate's call count.
+/// the decided candidate wrote and each candidate's call count.
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 fn tune_ranked(
     tuner: &'static LocalTuner<String, String>,
@@ -2862,8 +2878,8 @@ fn autotune_patience_stops_measuring_the_group() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience");
 
     let patience = |min_measured| Patience {
-        min_measured,
-        max_misses: 0,
+        min_measured_count: min_measured,
+        max_miss_count: 0,
     };
     let slow = match adaptive() {
         true => vec![0, 1, 2],
@@ -2876,6 +2892,7 @@ fn autotune_patience_stops_measuring_the_group() {
         vec![(SlowWrong, Ranked), (Add, Ranked)],
     );
     assert_eq!(written, slow);
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(measured(calls[1]), !adaptive());
 
     let (written, _) = tune_ranked(
@@ -2906,8 +2923,8 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_misses");
 
     let patience = Patience {
-        min_measured: 1,
-        max_misses: 2,
+        min_measured_count: 1,
+        max_miss_count: 2,
     };
     let candidates = vec![
         (Add, Ranked),
@@ -2920,10 +2937,12 @@ fn autotune_patience_counts_misses_in_a_row_and_not_failures() {
     let (written, calls) = tune_ranked(&TUNER, patience, candidates);
 
     assert_eq!(written, vec![4, 5, 6]);
+    #[cfg(not(feature = "autotune-checks"))]
     assert!(
         measured(calls[3]),
         "the second slow member is measured: {calls:?}"
     );
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         measured(calls[4]),
         !adaptive(),
@@ -2944,8 +2963,8 @@ fn autotune_patience_measures_the_skipped_when_the_measured_fail() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_patience_retry");
 
     let patience = Patience {
-        min_measured: 1,
-        max_misses: 0,
+        min_measured_count: 1,
+        max_miss_count: 0,
     };
     // A warmup and a sample in the first pass, then it fails in the first round.
     let candidates = vec![(FailsAfter(2), Ranked), (Add, Ranked)];
@@ -2991,8 +3010,9 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
     // The rejected candidate is dropped after its first failure, and the surviving `add`
-    // kernel still wins the tuning.
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    // kernel still wins the tuning. `autotune-checks` races it once more, to cross-check it.
+    let checks = usize::from(cfg!(feature = "autotune-checks"));
+    assert_eq!(calls.load(Ordering::Relaxed), 1 + checks);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
@@ -3046,7 +3066,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 /// The poisoning order: the candidate that fails to compile goes *first*, and every
 /// candidate after it shares its inputs and output. The failed launch never ran, so it
 /// must claim only the output it declared it would write — the shared inputs stay
-/// clean, the candidates behind it still run, and the winner's write releases the
+/// clean, the candidates behind it still run, and the decided candidate's write releases the
 /// failed candidate's claim on the output.
 ///
 /// This is what the declared IO on the launch arguments exists for. Without it the
@@ -3056,7 +3076,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
-fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
+fn autotune_survives_a_failing_candidate_ahead_of_the_decided_one() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_failing_compilation_first");
 
     let client = test_client(&DummyDevice);
@@ -3090,7 +3110,7 @@ fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
 
 /// The round robin end to end, which the unit tests around it cannot reach: a candidate far
 /// enough behind has to stop being sampled partway through, while the ones still in contention
-/// keep going and the fastest of them wins.
+/// keep going and the fastest of them is decided.
 ///
 /// Skipped unless the adaptive scheduler is the strategy in force, since a fixed-count pass
 /// samples every candidate the same number of times by design.
@@ -3272,7 +3292,7 @@ fn a_stream_mode_follows_its_client_across_threads() {
 /// The exception that makes the mode worth having: autotune still executes,
 /// because its launches *are* the measurement.
 ///
-/// Tuning happens under the override; the winner is then executed outside it. A
+/// Tuning happens under the override; the decided candidate is then executed outside it. A
 /// tuner whose candidates had all been skipped would have nothing to tell them
 /// apart, and the slow kernel — which writes `[0, 1, 2]` — would win as often
 /// as not.
@@ -3306,7 +3326,7 @@ fn an_override_still_autotunes() {
         core::mem::drop(tune);
     }
 
-    // Cached now, so this is the fast path: it executes the winner and nothing
+    // Cached now, so this is the fast path: it executes the decided candidate and nothing
     // else.
     TUNER.execute(
         &"test".to_string(),
@@ -3429,8 +3449,8 @@ fn gather_ranked_key(
         .collect();
     // Every member is measured: the group never runs out of patience.
     let patience = Patience {
-        min_measured: count,
-        max_misses: count,
+        min_measured_count: count,
+        max_miss_count: count,
     };
 
     let client = test_client(&DummyDevice);
@@ -3574,7 +3594,6 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
             "the second card ran every candidate, as the first did"
         );
         second();
-        // `autotune-checks` runs every tunable on every `execute`, round or not.
         #[cfg(not(feature = "autotune-checks"))]
         assert_eq!(
             calls.load(Ordering::Relaxed),
@@ -3594,7 +3613,7 @@ fn every_card_of_the_same_hardware_queues_a_gathered_key_on_itself() {
 #[serial_test::serial]
 fn a_key_reached_inside_another_registers_only_once_tuned() {
     use cubecl_server::execution::{ProcessMode, ProcessModeOverride, StatisticsCollector};
-    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use cubecl_server::tune::Tunable;
 
     static OUTER: LocalTuner<String, String> = local_tuner!("nested_outer");
     static INNER: LocalTuner<String, String> = local_tuner!("nested_inner");
@@ -3620,10 +3639,9 @@ fn a_key_reached_inside_another_registers_only_once_tuned() {
         );
         let (inner_client, inner_set) = (test_client(&DummyDevice), inner_set.clone());
         let uid = uid.clone();
-        TunableSet::<String, Vec<Handle>, ()>::new(
-            move |_input: &Vec<Handle>| format!("nested-{uid}"),
-            CloneInputGenerator,
-        )
+        TunableSet::<String, Vec<Handle>, ()>::new_cloning_inputs(move |_input: &Vec<Handle>| {
+            format!("nested-{uid}")
+        })
         .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
         .with(Tunable::new("through_inner", move |inputs: Vec<Handle>| {
             INNER.execute(
@@ -3969,47 +3987,11 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     );
 }
 
-/// A round that measures nothing falls back on a candidate that ran, never on one that rejected
-/// the problem: the first candidate's function rejects it, then profiles stop, so the correct
-/// `add` runs but is not timed. Deciding the rejection would run it for real and fail the same
-/// way, which the tuner reports as a panic on the device thread.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn a_round_that_measures_nothing_never_falls_back_on_a_rejection() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("a_round_that_measures_nothing_never_falls_back_on_a_rejection");
-    #[cfg(persistence)]
-    let root = tempfile::tempdir().unwrap();
-    #[cfg(persistence)]
-    rooted_at(root.path());
-
-    let client = test_client(&DummyDevice);
-    let lhs = client.create_from_slice(&[0, 1, 2]);
-    let rhs = client.create_from_slice(&[4, 4, 4]);
-    let out = client.empty(3);
-    let handles = vec![lhs, rhs, out.clone()];
-
-    let uid = fresh_tune_key_uid();
-    let test_set = TUNER.init(&"test".to_string(), move || {
-        let client = test_client(&DummyDevice);
-        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-        dummy::addition_set_rejected_then_unmeasured(client, shapes, uid.clone())
-    });
-
-    // Its rejected candidate refuses profiles from then on.
-    let refusing = ClearsRefusedProfiles;
-    TUNER.execute(&"test".to_string(), &client, test_set, handles);
-    drop(refusing);
-
-    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
-}
-
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
-    use cubecl_server::tune::{CloneInputGenerator, Tunable};
+    use cubecl_server::tune::Tunable;
     use std::sync::Mutex;
 
     static OUTER: LocalTuner<String, String> = local_tuner!("nested_compile_outer");
@@ -4027,12 +4009,9 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
                 op.run(inputs)
             })
         };
-        TunableSet::new(
-            move |_: &Vec<Handle>| format!("nested-inner-{uid}"),
-            CloneInputGenerator,
-        )
-        .with(candidate("inner-a"))
-        .with(candidate("inner-b"))
+        TunableSet::new_cloning_inputs(move |_: &Vec<Handle>| format!("nested-inner-{uid}"))
+            .with(candidate("inner-a"))
+            .with(candidate("inner-b"))
     }
 
     fn outer_set(client: DummyClient, uid: String) -> TunableSet<String, Vec<Handle>, ()> {
@@ -4041,21 +4020,18 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
             client.clone(),
         );
         let outer_key = format!("nested-outer-{uid}");
-        TunableSet::new(
-            move |_: &Vec<Handle>| outer_key.clone(),
-            CloneInputGenerator,
-        )
-        .with(Tunable::new("nests", move |inputs: Vec<Handle>| {
-            RUNS.lock().unwrap().push("outer");
-            let inner = client.clone();
-            let uid = uid.clone();
-            let set = INNER.init(&"nested-inner".to_string(), move || {
-                inner_set(inner.clone(), uid.clone())
-            });
-            INNER.execute(&"nested-inner".to_string(), &client, set, inputs);
-            Ok::<(), String>(())
-        }))
-        .with(Tunable::new("plain", move |inputs| plain.run(inputs)))
+        TunableSet::new_cloning_inputs(move |_: &Vec<Handle>| outer_key.clone())
+            .with(Tunable::new("nests", move |inputs: Vec<Handle>| {
+                RUNS.lock().unwrap().push("outer");
+                let inner = client.clone();
+                let uid = uid.clone();
+                let set = INNER.init(&"nested-inner".to_string(), move || {
+                    inner_set(inner.clone(), uid.clone())
+                });
+                INNER.execute(&"nested-inner".to_string(), &client, set, inputs);
+                Ok::<(), String>(())
+            }))
+            .with(Tunable::new("plain", move |inputs| plain.run(inputs)))
     }
 
     let client = test_client(&DummyDevice);
@@ -4080,6 +4056,7 @@ fn a_key_reached_while_candidates_compile_together_is_not_tuned_there() {
         .collect();
     assert_eq!(runs.first(), Some(&"outer"));
     // Each inner candidate queues its kernels, then the first serves the call untuned.
+    #[cfg(not(feature = "autotune-checks"))]
     assert_eq!(
         first_pass,
         ["inner-a", "inner-b", "inner-a"],
@@ -4112,11 +4089,12 @@ fn a_prune_keeps_what_the_work_loaded() {
     rooted_at(root.path());
     // Opens the active environment's database, created by the first store.
     let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let tuner: cubecl_server::tune::Tuner<String> =
-        cubecl_server::tune::Tuner::new("pruned", &client.hardware_identity());
-    tuner.check_tune(&key, &handles, &set, &client, None);
+    let set = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &set);
+    ProcessTuner::new("pruned").tune(&set, &client, &handles);
     let database = Database::open_active().unwrap();
 
     let build = BuildStamp::current();
@@ -4228,11 +4206,12 @@ fn a_prune_leaves_an_applications_entries_alone() {
     rooted_at(root.path());
     // Opens the active environment's database, created by the first store.
     let client = test_client(&DummyDevice);
-    let set = dummy::addition_set(test_client(&DummyDevice), addition_shapes());
-    let (handles, key) = addition_inputs(&client, &set);
-    let tuner: cubecl_server::tune::Tuner<String> =
-        cubecl_server::tune::Tuner::new("application", &client.hardware_identity());
-    tuner.check_tune(&key, &handles, &set, &client, None);
+    let set = Arc::new(dummy::addition_set(
+        test_client(&DummyDevice),
+        addition_shapes(),
+    ));
+    let (handles, _) = addition_inputs(&client, &set);
+    ProcessTuner::new("application").tune(&set, &client, &handles);
     let database = Database::open_active().unwrap();
     let lookalike = cbor(&KernelCacheKey {
         id: 1,

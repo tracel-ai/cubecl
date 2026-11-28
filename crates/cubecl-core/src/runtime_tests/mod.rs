@@ -29,6 +29,7 @@ pub mod file;
 pub mod graph_sharing;
 pub mod graph_streams;
 pub mod harness;
+pub mod host_memory;
 pub mod index;
 pub mod iter;
 pub mod launch;
@@ -199,6 +200,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_structs!();
         cubecl_core::testgen_stream_errors!();
         cubecl_core::testgen_allocation_mode!();
+        cubecl_core::testgen_host_memory!();
         cubecl_core::testgen_out_of_memory!();
         cubecl_core::testgen_compile!();
     };

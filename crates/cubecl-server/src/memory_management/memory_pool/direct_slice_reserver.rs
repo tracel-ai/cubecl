@@ -7,7 +7,7 @@ use crate::memory_management::{
     BytesFormat, Cleanup, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
 };
 use crate::server::IoError;
-use crate::storage::StorageAllocator;
+use crate::storage::{StorageAllocator, StorageHandle};
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
@@ -91,6 +91,27 @@ impl DirectSliceReserver {
             peak_pages: 0,
             largest_alloc_bytes: 0,
         }
+    }
+
+    /// Hold `storage`, an allocation the storage made outside any pool, as a slice of its own:
+    /// the handle a bind assigns it from. Freed, it goes back to the storage like the pool's own.
+    ///
+    /// # Assumptions
+    ///
+    /// `storage` came from the storage this pool frees into, and no slice holds it yet.
+    pub fn adopt(&mut self, storage: StorageHandle) -> ManagedMemoryHandle {
+        let size = storage.size();
+        let index = self.vacant.pop().unwrap_or(self.slices.len());
+        let slice = Slice::new(storage, 0);
+        slice.descriptor().update_location(MemoryLocation {
+            slice: index as u32,
+            ..self.location_base
+        });
+        let handle = slice.handle.clone();
+        self.place(index, slice);
+        self.peak_pages = self.peak_pages.max(self.held().count() as u64);
+        self.largest_alloc_bytes = self.largest_alloc_bytes.max(size);
+        handle
     }
 
     /// Bring the pool back under its reclaim watermark, returning free slices

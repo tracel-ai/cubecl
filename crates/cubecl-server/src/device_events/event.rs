@@ -33,6 +33,15 @@ impl<A: EventApi> Event<A> {
         A::event_record(&self.sys, stream)
     }
 
+    /// Whether the device has reached this event, without blocking.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`], the fault the query revealed on the stream.
+    pub fn is_reached(&self) -> Result<bool, DriverError> {
+        A::event_query(&self.sys)
+    }
+
     /// Block until the device has reached this event.
     ///
     /// # Errors

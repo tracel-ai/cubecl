@@ -508,17 +508,26 @@ fn contracts_f16_fragments(client: &cubecl::client::Client) -> bool {
 /// past the edge are never written, so the output reads the product and nothing else.
 #[test]
 fn a_fragment_drains_into_a_window_the_edge_cuts_short() {
-    short_window_matmul(false);
+    short_window_matmul(false, 1);
+}
+
+/// The same product drained into an output bound four values a line: where the target states its
+/// fragments' positions, each unit writes whole lines out of its registers, regrouped across
+/// units where each holds a column; elsewhere it bounces, reading its scratch back a line at a
+/// time.
+#[test]
+fn a_fragment_drains_into_a_wide_window_the_edge_cuts_short() {
+    short_window_matmul(false, 4);
 }
 
 /// The same product stored with `copy_from`, which bounces a fragment into a short window just as
 /// the drain does.
 #[test]
 fn a_fragment_copies_into_a_window_the_edge_cuts_short() {
-    short_window_matmul(true);
+    short_window_matmul(true, 1);
 }
 
-fn short_window_matmul(copies: bool) {
+fn short_window_matmul(copies: bool, out_width: usize) {
     let client = cubecl::test_device().client();
     if !contracts_f16_fragments(&client) {
         return;
@@ -554,10 +563,11 @@ fn short_window_matmul(copies: bool) {
     );
     // Bound through the launcher, which reads the overhang off the partitioning and masks the
     // output's writes past its edge.
-    let bind = |binding, element, dimensions: &'static [Dimension]| {
+    let bind = |binding, element, dimensions: &'static [Dimension], width| {
         launcher
             .arg(binding, element)
             .dimensions(dimensions)
+            .vectorize(width)
             .build()
             .unwrap()
     };
@@ -565,9 +575,9 @@ fn short_window_matmul(copies: bool) {
         &client,
         launcher.cube_count(),
         launcher.cube_dim(),
-        bind(a_handle.clone().binding(), input, &[M, K]).arg(),
-        bind(b_handle.clone().binding(), input, &[K, N]).arg(),
-        bind(out.clone().binding(), out.dtype, &[M, N]).arg(),
+        bind(a_handle.clone().binding(), input, &[M, K], 1).arg(),
+        bind(b_handle.clone().binding(), input, &[K, N], 1).arg(),
+        bind(out.clone().binding(), out.dtype, &[M, N], out_width).arg(),
         launcher.partitioning_arg(),
         copies,
         f32::elem_type_native(),

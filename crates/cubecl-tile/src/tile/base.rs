@@ -143,13 +143,20 @@ impl Tile {
 
     /// Whether a cmma fragment draining into this tile goes through a scratch
     /// ([`FragmentDrain::Bounce`]): a destination that adds, overhangs, or has no address, or one
-    /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]).
-    pub(crate) fn fragments_bounce(&self, #[comptime] in_place: bool) -> comptime_type!(bool) {
+    /// whose element the fragment cannot be cast to in place (`in_place`, [`casts_in_place`]),
+    /// unless its units write lines of it out of their registers (`from_registers`,
+    /// [`CmmaData::cell_lines`]).
+    pub(crate) fn fragments_bounce(
+        &self,
+        #[comptime] in_place: bool,
+        #[comptime] from_registers: bool,
+    ) -> comptime_type!(bool) {
         match &self.kind {
             TileKind::Memory(m) => {
                 let addressed = m.store.addressed();
                 comptime!(
-                    FragmentDrain::of(&m.access, addressed, in_place) == FragmentDrain::Bounce
+                    FragmentDrain::of(&m.access, addressed, in_place, from_registers)
+                        == FragmentDrain::Bounce
                 )
             }
             TileKind::PlaneTile(_)
@@ -157,6 +164,19 @@ impl Tile {
             | TileKind::TmaGmem(_)
             | TileKind::Procedural(_)
             | TileKind::Lines(_) => comptime!(false),
+        }
+    }
+
+    /// The values a line of this tile's store holds, which a sum drained into it writes a line
+    /// at a time: one for every tile but memory, which no fragment drains into.
+    pub(crate) fn store_vector_size(&self) -> comptime_type!(usize) {
+        match &self.kind {
+            TileKind::Memory(m) => comptime!(m.store.vector_size),
+            TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(1usize),
         }
     }
 
@@ -414,10 +434,17 @@ impl Tile {
         })
     }
 
-    /// The order this tile's window lays its dimensions down in: its Space's, as the source holds
-    /// them, for every tile.
+    /// The order this tile's window lays its dimensions down in: the one a stage's buffer lays
+    /// its axes down in, its Space's for every other tile.
     pub(crate) fn stage_order(&self) -> comptime_type!(StageOrder) {
-        comptime!(StageOrder::AsSource)
+        match &self.kind {
+            TileKind::Memory(m) => comptime!(m.layout.order),
+            TileKind::Procedural(_)
+            | TileKind::PlaneTile(_)
+            | TileKind::PlanePartition(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Lines(_) => comptime!(StageOrder::AsSource),
+        }
     }
 
     /// Whether this tile is backed by shared memory, the only space a `sync_cube()` orders.

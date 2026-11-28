@@ -29,10 +29,16 @@ impl ManagedMemoryHandle {
         &self.descriptor
     }
 
-    /// Whether this handle and the pool's are the only handles, so the
-    /// allocation can be written in place.
+    /// Whether this handle and the pool's are the only handles of memory the device may write, so
+    /// the allocation can be written in place.
     pub fn can_mut(&self) -> bool {
-        Arc::strong_count(&self.handle_count) <= 2
+        writable_in_place(&self.descriptor, &self.handle_count)
+    }
+
+    /// Whether a peer, a collective or a transfer between devices may hold this memory: never
+    /// [imported](crate::client::Client::import_host_memory) host memory.
+    pub fn is_shareable(&self) -> bool {
+        self.descriptor.is_shareable()
     }
 
     /// Whether a [binding](Self::binding) is out: something holds the
@@ -76,6 +82,11 @@ impl Default for ManagedMemoryHandle {
 /// the bindings.
 fn holds_more_than(shared: &Arc<ManagedMemoryDescriptor>, counted: &Arc<()>) -> bool {
     Arc::strong_count(shared) > Arc::strong_count(counted)
+}
+
+/// Whether memory the device may write has no handle besides `counted`'s own and the pool's.
+fn writable_in_place(descriptor: &ManagedMemoryDescriptor, counted: &Arc<()>) -> bool {
+    Arc::strong_count(counted) <= 2 && descriptor.is_device_writable()
 }
 
 #[cfg(test)]

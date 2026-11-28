@@ -37,6 +37,8 @@ pub struct StoreForm {
     pub addressed: bool,
     /// Who moves the store's lines when it is the source of a fill ([`Access::delivery`]).
     pub delivery: Delivery,
+    /// The order a stage lays its axes down in; the source's for every other store.
+    pub order: StageOrder,
 }
 
 /// Which transport moves a memory tile's cells into another memory tile's.
@@ -47,6 +49,11 @@ pub enum TransportKind {
     /// Every line in the destination's physical order, or the source's where an engine moves them;
     /// only from an addressed source to a whole, unmasked, addressed destination that replaces.
     Straight,
+    /// Blocks of source lines along the run of a destination laid along one
+    /// ([`StageOrder::AlongRun`]), each transposed in registers and stored a line of the run a
+    /// column; only from a plain, addressed source to a whole, unmasked, addressed destination
+    /// that replaces, one value a line.
+    Transposed,
     /// Source and destination each read as a flat run of its own window.
     Scanned(Scan),
 }
@@ -82,6 +89,13 @@ impl TransportKind {
         if src.delivery.route() != Route::MemoryToMemory {
             return None;
         }
+        if self == TransportKind::Transposed {
+            return Some(
+                "a copy moved memory to memory moves whole source lines, and this stage lays each \
+                 one's values apart along its run"
+                    .to_string(),
+            );
+        }
         if matches!(self, TransportKind::Scanned(_)) {
             return Some(
                 "a copy moved memory to memory fills a whole, unmasked stage that replaces, and \
@@ -116,6 +130,21 @@ impl TransportKind {
                  was shaped over, at the same packing and width"
             );
             return TransportKind::Packed;
+        }
+        if dst.order != StageOrder::AsSource {
+            assert!(
+                access.whole
+                    && !access.overhang.masks()
+                    && access.write == Write::Replace
+                    && src.packing == Packing::Plain
+                    && dst.vector_size == 1
+                    && !src.gathered
+                    && dst.addressed
+                    && src.addressed,
+                "TransportKind: a stage laid along a run is a whole buffer one value a line that \
+                 replaces, filled from a plain operand as it lies"
+            );
+            return TransportKind::Transposed;
         }
         if access.whole
             && !access.overhang.masks()
@@ -164,6 +193,7 @@ pub fn fill_from<T: Numeric>(dest: &mut Memory, src: &Memory, #[comptime] space:
             masks: dest.access.overhang.masks(),
             addressed,
             delivery: dest.access.delivery,
+            order: dest.layout.order,
         },
         StoreForm {
             packing: src.store.packing,
@@ -173,6 +203,7 @@ pub fn fill_from<T: Numeric>(dest: &mut Memory, src: &Memory, #[comptime] space:
             masks: src.access.overhang.masks(),
             addressed: src_addressed,
             delivery: src.access.delivery,
+            order: src.layout.order,
         },
         &dest.access,
         space
@@ -183,6 +214,10 @@ pub fn fill_from<T: Numeric>(dest: &mut Memory, src: &Memory, #[comptime] space:
             dest.fill_straight::<u32, WP>(src, space);
         }
         TransportKind::Straight => dest.fill_straight::<T, W>(src, space),
+        TransportKind::Transposed => {
+            let size!(SW) = comptime!(src.store.vector_size);
+            dest.fill_transposed::<T, SW>(src, space);
+        }
         TransportKind::Scanned(scan) => dest.fill_scanned::<T, W>(src, comptime!(scan)),
     }
 }
@@ -244,6 +279,18 @@ mod tests {
             masks: false,
             addressed: true,
             delivery: Delivery::SyncPerUnit,
+            order: StageOrder::AsSource,
+        }
+    }
+
+    /// A plain destination laid along its run of `K`, one value a line.
+    fn along_run() -> StoreForm {
+        StoreForm {
+            order: StageOrder::AlongRun {
+                dimension: K,
+                run: 8,
+            },
+            ..plain(1)
         }
     }
 
@@ -358,6 +405,23 @@ mod tests {
             ..access()
         };
         kind(plain(4), asynchronous(plain(4)), &masked);
+    }
+
+    /// A stage laid along its run is filled by transposing its source's lines, whatever its
+    /// width.
+    #[test]
+    fn a_stage_laid_along_a_run_is_filled_transposed() {
+        assert_eq!(
+            kind(along_run(), plain(8), &access()),
+            TransportKind::Transposed
+        );
+    }
+
+    /// A copy engine moves each source line whole, which lays no line's values apart.
+    #[test]
+    #[should_panic(expected = "lays each one's values apart")]
+    fn an_async_copy_refuses_a_stage_laid_along_a_run() {
+        kind(along_run(), asynchronous(plain(8)), &access());
     }
 
     /// A padded stage assembles each line out of scalar cells, which no single copy moves.

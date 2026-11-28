@@ -259,6 +259,10 @@ impl EventApi for FakeEvents {
         Ok(())
     }
 
+    fn event_query(_event: &Self::Event) -> Result<bool, DriverError> {
+        Ok(true)
+    }
+
     fn event_elapsed(
         start: &Self::Event,
         end: &Self::Event,
