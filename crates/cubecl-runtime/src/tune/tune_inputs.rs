@@ -11,17 +11,17 @@
 ///
 /// # Guarantees
 ///
-/// - Every implementation's [`spare`](Self::spare) is cheap: every call to a decided candidate
+/// - Every implementation's [`spare`](Self::spare) is cheap: every call to a winner
 ///   takes one.
 pub trait TuneInputs: Send + Sync + 'static {
     /// What a candidate is called with.
     type At<'a>: Clone + Send;
 
-    /// A copy of a call's inputs, to run another candidate on when the decided one rejects
+    /// A copy of a call's inputs, to run another candidate on when the winner rejects
     /// the call.
     ///
     /// `None`, the default, is for inputs whose copy cannot stand in for the call's, such as ones
-    /// that borrow what the candidate writes: their decided candidate must serve every call of
+    /// that borrow what the candidate writes: their winner must serve every call of
     /// its key.
     fn spare<'a>(_inputs: &Self::At<'a>) -> Option<Self::At<'a>> {
         None

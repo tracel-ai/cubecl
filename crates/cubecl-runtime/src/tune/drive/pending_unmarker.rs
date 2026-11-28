@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use cubecl_environment::sync::Mutex;
 
-use crate::tune::AutotuneKeyable;
+use crate::tune::AutotuneKey;
 use crate::tune::cache::tracker::TuneTracker;
 
 /// Unmarks a key [tracked pending](TuneTracker::track_pending) for the tune holding this. Dropped
@@ -12,7 +12,7 @@ use crate::tune::cache::tracker::TuneTracker;
 /// # Assumptions
 ///
 /// - It drops while no guard of the tracker's lock is held on its thread: its drop takes the lock.
-pub struct PendingUnmarker<K: AutotuneKeyable> {
+pub struct PendingUnmarker<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
     key: K,
     /// The tracker's generation when marked: once a switch reset it, the key may be a newer
@@ -21,7 +21,7 @@ pub struct PendingUnmarker<K: AutotuneKeyable> {
     generation: u32,
 }
 
-impl<K: AutotuneKeyable> PendingUnmarker<K> {
+impl<K: AutotuneKey> PendingUnmarker<K> {
     /// An unmarker of `key`, which `locked`, the tracker `tracker` guards, just tracked pending.
     pub fn new(tracker: Arc<Mutex<TuneTracker<K>>>, locked: &TuneTracker<K>, key: K) -> Self {
         #[cfg(not(persistence))]
@@ -40,7 +40,7 @@ impl<K: AutotuneKeyable> PendingUnmarker<K> {
     }
 }
 
-impl<K: AutotuneKeyable> Drop for PendingUnmarker<K> {
+impl<K: AutotuneKey> Drop for PendingUnmarker<K> {
     fn drop(&mut self) {
         let mut tracker = self.tracker.lock();
         #[cfg(persistence)]

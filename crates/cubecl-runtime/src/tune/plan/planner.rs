@@ -317,7 +317,7 @@ mod tests {
 
     use super::*;
     use crate::tune::plan::batch::BatchEntry;
-    use crate::tune::{AutotuneKeyable, OrderedSettings, Tunable, TuneInputs};
+    use crate::tune::{AutotuneKey, OrderedSettings, Tunable, TuneInputs};
     use alloc::string::String;
 
     /// The plan of `tunables` for `key`.
@@ -342,7 +342,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for FakeAutotuneKey {}
+    impl AutotuneKey for FakeAutotuneKey {}
 
     #[test]
     fn test_plan_order() {
@@ -890,7 +890,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for SizeKey {}
+    impl AutotuneKey for SizeKey {}
 
     #[test]
     fn test_plan_orders_each_key_by_its_own_priorities() {

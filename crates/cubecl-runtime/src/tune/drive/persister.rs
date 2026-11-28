@@ -5,20 +5,18 @@ use cubecl_environment::sync::Mutex;
 
 use crate::tune::cache::record::{Answer, TuneRecorder};
 use crate::tune::cache::tracker::TuneTracker;
-use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue,
-};
+use crate::tune::{AutotuneKey, AutotuneLogContext, AutotuneResult, Bounds, PersistentCacheValue};
 
-/// Persists what one tune answered: its decided candidate in the table, and the record of how it
+/// Persists what one tune answered: its winner in the table, and the record of how it
 /// went.
-pub struct TunePersister<K: AutotuneKeyable> {
+pub struct TunePersister<K: AutotuneKey> {
     checksum: String,
     limit: Option<Duration>,
     bounds: Option<Bounds>,
     recorder: TuneRecorder<K>,
 }
 
-impl<K: AutotuneKeyable> TunePersister<K> {
+impl<K: AutotuneKey> TunePersister<K> {
     /// A persister of the tune of the candidate list `checksum` names, measured against `bounds`
     /// and their `limit`, and recorded by `recorder`.
     pub fn new(
@@ -35,7 +33,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         }
     }
 
-    /// Persist `decided_index` as the answer to `key`, with every candidate's `results`: in the
+    /// Persist `winner_index` as the answer to `key`, with every candidate's `results`: in the
     /// table of `tracker` unless it is `unmeasured`, locking it only for that insert, and in the
     /// tune's record either way, with no lock held. Answers whether the table took it.
     ///
@@ -47,12 +45,12 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         tracker: &Mutex<TuneTracker<K>>,
         key: K,
         results: Vec<AutotuneResult>,
-        decided_index: usize,
+        winner_index: usize,
         unmeasured: bool,
         log_context: Option<&AutotuneLogContext>,
     ) -> bool {
         let value = PersistentCacheValue {
-            decided_index,
+            winner_index,
             results,
             bounds: self.bounds,
             limit: self.limit,
@@ -60,7 +58,7 @@ impl<K: AutotuneKeyable> TunePersister<K> {
         let stored = !unmeasured && tracker.lock().store_answer(key, self.checksum, value);
         self.recorder.record_answer(
             Answer {
-                decided_index,
+                winner_index,
                 stored,
             },
             log_context,

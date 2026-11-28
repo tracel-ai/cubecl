@@ -5,7 +5,7 @@ use cubecl_environment::config::RuntimeConfig;
 use crate::tune::hook::hook_binder::{BoundEvictor, BoundStageEnterer};
 use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::measure::tune_fn::TuneFn;
-use crate::tune::{AutotuneCheckable, AutotuneError, TuneInputs};
+use crate::tune::{AutotuneError, AutotuneOutput, TuneInputs};
 
 /// The warmups the fixed-count pass runs before it samples a candidate.
 const WARMUP_ROUND_COUNT: usize = 3;
@@ -16,7 +16,7 @@ const WARMUP_ROUND_COUNT: usize = 3;
 /// # Guarantees
 ///
 /// - Answers at least one sample: the configured count is at least one.
-pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneCheckable>(
+pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     sampler: CandidateSampler<'_>,
@@ -30,7 +30,7 @@ pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneCheckable>(
         .map_err(|err| AutotuneError::hold_failed(operation.name(), &err))?
 }
 
-fn profile_held<'a, F: TuneInputs, Out: AutotuneCheckable>(
+fn profile_held<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     sampler: CandidateSampler<'_>,

@@ -189,7 +189,8 @@ impl Memory {
                             .leaf(operand.place.below_level(level))
                             .whole_run(innermost, source_width)
                     }
-                    None => source_width,
+                    // A stage laid along a run holds one value a line, of every source line's.
+                    None => storage.order().line_width(source_width),
                 });
                 // A TMA-filled stage's buffer must be TMA-aligned, a gathered one's too: a box of
                 // words a gather reads lands as the compacted window the gather stages.

@@ -8,7 +8,7 @@ use crate::config::{Logger, autotune::AutotuneLogLevel};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::CheckResult;
 use crate::tune::{
-    AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
+    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, AutotuneOutcome, AutotuneResult, Bounds,
 };
 
 /// Logs what one tune did into its [`AutotuneLogContext`].
@@ -68,23 +68,23 @@ impl TuneLogger {
     /// [`AutotuneDecision`](crate::tune::AutotuneDecision) for tools if decisions have a sink,
     /// and a line for humans at the logger's level. Either, both, or neither.
     ///
-    /// A decided candidate with no measurement writes no line for humans: an all-failed plan can
+    /// A winner with no measurement writes no line for humans: an all-failed plan can
     /// decide one, which already warned with the full results.
-    pub fn log_result<K: AutotuneKeyable>(
+    pub fn log_result<K: AutotuneKey>(
         &self,
         logger: &mut Logger,
         key: &K,
         results: &[AutotuneResult],
-        decided_index: usize,
+        winner_index: usize,
     ) {
         let reporter = ResultReporter {
             key,
             results,
             log_context: self.context.as_ref(),
-            decided_index,
+            winner_index,
         };
         reporter.report_decision(logger);
-        if let Some(decided) = measured_at(results, decided_index) {
+        if let Some(decided) = measured_at(results, winner_index) {
             reporter.report_log(logger, decided);
         }
     }
@@ -92,7 +92,7 @@ impl TuneLogger {
     /// Report the cross-checks of a tune that stopped on a lost card, which no decision carries:
     /// written to the log, as a warning.
     #[cfg(not(target_family = "wasm"))]
-    pub fn report_stopped<K: AutotuneKeyable>(&self, key: &K) {
+    pub fn report_stopped<K: AutotuneKey>(&self, key: &K) {
         if let Some(report) = self.stopped_report(key) {
             log::warn!("{report}");
         }
@@ -100,7 +100,7 @@ impl TuneLogger {
 
     /// The report of the cross-checks of the stopped tune of `key`, where the tune collected some.
     #[cfg(not(target_family = "wasm"))]
-    pub fn stopped_report<K: AutotuneKeyable>(&self, key: &K) -> Option<String> {
+    pub fn stopped_report<K: AutotuneKey>(&self, key: &K) -> Option<String> {
         self.context
             .as_ref()
             .and_then(|context| context.checks.as_ref())
@@ -134,10 +134,10 @@ struct ResultReporter<'a, K> {
     results: &'a [AutotuneResult],
     log_context: Option<&'a AutotuneLogContext>,
     #[cfg_attr(not(std_io), allow(dead_code))]
-    decided_index: usize,
+    winner_index: usize,
 }
 
-impl<K: AutotuneKeyable> ResultReporter<'_, K> {
+impl<K: AutotuneKey> ResultReporter<'_, K> {
     /// The decision: one JSON object.
     pub fn report_decision(&self, logger: &mut Logger) {
         if !logger.config().autotune.decisions_enabled() {
@@ -149,8 +149,8 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
 
             let decision = crate::tune::AutotuneDecision {
                 key: Cow::Borrowed(self.key),
-                decided_index: self.decided_index,
-                decided_time: measured_at(self.results, self.decided_index)
+                winner_index: self.winner_index,
+                winner_time: measured_at(self.results, self.winner_index)
                     .map(|decided| decided.computation.median),
                 results: Cow::Borrowed(self.results),
                 log_context: self.log_context.map(Cow::Borrowed),
@@ -173,7 +173,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
         }
     }
 
-    /// The line at the logger's level, `decided` the decided candidate's measurement.
+    /// The line at the logger's level, `decided` the winner's measurement.
     pub fn report_log(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         match logger.config().autotune.logger.level {
             AutotuneLogLevel::Minimal => self.report_minimal(logger, decided),
@@ -183,7 +183,7 @@ impl<K: AutotuneKeyable> ResultReporter<'_, K> {
     }
 }
 
-impl<K: AutotuneKeyable> ResultReporter<'_, K> {
+impl<K: AutotuneKey> ResultReporter<'_, K> {
     fn report_minimal(&self, logger: &mut Logger, decided: &AutotuneOutcome) {
         let context = self
             .log_context
@@ -318,8 +318,8 @@ mod tests {
     }
 
     #[test]
-    fn the_report_names_the_decided_candidate_not_the_best_scored() {
-        // Sorted by score, candidate 0 leads, but the scheduler decided candidate 1.
+    fn the_report_names_the_winner_not_the_best_scored() {
+        // Sorted by score, candidate 0 leads, but the scheduler winner 1.
         let results = [measured(0, 40), measured(1, 50)];
 
         assert_eq!(

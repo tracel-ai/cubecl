@@ -7,7 +7,7 @@ use cubecl_environment::sync::Mutex;
 
 use crate::tune::measure::tune_fn::TuneFn;
 use crate::tune::plan::planner::TunePlanner;
-use crate::tune::{AutotuneKeyable, Tunable, TuneInputs};
+use crate::tune::{AutotuneKey, Tunable, TuneInputs};
 
 /// Orders the candidates of a [`TunableSet`](crate::tune::TunableSet) for each key.
 pub struct CandidateOrderer<K, F: TuneInputs, Out, Id> {
@@ -21,7 +21,7 @@ pub struct CandidateOrderer<K, F: TuneInputs, Out, Id> {
     run_orders: Mutex<HashMap<K, Arc<[usize]>>>,
 }
 
-impl<K: AutotuneKeyable, F: TuneInputs, Out: 'static, Id> CandidateOrderer<K, F, Out, Id> {
+impl<K: AutotuneKey, F: TuneInputs, Out: 'static, Id> CandidateOrderer<K, F, Out, Id> {
     pub fn new() -> Self {
         Self {
             tunables: Vec::new(),

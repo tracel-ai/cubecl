@@ -326,6 +326,7 @@ impl Memory {
                     physical_strides,
                     projection: gmem_projection,
                     rows: form.rows,
+                    order: form.order,
                     paging: ComptimeOption::new_None(),
                 },
                 // Empty: a list over the buffer's own axes would misalign one level down.
@@ -475,6 +476,11 @@ pub(crate) struct StageForm {
     steps: SmallVec<[usize; Space::MAX_RANK]>,
     /// Where each line of a block row is kept.
     pub(crate) rows: RowArrangement,
+    /// The order the buffer lays its axes down in.
+    order: StageOrder,
+    /// The physical axis laid innermost, which carries the buffer's rows and their padding: the
+    /// last one in the source's order, the moved Dimension's finest one otherwise.
+    innermost: usize,
 }
 
 impl StageForm {
@@ -485,10 +491,13 @@ impl StageForm {
         stage: StageStorage,
         line: LineBytes,
     ) -> StageForm {
-        let (extents, rows, blocks) = StageForm::dense_layout(space, vector_size, &stage, line);
+        let (extents, rows, blocks, innermost) =
+            StageForm::dense_layout(space, vector_size, &stage, line);
         StageForm {
             extents,
             rows,
+            order: stage.order(),
+            innermost,
             positional: StageForm::positional(space.rank(), blocks + 1),
             // A dense stage addresses its own buffer directly, whatever its operand was gathered
             // through.
@@ -519,6 +528,8 @@ impl StageForm {
         let extents = compaction.line_extents(vector_size);
         StageForm {
             rows: RowArrangement::InOrder,
+            order: StageOrder::AsSource,
+            innermost: extents.len() - 1,
             positional: StageForm::positional(extents.len(), 1),
             projection: compaction.projection().clone(),
             steps: compaction.steps().iter().copied().collect(),
@@ -550,17 +561,30 @@ impl StageForm {
         self.pitched().iter().product()
     }
 
-    /// Row-major strides over [`extents`](StageForm::extents), rows pitched past their padding.
+    /// Strides over [`extents`](StageForm::extents) laid down in the buffer's order, the
+    /// innermost axis last, rows pitched past their padding: row-major in the source's order.
     fn strides(&self) -> Vec<usize> {
         let pitched = self.pitched();
-        (0..pitched.len())
-            .map(|p| pitched[p + 1..].iter().product())
-            .collect()
+        let laid = StageForm::laid_order(pitched.len(), self.innermost);
+        let mut strides = vec![0; pitched.len()];
+        for (at, &axis) in laid.iter().enumerate() {
+            strides[axis] = laid[at + 1..].iter().map(|&inner| pitched[inner]).product();
+        }
+        strides
     }
 
     /// [`extents`](StageForm::extents) with each row widened by its padding lines.
     fn pitched(&self) -> Vec<usize> {
-        StageForm::pitched_over(&self.extents, &self.rows)
+        StageForm::pitched_over(&self.extents, &self.rows, self.innermost)
+    }
+
+    /// The physical axes of a buffer of `axes` from the outermost laid down to the innermost:
+    /// in order, `innermost` moved last.
+    fn laid_order(axes: usize, innermost: usize) -> Vec<usize> {
+        (0..axes)
+            .filter(|&axis| axis != innermost)
+            .chain([innermost])
+            .collect()
     }
 
     /// Lines a dense stage over `space` holds, its rows' padding among them: the count of the
@@ -572,22 +596,52 @@ impl StageForm {
         stage: &StageStorage,
         line: LineBytes,
     ) -> usize {
-        let (extents, rows, _) = StageForm::dense_layout(space, vector_size, stage, line);
-        StageForm::pitched_over(&extents, &rows).iter().product()
+        let (extents, rows, _, innermost) =
+            StageForm::dense_layout(space, vector_size, stage, line);
+        StageForm::pitched_over(&extents, &rows, innermost)
+            .iter()
+            .product()
     }
 
     /// A dense stage's physical line extents and row arrangement over `space` held as `stage`,
-    /// and the count of storage blocks its grid nests.
+    /// the count of storage blocks its grid nests, and the physical axis it lays innermost.
+    ///
+    /// # Panics
+    ///
+    /// - Where a stage in another order than the source's is served wider than one value a line.
     fn dense_layout(
         space: &Space,
         vector_size: usize,
         stage: &StageStorage,
         line: LineBytes,
-    ) -> (Vec<usize>, RowArrangement, usize) {
+    ) -> (Vec<usize>, RowArrangement, usize, usize) {
         let nesting = stage.nesting(space);
         let extents = StageForm::dense_extents(space, vector_size, nesting.as_slice());
-        let rows = StageForm::dense_rows(stage, &extents, line, space.rank());
-        (extents, rows, nesting.iter().count())
+        let innermost = StageForm::innermost_axis(space, vector_size, stage.order(), extents.len());
+        // The rows run along the innermost laid axis, so the arrangement reads the extents in the
+        // order they are laid down in.
+        let laid: Vec<usize> = StageForm::laid_order(extents.len(), innermost)
+            .into_iter()
+            .map(|axis| extents[axis])
+            .collect();
+        let rows = StageForm::dense_rows(stage, &laid, line, space.rank());
+        (extents, rows, nesting.iter().count(), innermost)
+    }
+
+    /// The physical axis of a stage of `axes` over `space`, its finest block's axes last, that
+    /// `order` lays innermost.
+    fn innermost_axis(space: &Space, vector_size: usize, order: StageOrder, axes: usize) -> usize {
+        match order {
+            StageOrder::AsSource => axes - 1,
+            StageOrder::AlongRun { dimension, .. } => {
+                assert!(
+                    vector_size == 1,
+                    "StageForm: a stage laid along a run should hold one value a line, not \
+                     {vector_size}"
+                );
+                axes - space.rank() + space.position(dimension)
+            }
+        }
     }
 
     /// How a dense stage held as `stage` lays its rows over its line `extents`, the last
@@ -606,11 +660,12 @@ impl StageForm {
         }
     }
 
-    /// `extents` with each row widened by the padding lines `rows` lays after it.
-    fn pitched_over(extents: &[usize], rows: &RowArrangement) -> Vec<usize> {
+    /// `extents` with each row along `innermost` widened by the padding lines `rows` lays after
+    /// it.
+    fn pitched_over(extents: &[usize], rows: &RowArrangement, innermost: usize) -> Vec<usize> {
         let mut pitched = extents.to_vec();
-        if let Some(last) = pitched.last_mut() {
-            *last += rows.padding();
+        if let Some(row) = pitched.get_mut(innermost) {
+            *row += rows.padding();
         }
         pitched
     }
@@ -892,6 +947,26 @@ mod tests {
                 period: 8
             })
         );
+    }
+
+    /// A stage laid along its `k` lays that axis innermost, its rows of `k` pitched past their
+    /// padding, the source's innermost axis a row apart.
+    #[test]
+    fn a_stage_laid_along_a_run_pads_and_strides_its_physical_rows() {
+        let space = Space::new(&[(K, 16), (N, 16)]);
+        let storage = StageStorage::Tiled {
+            block: vec![(K, 16), (N, 16)],
+            chunks: RowChunks::Padded,
+            order: StageOrder::AlongRun {
+                dimension: K,
+                run: 8,
+            },
+        };
+        let form = StageForm::dense(&space, 1, storage, LineBytes(2));
+        // A row of 16 `f16` is 32 bytes, padded by one 16-byte chunk: eight values.
+        assert_eq!(form.rows, RowArrangement::Padded { lines: 8 });
+        assert_eq!(form.strides(), vec![1, 24]);
+        assert_eq!(form.cells(), 16 * 24);
     }
 
     /// A padded block pitches its rows one chunk further apart.

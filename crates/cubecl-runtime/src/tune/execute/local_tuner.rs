@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::tune::execute::tune_executor::TuneExecutor;
-use crate::tune::{AutotuneCheckable, AutotuneKeyable, TunableSet, TuneInputs};
+use crate::tune::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs};
 use alloc::sync::Arc;
 use core::hash::Hash;
 
@@ -28,7 +28,7 @@ use core::hash::Hash;
 /// });
 /// let output = TUNER.execute(&device, &client, tunables, inputs);
 /// ```
-pub struct LocalTuner<AK: AutotuneKeyable, ID> {
+pub struct LocalTuner<AK: AutotuneKey, ID> {
     executor: TuneExecutor<AK, ID>,
 }
 
@@ -46,7 +46,7 @@ macro_rules! local_tuner {
 
 impl<AK, ID> LocalTuner<AK, ID>
 where
-    AK: AutotuneKeyable,
+    AK: AutotuneKey,
     ID: Hash + PartialEq + Eq + Clone,
 {
     /// A tuner whose answers are stored in the table `name` names, for each hardware.
@@ -77,12 +77,12 @@ where
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         Id: Send + Sync + 'static,
         I: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
     {
         self.executor.init(id, init_set)
     }
 
-    /// What the candidate decided for `key` of `operations` on `id` is
+    /// What the winner for `key` of `operations` on `id` is
     /// [identified](crate::tune::Tunable::identified) by.
     ///
     /// # Guarantees
@@ -95,7 +95,7 @@ where
     ///   an `execute` opens a tuner, which may purge the tables of an earlier layout, or while a
     ///   tune reads or writes the store.
     /// - An `id` that has not executed `operations` sees none.
-    pub fn fastest_identity<I, Out, Id>(
+    pub fn winner_identity<I, Out, Id>(
         &self,
         id: &ID,
         operations: &TunableSet<AK, I, Out, Id>,
@@ -105,7 +105,7 @@ where
         I: TuneInputs,
         Id: Clone,
     {
-        self.executor.fastest_identity(id, operations, key)
+        self.executor.winner_identity(id, operations, key)
     }
 
     /// Forget every tune and every set [`init`](Self::init) built.
@@ -134,19 +134,19 @@ where
     ///   wasm, that candidate is in the first batch of the plan that queues a sample: the
     ///   fixed-count pass there resolves its samples on the browser event loop, and commits that
     ///   batch without reaching a later one.
-    /// - The decided candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
+    /// - The winner serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
     /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
     ///
     /// # Guarantees
     ///
-    /// - A call the decided candidate rejects runs the next one that serves it.
+    /// - A call the winner rejects runs the next one that serves it.
     /// - A tune that stopped on a lost card decides nothing: the call runs the candidates in plan
     ///   order.
     ///
     /// # Panics
     ///
     /// When no candidate serves `inputs`; when a tune measured none and none it scheduled ended
-    /// [`Unknown`](crate::tune::AutotuneError::Unknown); when the decided candidate rejects `inputs` and
+    /// [`Unknown`](crate::tune::AutotuneError::Unknown); when the winner rejects `inputs` and
     /// they have no spare; and under `autotune-checks`, when a candidate's output does not match
     /// and nothing reports it: the assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(
@@ -158,7 +158,7 @@ where
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         Id: Send + Sync,
     {
         self.executor.execute(id, client, operations, inputs)
@@ -182,7 +182,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for FakeAutotuneKey {}
+    impl AutotuneKey for FakeAutotuneKey {}
 
     #[test]
     fn a_cleared_tuner_plans_its_keys_afresh() {

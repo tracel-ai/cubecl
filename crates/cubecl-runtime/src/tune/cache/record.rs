@@ -1,13 +1,13 @@
 //! What a tune leaves in the environment beside its answer.
 //!
-//! The table stores a key's decided candidate and every candidate's result, ranked. What
+//! The table stores a key's winner and every candidate's result, ranked. What
 //! it cannot say is how the tune went: which candidates ran and in what order,
 //! what each cost to compile and benchmark, whether the tune stopped early,
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
 use crate::tune::cache::table::TuneTable;
-use crate::tune::{AutotuneKeyable, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
+use crate::tune::{AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -22,9 +22,9 @@ pub struct TuneRecord<K> {
     /// The table's entry the answer is stored under: the key, and the
     /// checksum of the candidate list it was tuned under.
     pub entry: PersistentCacheKey<K>,
-    /// Stored under its earlier name, which environments already saved hold.
-    #[serde(rename = "winner")]
-    pub decided_index: usize,
+    /// Read under its earlier name too, which environments already saved hold.
+    #[serde(alias = "winner")]
+    pub winner_index: usize,
     /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
     /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
     /// skipped or that a short circuit left unreached costs zero. A skipped candidate the batch
@@ -56,7 +56,7 @@ pub struct TuneRecord<K> {
 pub struct PlannedCandidate {
     /// The candidate's name.
     pub name: String,
-    /// Its index in the tunable set, as the record's decided index names it.
+    /// Its index in the tunable set, as the record's winner index names it.
     pub index: usize,
     /// The batch the plan releases it in, counting from 0. A tune stops
     /// after the first batch with a valid result, so later batches only run
@@ -117,12 +117,12 @@ pub struct OpenRecording<K> {
 
 /// What [`TuneRecorder::record_answer`] needs to know of the answer.
 pub struct Answer {
-    pub decided_index: usize,
+    pub winner_index: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
 }
 
-impl<K: AutotuneKeyable> TuneRecorder<K> {
+impl<K: AutotuneKey> TuneRecorder<K> {
     /// Begin recording the tune of `key` in `table`. The key is cloned only when the environment
     /// records.
     pub fn new(table: &TuneTable, key: &K, checksum: &str) -> Self {
@@ -167,7 +167,7 @@ impl<K: AutotuneKeyable> TuneRecorder<K> {
         let record = TuneRecord {
             table: open.table,
             entry: open.entry,
-            decided_index: answer.decided_index,
+            winner_index: answer.winner_index,
             trials,
             short_circuit,
             wall,
@@ -216,6 +216,37 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
     use alloc::vec;
+
+    /// A record saved when the winner's index was stored as `winner` still reads.
+    #[test]
+    fn a_record_saved_under_the_earlier_name_reads() {
+        let record = TuneRecord {
+            table: "table".to_string(),
+            entry: PersistentCacheKey {
+                key: "key".to_string(),
+                checksum: "checksum".to_string(),
+            },
+            winner_index: 2,
+            trials: Vec::new(),
+            short_circuit: None,
+            wall: Duration::ZERO,
+            launches_discarded: false,
+            stored: true,
+            plan: Vec::new(),
+        };
+        let mut value = serde_json::to_value(&record).unwrap();
+        let fields = value
+            .as_object_mut()
+            .expect("a record should serialize as a map");
+        let winner = fields
+            .remove("winner_index")
+            .expect("a record should name its winner");
+        fields.insert("winner".to_string(), winner);
+
+        let read: TuneRecord<String> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(read.winner_index, 2);
+    }
 
     #[test]
     fn a_closed_recorder_never_lists_the_plan() {

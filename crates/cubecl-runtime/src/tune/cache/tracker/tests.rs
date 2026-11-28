@@ -38,7 +38,7 @@ fn an_answer_to_the_current_list_is_served() {
 
     assert!(matches!(
         tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneAnswer::Hit { decided_index: 2 }
+        TuneAnswer::Hit { winner_index: 2 }
     ));
 }
 
@@ -260,11 +260,11 @@ fn used(table: &str) -> Vec<PersistentCacheKey<String>> {
     used
 }
 
-/// Stores in `table`, as a tune of `checksum`'s list would, `decided_index`
+/// Stores in `table`, as a tune of `checksum`'s list would, `winner_index`
 /// as the answer to `key`.
-fn plant(table: &str, key: &str, checksum: &str, decided_index: usize) {
+fn plant(table: &str, key: &str, checksum: &str, winner_index: usize) {
     answers(table)
-        .insert(pair(key, checksum), answer_at(decided_index))
+        .insert(pair(key, checksum), answer_at(winner_index))
         .unwrap();
 }
 
@@ -275,9 +275,9 @@ fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
     }
 }
 
-fn answer_at(decided_index: usize) -> PersistentCacheValue {
+fn answer_at(winner_index: usize) -> PersistentCacheValue {
     PersistentCacheValue {
-        decided_index,
+        winner_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

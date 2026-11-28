@@ -846,10 +846,33 @@ impl Tile {
     }
 
     /// Whether this sum's fragments must bounce to reach `dest`, cast from `A` to `Out`: what
-    /// decides whether a drain opens a scratch and how it passes over the grid.
+    /// decides whether a drain opens a scratch and how it passes over the grid. A fragment whose
+    /// units write lines of `dest` out of their registers does not.
     fn bounces_into<A: Numeric, Out: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
         let in_place = self.casts_in_place_to::<A, Out>();
-        dest.fragments_bounce(in_place)
+        let from_registers = self.drains_from_registers_into::<A>(dest);
+        dest.fragments_bounce(in_place, from_registers)
+    }
+
+    /// Whether this plane-resident sum, held at `A`, reaches `dest` out of its units' registers,
+    /// a line of `dest`'s store at a time, where it would otherwise bounce
+    /// ([`PlaneTile::cell_lines`]); a memory tile does not.
+    fn drains_from_registers_into<A: Numeric>(&self, dest: &Tile) -> comptime_type!(bool) {
+        let width = dest.store_vector_size();
+        match &self.kind {
+            TileKind::PlanePartition(p) => {
+                let lines = p.at(0usize, 0usize).cell_lines::<A>(width);
+                comptime!(lines.is_some())
+            }
+            TileKind::PlaneTile(t) => {
+                let lines = t.cell_lines::<A>(width);
+                comptime!(lines.is_some())
+            }
+            TileKind::Memory(_)
+            | TileKind::TmaGmem(_)
+            | TileKind::Procedural(_)
+            | TileKind::Lines(_) => comptime!(false),
+        }
     }
 
     /// Whether this plane-resident sum is backed by a scratch ([`Instruction::takes_scratch`]); a
