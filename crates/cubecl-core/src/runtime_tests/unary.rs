@@ -1265,6 +1265,185 @@ fn non_finite_constants_kernel<F: Float>(scalars: &mut [F], vectors: &mut [Vecto
 }
 
 /// Infinite and NaN constants compile and keep their value, as scalars and vector splats.
+/// `erf` on every range its approximation is split into, and their edges, against the exact value
+/// rounded to f32 (from f64): within 2 ulp everywhere, from `1e-30` to past `6`, where `1 - erf`
+/// is below f32's resolution.
+pub fn test_erf_f32<R: Runtime>(client: Client) {
+    #[cube(launch_unchecked)]
+    fn test_function<In: Size, Out: Size>(
+        input: &[Vector<f32, In>],
+        output: &mut [Vector<f32, Out>],
+    ) {
+        if ABSOLUTE_POS < input.len() {
+            output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].erf());
+        }
+    }
+
+    let input: &[f32] = &[
+        0.0,
+        1.0000000031710769e-30,
+        1.000000013351432e-10,
+        9.999999974752427e-07,
+        1.269999984288006e-06,
+        9.999999747378752e-05,
+        0.0010000000474974513,
+        0.02070000022649765,
+        0.03139999881386757,
+        0.10000000149011612,
+        0.30000001192092896,
+        0.5,
+        0.800000011920929,
+        0.8399999737739563,
+        0.8500000238418579,
+        1.0,
+        1.2000000476837158,
+        1.2400000095367432,
+        1.2599999904632568,
+        1.5,
+        2.0,
+        2.5,
+        2.8499999046325684,
+        2.859999895095825,
+        3.5,
+        4.0,
+        5.0,
+        5.900000095367432,
+        -1.0000000031710769e-30,
+        -1.000000013351432e-10,
+        -9.999999974752427e-07,
+        -1.269999984288006e-06,
+        -9.999999747378752e-05,
+        -0.0010000000474974513,
+        -0.02070000022649765,
+        -0.03139999881386757,
+        -0.10000000149011612,
+        -0.30000001192092896,
+        -0.5,
+        -0.800000011920929,
+        -0.8399999737739563,
+        -0.8500000238418579,
+        -1.0,
+        -1.2000000476837158,
+        -1.2400000095367432,
+        -1.2599999904632568,
+        -1.5,
+        -2.0,
+        -2.5,
+        -2.8499999046325684,
+        -2.859999895095825,
+        -3.5,
+        -4.0,
+        -5.0,
+        -5.900000095367432,
+        6.099999904632568,
+        10.0,
+        -6.099999904632568,
+        -10.0,
+        -0.0,
+    ];
+    let expected: &[f32] = &[
+        0.0,
+        1.1283791266481092e-30,
+        1.1283791956362421e-10,
+        1.1283791536698118e-06,
+        1.4330415751828696e-06,
+        0.00011283791536698118,
+        0.001128378789871931,
+        0.02335411310195923,
+        0.035419464111328125,
+        0.11246291548013687,
+        0.3286267817020416,
+        0.5204998850822449,
+        0.7421009540557861,
+        0.7651426792144775,
+        0.770668089389801,
+        0.8427007794380188,
+        0.9103139638900757,
+        0.920505166053772,
+        0.92523592710495,
+        0.9661051630973816,
+        0.9953222870826721,
+        0.9995930194854736,
+        0.9999443292617798,
+        0.9999476075172424,
+        0.9999992847442627,
+        1.0,
+        1.0,
+        1.0,
+        -1.1283791266481092e-30,
+        -1.1283791956362421e-10,
+        -1.1283791536698118e-06,
+        -1.4330415751828696e-06,
+        -0.00011283791536698118,
+        -0.001128378789871931,
+        -0.02335411310195923,
+        -0.035419464111328125,
+        -0.11246291548013687,
+        -0.3286267817020416,
+        -0.5204998850822449,
+        -0.7421009540557861,
+        -0.7651426792144775,
+        -0.770668089389801,
+        -0.8427007794380188,
+        -0.9103139638900757,
+        -0.920505166053772,
+        -0.92523592710495,
+        -0.9661051630973816,
+        -0.9953222870826721,
+        -0.9995930194854736,
+        -0.9999443292617798,
+        -0.9999476075172424,
+        -0.9999992847442627,
+        -1.0,
+        -1.0,
+        -1.0,
+        1.0,
+        1.0,
+        -1.0,
+        -1.0,
+        -0.0,
+    ];
+    let specials: &[f32] = &[f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -0.0];
+
+    for &(input_vectorization, out_vectorization) in &[(1usize, 1usize), (2, 2), (4, 4)] {
+        let run = |input: &[f32]| {
+            let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+            let input_handle = client.create_from_slice(f32::as_bytes(input));
+            unsafe {
+                test_function::launch_unchecked(
+                    &client,
+                    CubeCount::Static(1, 1, 1),
+                    CubeDim::new_1d((input.len() / input_vectorization) as u32),
+                    input_vectorization,
+                    out_vectorization,
+                    BufferArg::from_raw_parts(input_handle, input.len()),
+                    BufferArg::from_raw_parts(output_handle.clone(), input.len()),
+                )
+            };
+            f32::from_bytes(&client.read_one_unchecked(output_handle)).to_vec()
+        };
+
+        for (i, (&actual, &expected)) in run(input).iter().zip(expected).enumerate() {
+            assert!(
+                actual.to_bits() >> 31 == expected.to_bits() >> 31,
+                "erf({}) = {actual}, want {expected}",
+                input[i]
+            );
+            assert_f32_ulp_le(actual, expected, 2);
+        }
+
+        let special = run(specials);
+        assert_eq!(special[0], 1.0, "erf(inf)");
+        assert_eq!(special[1], -1.0, "erf(-inf)");
+        assert!(special[2].is_nan(), "erf(NaN) = {}", special[2]);
+        assert!(
+            special[3] == 0.0 && special[3].is_sign_negative(),
+            "erf(-0) = {}",
+            special[3]
+        );
+    }
+}
+
 pub fn test_non_finite_constants<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -1365,6 +1544,12 @@ macro_rules! testgen_unary {
             fn test_expm1_f32() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::unary::test_expm1_f32::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_erf_f32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::unary::test_erf_f32::<TestRuntime>(client);
             }
         }
     };
