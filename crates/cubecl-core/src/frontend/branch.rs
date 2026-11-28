@@ -30,8 +30,8 @@ use pliron::{
 use crate::{
     IntoRuntime,
     frontend::{
-        CubePrimitive, ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand,
-        zeroed_mut_of_type,
+        ConstRuntimeAssign, CubePrimitive, IntoExpand, ReadValue, RuntimeAssign, assign,
+        assign_binop_expand, binary_expand, zeroed_mut_of_type,
     },
     prelude::{CubeEnum, ExpandTypeClone},
 };
@@ -257,6 +257,61 @@ pub fn if_else_expr_expand<C: RuntimeAssign>(
             }
         }
     }
+}
+
+/// Value `if` whose arms are struct literals.
+///
+/// `if_else_expr_expand` stores the result with `RuntimeAssign::init_mut`. A
+/// `#[derive(CubeType)]` struct does not implement that, so each field is given
+/// its own slot in the parent scope and both arms assign the field.
+pub fn if_else_struct_lit_expand<T, M, A>(
+    scope: &Scope,
+    condition: NativeExpand<bool>,
+    then_block: impl FnOnce(&Scope) -> T,
+    else_block: impl FnOnce(&Scope) -> T,
+    make_slot: M,
+    assign: A,
+) -> T
+where
+    M: FnOnce(&T, &Scope) -> T,
+    A: Fn(&mut T, T, &Scope),
+{
+    let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
+    match comptime_cond {
+        Some(true) => then_block(scope),
+        Some(false) => else_block(scope),
+        None => {
+            let cond = condition.read_value(scope);
+            let if_op = IfOp::new(scope.ctx_mut(), cond);
+            let then_body = if_op.then_block(scope.ctx());
+            let then_child = scope.branch_child(OpInserter::new_at_block_start(then_body));
+            let then_val = then_block(&then_child);
+            let mut out = make_slot(&then_val, scope);
+            assign(&mut out, then_val, &then_child);
+            then_child.terminate_yield();
+
+            let else_body = if_op.else_block(scope.ctx());
+            let else_child = scope.branch_child(OpInserter::new_at_block_start(else_body));
+            let else_val = else_block(&else_child);
+            assign(&mut out, else_val, &else_child);
+            else_child.terminate_yield();
+
+            scope.register(&if_op);
+            scope.update_flags_after_branch(&[then_child, else_child]);
+            out
+        }
+    }
+}
+
+pub fn struct_field_slot<T>(scope: &Scope, _witness: &T) -> T
+where
+    T: ConstRuntimeAssign + IntoExpand<Expand = T>,
+{
+    T::const_init_mut(scope)
+}
+
+pub fn struct_field_assign<T: Assign>(slot: &mut T, value: T, scope: &Scope) {
+    slot.__expand_assign_method(scope, value);
 }
 
 pub struct SwitchExpand<I: Int> {

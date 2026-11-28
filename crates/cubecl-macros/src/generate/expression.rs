@@ -432,13 +432,19 @@ impl Expression {
                 then_block,
                 else_branch: Some(else_branch),
             } if then_block.ret.is_some() && else_branch.needs_terminator() => {
-                let path = frontend_path();
-                let condition = into_expand(condition.to_tokens(context));
-                let then_block = then_block.to_tokens(context);
-                let else_branch = else_branch.to_tokens(context);
-                quote! {
-                    #path::branch::if_else_expr_expand(scope, #condition, |scope| {#then_block})
-                        .or_else(scope, |scope| {#else_branch})
+                if let Some(tokens) =
+                    struct_if_return_tokens(condition, then_block, else_branch, context)
+                {
+                    tokens
+                } else {
+                    let path = frontend_path();
+                    let condition = into_expand(condition.to_tokens(context));
+                    let then_block = then_block.to_tokens(context);
+                    let else_branch = else_branch.to_tokens(context);
+                    quote! {
+                        #path::branch::if_else_expr_expand(scope, #condition, |scope| {#then_block})
+                            .or_else(scope, |scope| {#else_branch})
+                    }
                 }
             }
             Expression::If {
@@ -589,55 +595,7 @@ impl Expression {
                 }
             }
             Expression::StructInit { path, fields } => {
-                let cube_type = prelude_type("CubeType");
-                let fields = init_fields(fields, context);
-                let path_last = path.segments.last().unwrap();
-                let turbofish = &path_last.arguments;
-
-                let generics = match turbofish {
-                    PathArguments::None => None,
-                    PathArguments::AngleBracketed(params) => {
-                        let params = params.args.iter().map(|p| match p {
-                            GenericArgument::Type(syn::Type::Path(ty)) => {
-                                if let Some(segment) = ty.path.segments.last() {
-                                    GenericArgument::Type(syn::Type::Path(syn::TypePath {
-                                        qself: ty.qself.clone(),
-                                        path: syn::Path::from(segment.clone()),
-                                        attrs: Default::default(),
-                                    }))
-                                } else {
-                                    p.clone()
-                                }
-                            }
-                            _ => p.clone(),
-                        });
-                        Some(quote![<#(#params),*>])
-                    }
-                    args => {
-                        return error!(
-                            args.span(),
-                            "Fn generics not supported when constructing runtime structs"
-                        );
-                    }
-                };
-
-                let mut path_simplified = path.clone();
-                if let PathArguments::AngleBracketed(params) =
-                    &mut path_simplified.segments.last_mut().unwrap().arguments
-                {
-                    params.args.iter_mut().for_each(|p| {
-                        if let GenericArgument::Type(syn::Type::Path(ty)) = p {
-                            ty.path = syn::Path::from(ty.path.segments.last().unwrap().clone());
-                        }
-                    });
-                }
-
-                quote! {
-                    {
-                        type _Ty #generics = <#path_simplified as #cube_type>::ExpandType;
-                        _Ty #turbofish { #(#fields),* }
-                    }
-                }
+                cube_struct_literal(path, init_fields(fields, context))
             }
             Expression::Closure {
                 params,
@@ -1126,6 +1084,148 @@ fn is_closure(expr: &Expression) -> bool {
         Expression::Reference { inner } | Expression::MutReference { inner } => is_closure(inner),
         Expression::Closure { .. } => true,
         _ => false,
+    }
+}
+
+/// Both arms build the same struct. Lower to field assigns so the struct does
+/// not need `RuntimeAssign` (`CubeTypeMut`).
+fn struct_if_return_tokens(
+    condition: &Expression,
+    then_block: &Block,
+    else_branch: &Expression,
+    context: &mut Context,
+) -> Option<TokenStream> {
+    let (then_path, then_fields) = match then_block.ret.as_deref() {
+        Some(Expression::StructInit { path, fields }) => (path, fields),
+        _ => return None,
+    };
+    let (else_path, else_fields, else_block) = match else_branch {
+        Expression::StructInit { path, fields } => (path, fields, None),
+        Expression::Block(block) => match block.ret.as_deref() {
+            Some(Expression::StructInit { path, fields }) => (path, fields, Some(block)),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if then_path != else_path
+        || then_fields.len() != else_fields.len()
+        || then_fields
+            .iter()
+            .zip(else_fields.iter())
+            .any(|(left, right)| left.0 != right.0)
+    {
+        return None;
+    }
+    if path_has_fn_generics(then_path) {
+        return None;
+    }
+
+    let frontend = frontend_path();
+    let condition = into_expand(condition.to_tokens(context));
+    let then_stmts = then_block.statements_to_tokens(context);
+    let then_struct = Expression::StructInit {
+        path: then_path.clone(),
+        fields: then_fields.clone(),
+    }
+    .to_tokens(context);
+    let else_stmts = else_block
+        .map(|block| block.statements_to_tokens(context))
+        .unwrap_or_default();
+    let else_struct = Expression::StructInit {
+        path: else_path.clone(),
+        fields: else_fields.clone(),
+    }
+    .to_tokens(context);
+
+    let members: Vec<_> = then_fields.iter().map(|(member, _)| member).collect();
+    let slot_fields = members.iter().map(|member| {
+        quote! {
+            #member: #frontend::branch::struct_field_slot(scope, &witness.#member)
+        }
+    });
+    let slot_struct = cube_struct_literal(then_path, slot_fields);
+    let assign_fields = members.iter().map(|member| {
+        quote! {
+            #frontend::branch::struct_field_assign(&mut out.#member, val.#member, scope);
+        }
+    });
+
+    Some(quote! {{
+        #frontend::branch::if_else_struct_lit_expand(
+            scope,
+            #condition,
+            |scope| {
+                #(#then_stmts)*
+                #then_struct
+            },
+            |scope| {
+                #(#else_stmts)*
+                #else_struct
+            },
+            |witness, scope| #slot_struct,
+            |out, val, scope| {
+                #(#assign_fields)*
+            },
+        )
+    }})
+}
+
+fn path_has_fn_generics(path: &Path) -> bool {
+    matches!(
+        path.segments.last().map(|segment| &segment.arguments),
+        Some(PathArguments::Parenthesized(_))
+    )
+}
+
+fn cube_struct_literal(path: &Path, fields: impl Iterator<Item = TokenStream>) -> TokenStream {
+    let cube_type = prelude_type("CubeType");
+    let path_last = path.segments.last().unwrap();
+    let turbofish = &path_last.arguments;
+
+    let generics = match turbofish {
+        PathArguments::None => None,
+        PathArguments::AngleBracketed(params) => {
+            let params = params.args.iter().map(|p| match p {
+                GenericArgument::Type(syn::Type::Path(ty)) => {
+                    if let Some(segment) = ty.path.segments.last() {
+                        GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                            qself: ty.qself.clone(),
+                            path: syn::Path::from(segment.clone()),
+                            attrs: Default::default(),
+                        }))
+                    } else {
+                        p.clone()
+                    }
+                }
+                _ => p.clone(),
+            });
+            Some(quote![<#(#params),*>])
+        }
+        args => {
+            return error!(
+                args.span(),
+                "Fn generics not supported when constructing runtime structs"
+            );
+        }
+    };
+
+    let mut path_simplified = path.clone();
+    if let PathArguments::AngleBracketed(params) =
+        &mut path_simplified.segments.last_mut().unwrap().arguments
+    {
+        params.args.iter_mut().for_each(|p| {
+            if let GenericArgument::Type(syn::Type::Path(ty)) = p {
+                ty.path = syn::Path::from(ty.path.segments.last().unwrap().clone());
+            }
+        });
+    }
+
+    let fields: Vec<_> = fields.collect();
+    quote! {
+        {
+            type _Ty #generics = <#path_simplified as #cube_type>::ExpandType;
+            _Ty #turbofish { #(#fields),* }
+        }
     }
 }
 
