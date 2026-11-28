@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use cubecl_core::{
     frontend::HasValue,
@@ -102,12 +102,16 @@ impl MetalBuiltin for Builtin {
 
 pub fn append_msl_builtins(ctx: &mut Context, entry_func: FuncOp) {
     let op = entry_func.get_operation();
-    let mut used = HashSet::new();
-    let mut read_ops = HashSet::new();
+    // In visit order, not hash order, so the MSL is the same text in every process.
+    let mut used = Vec::new();
+    let mut read_ops = Vec::new();
     let state = &mut (&mut used, &mut read_ops);
     visit_all_ops_of_type::<ReadBuiltinOp, _>(ctx, state, op, |ctx, (used, ops), op| {
-        ops.insert(op);
-        used.insert(built_in_attr(op.builtin(ctx).0));
+        ops.push(op);
+        let attr = built_in_attr(op.builtin(ctx).0);
+        if !used.contains(&attr) {
+            used.push(attr);
+        }
     });
 
     let values = used
@@ -180,5 +184,61 @@ fn built_in_attr(builtin: Builtin) -> BuiltInAttr {
             BuiltInAttr::ThreadPositionInGrid
         }
         other => unreachable!("{other:?} should be lowered"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        MslCompiler,
+        shared::{CompilationOptions, register_supported_types},
+    };
+    use cubecl_core::{
+        self as cubecl, Compiler, CubeKernel, prelude::*,
+        runtime_tests::offline::offline_device_properties,
+    };
+    use std::sync::Arc;
+
+    /// Reads a builtin of each of the eight MSL builtin attributes.
+    #[cube(launch)]
+    fn read_every_builtin(output: &mut [u32]) {
+        output[0] = UNIT_POS;
+        output[1] = UNIT_POS_X;
+        output[2] = CUBE_POS_X;
+        output[3] = CUBE_COUNT_X;
+        output[4] = PLANE_DIM;
+        output[5] = PLANE_POS;
+        output[6] = UNIT_POS_PLANE;
+        output[7] = ABSOLUTE_POS_X;
+    }
+
+    fn source() -> String {
+        let mut properties = offline_device_properties(32);
+        register_supported_types(&mut properties);
+        let kernel = read_every_builtin::ReadEveryBuiltin::new(
+            KernelSettings::new(
+                *CubeDim::new_1d(64),
+                ExecutionMode::Unchecked,
+                AddressType::U32,
+            ),
+            Arc::new(properties),
+            Arc::new(TargetProperties::default()),
+            BufferCompilationArg { inplace: None },
+        );
+        MslCompiler::default()
+            .compile(kernel.define(), &CompilationOptions::default())
+            .unwrap()
+            .source
+    }
+
+    /// Metal caches a library by its source, so a kernel compiled in another process only hits
+    /// that cache when the builtin arguments and their reads come out in the same order. Each
+    /// new `HashSet` gets new hash keys within a process too, so a few compilations catch it.
+    #[test]
+    fn a_kernel_compiles_to_the_same_msl_every_time() {
+        let first = source();
+        for _ in 0..8 {
+            assert_eq!(source(), first);
+        }
     }
 }
