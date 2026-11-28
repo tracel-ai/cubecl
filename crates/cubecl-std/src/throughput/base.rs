@@ -96,9 +96,9 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
 /// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
-/// where a probe's kernel did not run. Each is kept for the rest of the
-/// process like a value, so a key that failed is not probed again until the
-/// next run.
+/// where a probe's kernel did not run. `Unsupported` and `NoTiming` are kept
+/// like a value, so their key is not probed again in this process. The other
+/// two are not, so a device that was full is probed the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,

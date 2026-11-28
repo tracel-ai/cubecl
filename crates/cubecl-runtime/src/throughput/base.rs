@@ -199,6 +199,18 @@ pub enum ThroughputError {
     Launch,
 }
 
+impl ThroughputError {
+    /// Whether probing again in this process would fail the same way: what the device implements
+    /// and times does not change, while the room it has and whether a kernel runs depend on what
+    /// else holds it.
+    pub(crate) fn is_lasting(&self) -> bool {
+        match self {
+            Self::Unsupported | Self::NoTiming => true,
+            Self::Allocation | Self::Launch => false,
+        }
+    }
+}
+
 /// A measured throughput: how many operations a pass did, and how long the fastest pass took.
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]

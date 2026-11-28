@@ -2425,14 +2425,14 @@ impl Client {
     ///
     /// `probe` runs on the device runner thread with the device to itself,
     /// since one sharing it measures its share rather than the peak. A cached
-    /// answer takes neither, and an error `probe` reported is cached for the
-    /// rest of the process like a value.
+    /// answer takes neither. What [`ThroughputCache`] keeps decides when
+    /// `probe` runs again.
     ///
     /// # Errors
     ///
     /// Whatever `probe` reports, now or the first time it ran for `key`, or
     /// [`Launch`](ThroughputError::Launch) where the device could not be
-    /// taken, which is not cached since nothing ran.
+    /// taken.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,

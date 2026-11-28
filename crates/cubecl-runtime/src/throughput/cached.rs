@@ -26,8 +26,9 @@ impl<K: ThroughputCacheKey + Copy> CachedThroughput<K> {
     ///
     /// # Guarantees
     ///
-    /// Once a probe answered for `key`, a value or an error, no later call through the same
-    /// cache probes it again in this process.
+    /// Once a probe answered for `key` with a value, or with an error that probing again would
+    /// repeat, no later call through the same cache probes it again in this process, until the
+    /// cache is [cleared](ThroughputCache::clear).
     ///
     /// # Errors
     ///
@@ -61,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_probe_is_not_run_again_for_its_key() {
+    fn a_lasting_failure_is_not_probed_again_for_its_key() {
         let mut throughputs = throughputs();
         let probes = Cell::new(0);
         let failing = || {
