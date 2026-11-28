@@ -46,8 +46,8 @@ impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 ///
 /// # Guarantees
 ///
-/// - A value is kept for the rest of the process, until [`clear_all`](Self::clear_all), whether
-///   the configuration turns the throughput cache off or not.
+/// - A value is kept for the rest of the process, whether the configuration turns the throughput
+///   cache off or not, so a key is measured once a process.
 /// - With the throughput cache on, and where the build persists, a value is also stored on disk,
 ///   and a later run reads it back.
 /// - An error is never kept, so a device that was full, or a link asked while it skipped
@@ -95,14 +95,6 @@ impl ThroughputCache {
     pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
         cached(&GLOBAL_CACHE, device_name(runtime, properties))
     }
-
-    /// Forgets every value this process measured, for every device and every link, so the next
-    /// call for each key measures it again. A value stored on disk is still answered: with the
-    /// throughput cache on, a key is measured once.
-    pub fn clear_all() {
-        clear_every(&GLOBAL_CACHE);
-        clear_every(&LINK_CACHE);
-    }
 }
 
 /// The name of the cache of a device of `runtime` reporting `properties`.
@@ -126,15 +118,6 @@ fn cached<K: ThroughputCacheKey>(
         .entry(name.clone())
         .or_insert_with(|| Arc::new(Mutex::new(ThroughputCache::new(&name))))
         .clone()
-}
-
-/// Forgets the values every cache of `caches` measured.
-fn clear_every<K: ThroughputCacheKey>(caches: &Caches<K>) {
-    caches
-        .lock()
-        .iter()
-        .flat_map(HashMap::values)
-        .for_each(|cache| cache.lock().clear());
 }
 
 /// The host a stored cache was measured on, from the machine id systemd writes.
@@ -203,11 +186,6 @@ impl<K: ThroughputCacheKey> ThroughputCache<K> {
             stored: None,
         }
     }
-
-    /// Forgets every value no disk store holds.
-    fn clear(&mut self) {
-        self.values.clear();
-    }
 }
 
 /// Logs a value the storage refused, which stays in memory for the rest of the run.
@@ -240,26 +218,15 @@ mod tests {
         assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
     }
 
-    #[test]
-    fn clear_forgets_what_memory_holds() {
-        let mut cache = ThroughputCache::in_memory();
-        cache.insert(LAUNCH, ThroughputValue::ZERO);
-
-        cache.clear();
-
-        assert_eq!(cache.get(&LAUNCH), None);
-    }
-
     #[cfg(persistence)]
     #[test]
-    fn a_stored_value_outlives_clear() {
+    fn a_value_is_kept_in_its_store() {
         let mut cache = ThroughputCache {
             stored: Some(Store::new(StoreOptions::new())),
             ..ThroughputCache::in_memory()
         };
-        cache.insert(LAUNCH, ThroughputValue::ZERO);
 
-        cache.clear();
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
 
         assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
     }
