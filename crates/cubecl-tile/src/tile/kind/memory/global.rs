@@ -410,16 +410,6 @@ fn check_operand(space: &Space, spec: &TileSpec, vector_size: usize) {
         "GlobalOperand: Boundary::Clamp cannot clamp the vectorized innermost dimension (served at \
          {vector_size})"
     );
-    let positional = projection.positional();
-    for (coordinate, &boundary) in spec.boundaries.iter().enumerate() {
-        assert!(
-            boundary != Some(Boundary::Clamp)
-                || positional.carriers(Dimension(coordinate as u8)).len() == 1,
-            "GlobalOperand: Boundary::Clamp on coordinate {coordinate}, which the buffer stores as \
-             several pieces: a read is split into the pieces of its coordinate, and a clamped \
-             coordinate is not split"
-        );
-    }
 }
 
 /// [`full_window`] for the top gmem tile over the physical axes; `Dynamic` dimensions read `bound`.
@@ -502,28 +492,5 @@ fn gathered_origin(
             let (start, residue) = floor_div_rem(offset, divisor);
             (start, residue.cast::<u32>())
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cubecl::zspace::SmallVec;
-
-    const M: Dimension = Dimension(0);
-    const K: Dimension = Dimension(1);
-
-    /// A clamp on a coordinate the buffer stores whole is kept; on one stored as pieces it is
-    /// refused.
-    #[test]
-    #[should_panic(expected = "stores as several pieces")]
-    fn a_clamped_boundary_on_a_tiled_dimension_is_refused() {
-        let space = Space::new(&[(M, 32), (K, 16)]);
-        let tiled = Projection::tiled(&[M, K], &[(M, 0), (K, 0), (M, 1)]);
-        let mut spec = TileSpec::new(tiled);
-        spec.boundaries = SmallVec::from_slice(&[None, Some(Boundary::Clamp)]);
-        check_operand(&space, &spec, 1);
-        spec.boundaries = SmallVec::from_slice(&[Some(Boundary::Clamp), None]);
-        check_operand(&space, &spec, 1);
     }
 }

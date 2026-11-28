@@ -8,19 +8,21 @@ use cubecl_std::tensor::layout::CoordsDyn;
 use crate::*;
 
 /// Move the stage's `total` whole lines out of `s` into `d`, dealt to the units `fill` names
-/// ([`Walk::copy`]), by the engine `delivery` names.
+/// ([`Walk::copy`]), by the engine `delivery` names; `split` splits a coordinate of `d`'s buffer
+/// into the pieces `layout` places ([`Memory::coordinate_split`]).
 #[cube]
 pub fn move_lines<I2: Numeric, W: Size>(
     d: &mut [Vector<I2, W>],
     s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
     layout: &BufferLayout,
+    split: &ProjectionInKernel,
     total: usize,
     #[comptime] delivery: Delivery,
     #[comptime] fill: Level,
 ) {
     match delivery {
         Delivery::SyncPerUnit => sync_lines::<I2, W, W>(d, s, layout, total, fill, comptime!(None)),
-        Delivery::AsyncPerUnit => async_lines::<I2, W>(d, s, layout, total, fill),
+        Delivery::AsyncPerUnit => async_lines::<I2, W>(d, s, layout, split, total, fill),
         Delivery::Tma => comptime!(panic!(
             "move_lines: a tensor map's box should be moved whole, by one unit"
         )),

@@ -2,8 +2,6 @@
 
 use cubecl::prelude::*;
 
-use cubecl_std::tensor::layout::{Layout, LayoutExpand};
-
 use super::super::super::registers;
 use crate::*;
 
@@ -31,9 +29,12 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
     let batch_extents = problem.block.batch_extents();
 
     let rhs_reader = rhs.nd_split::<ER, V>();
-    // A column is the last physical coordinate on, where the map reads the window's coordinates;
-    // a map reaching a storage-tiled buffer's pieces is evaluated at each column instead.
-    let pieces = rhs.reads_pieces();
+    // A cell's contracted positions are reached from where they are all zero, a coordinate a count.
+    let walk = comptime!(problem.block.reduce_walk());
+    let walked_at = comptime!(
+        walk.positions_in(problem.space(Side::Rhs))
+            .collect::<Vec<_>>()
+    );
     let rhs_check = comptime!(rhs_reader.view.check);
     let factors = problem
         .factors
@@ -194,10 +195,9 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                             comptime!(Side::Rhs),
                             problem.clone(),
                         );
-                        let walk = comptime!(problem.block.reduce_walk());
                         let base = rhs_reader.map.advance(
                             &anchor,
-                            &rhs_reader.map.counts_at(&pos, &walk),
+                            &Coords::picked(&pos, comptime!(walked_at.clone())),
                             &walk,
                         );
                         let value = Vector::<E, V>::cast_from(rhs_reader.view.read(base));
@@ -232,28 +232,19 @@ pub(super) fn contract<E: Numeric, EL: Numeric, ER: Numeric, V: Size, A: Size>(
                         comptime!(Side::Rhs),
                         problem.clone(),
                     );
-                    let walk = comptime!(problem.block.reduce_walk());
                     let base = rhs_reader.map.advance(
                         &row_anchor,
-                        &rhs_reader.map.counts_at(&pos, &walk),
+                        &Coords::picked(&pos, comptime!(walked_at.clone())),
                         &walk,
                     );
 
                     #[unroll(unroll)]
                     for n in 0..nr {
-                        let at = if comptime!(pieces) {
-                            rhs_reader.map.to_source_pos(cell_position(
-                                &batch,
-                                i as u32,
-                                n as u32,
-                                &reduce_coords,
-                                comptime!(Side::Rhs),
-                                problem.clone(),
-                            ))
-                        } else {
-                            offset_last(&base, comptime!(rhs_reader.rank), n as u32)
-                        };
-                        let value = Vector::<E, V>::cast_from(rhs_reader.view.read(at));
+                        let value = Vector::<E, V>::cast_from(rhs_reader.view.read(offset_last(
+                            &base,
+                            comptime!(rhs_reader.rank),
+                            n as u32,
+                        )));
                         // One semiring step, for the reason [`registers::rank1_update`] gives.
                         c[i * nr + n] = semiring.step::<Vector<E, V>>(weight, value, c[i * nr + n]);
                     }
@@ -351,15 +342,13 @@ fn factor_walk<EL: Numeric>(
                             comptime!(Side::Rhs),
                             problem.clone(),
                         );
-                        // A direct operand's window coordinates are its logical ones, where
-                        // its map reaches a storage-tiled buffer's pieces instead.
                         let walk = comptime!(problem.block.reduce_walk());
-                        let pieces = rhs.reads_pieces();
-                        let physical_pos = if comptime!(pieces) {
-                            rhs_pos
-                        } else {
-                            rhs_map.advance(anchor, &rhs_map.counts_at(&rhs_pos, &walk), &walk)
-                        };
+                        let walked_at = comptime!(
+                            walk.positions_in(problem.space(Side::Rhs))
+                                .collect::<Vec<_>>()
+                        );
+                        let physical_pos =
+                            rhs_map.advance(anchor, &Coords::picked(&rhs_pos, walked_at), &walk);
                         select(
                             rhs.separable_physical_tap_in_bounds(
                                 &physical_pos,

@@ -52,6 +52,7 @@ mod split_contraction;
 mod stored_window;
 mod stream;
 mod tensor_core_layout;
+mod tiled_bounds;
 mod tiled_fragments;
 mod tma_folded;
 mod tma_store;

@@ -18,7 +18,7 @@ use cubecl::{
     prelude::*,
 };
 
-use cubecl_std::tensor::layout::CoordsDyn;
+use cubecl_std::tensor::layout::{CoordsDyn, Layout, LayoutExpand};
 
 use crate::*;
 
@@ -45,6 +45,7 @@ pub fn async_lines<I2: Numeric, W: Size>(
     d: &mut [Vector<I2, W>],
     s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
     layout: &BufferLayout,
+    split: &ProjectionInKernel,
     total: usize,
     #[comptime] fill: Level,
 ) {
@@ -59,7 +60,7 @@ pub fn async_lines<I2: Numeric, W: Size>(
          one of those, and this one's are {bytes}: serve the operand in lines one copy moves"
     ));
     for line in Walk::copy(&fill, total) {
-        copy_line_async::<I2, W>(d, s, layout, line.coord(Level::COPIED));
+        copy_line_async::<I2, W>(d, s, layout, split, line.coord(Level::COPIED));
     }
 }
 
@@ -71,10 +72,11 @@ fn copy_line_async<I2: Numeric, W: Size>(
     d: &mut [Vector<I2, W>],
     s: &Masked<'_, Vector<I2, W>, CoordsDyn>,
     layout: &BufferLayout,
+    split: &ProjectionInKernel,
     i: usize,
 ) {
     let coords = layout.row_major_coords(i);
-    let offset = layout.coordinate_offset(coords.clone());
+    let offset = layout.to_source_pos(split.to_source_pos(coords.clone()));
     let run = s.item_run(coords);
     let width = W::value();
     let dst = &mut d[offset..offset + 1];

@@ -45,6 +45,7 @@ impl Memory {
         let plen = shape.len().comptime();
         let total = self.stage_lines();
         let layout = self.layout.clone();
+        let split = self.coordinate_split();
         let extent = comptime!(fill_extent(space, sw, w, check));
         let src_rank = comptime!(src.projection.physical_rank());
         let padding = comptime!((sw != w).then(|| {
@@ -104,7 +105,15 @@ impl Memory {
             };
             // Only an equal-width fill moves each line whole, which is what an engine moving memory
             // to memory does ([`TransportKind::new`] refuses it any other).
-            move_lines::<I2, WP2>(d, &s, &layout, total, comptime!(src.access.delivery), fill);
+            move_lines::<I2, WP2>(
+                d,
+                &s,
+                &layout,
+                &split,
+                total,
+                comptime!(src.access.delivery),
+                fill,
+            );
         } else {
             let s = if steps.is_empty() {
                 src.edged(

@@ -5,7 +5,6 @@
 //! cube's, or, for a stage one plane owns, that plane's.
 
 use cubecl::prelude::*;
-use cubecl::zspace::SmallVec;
 
 use cubecl_std::tensor::{
     AsView, AsViewExpand, AsViewMut, AsViewMutExpand, ErasedTensor, View, ViewMut, WriteOnly,
@@ -236,9 +235,9 @@ impl Memory {
         })
     }
 
-    /// The window as a view over its own coordinates, served at `T` grouped `W` wide: a
-    /// storage-tiled buffer's coordinates split into its pieces under the window
-    /// ([`coordinate_view`](Memory::coordinate_view)).
+    /// The window as a view over its own coordinates, served at `T` grouped `W` wide: the window
+    /// masks and clamps each coordinate, and a storage-tiled buffer's coordinates are then split
+    /// into the pieces they lie in ([`coordinate_view`](Memory::coordinate_view)).
     fn window_view<T: Numeric, W: Size>(
         &self,
         #[comptime] guard: Guard,
@@ -258,6 +257,45 @@ impl Memory {
         }
     }
 
+    /// The backing as a [`View`] over the buffer's own coordinates, the base composed under the
+    /// split of each into its pieces ([`coordinate_split`](Memory::coordinate_split)).
+    pub(crate) fn coordinate_view<T: Numeric, W: Size>(&self) -> View<'_, Vector<T, W>, CoordsDyn> {
+        self.read_view::<T, W>(self.base())
+            .view(self.coordinate_split())
+    }
+
+    /// The split of a coordinate of this buffer into the pieces it stores it as: each piece the
+    /// digit of its coordinate ([`Projection::pieces_as_digits`]) its axis holds, a coordinate
+    /// stored whole the coordinate itself. It only addresses: the window above it masks and clamps
+    /// the coordinate.
+    pub(crate) fn coordinate_split(&self) -> ProjectionInKernel {
+        let positional = comptime!(self.layout.projection.clone());
+        let rank = comptime!(positional.coordinate_rank());
+        let radices = self.layout.radices();
+        let split = comptime!(positional.untiled().pieces_as_digits(&positional, &radices));
+        let space = comptime!(
+            Space::new(
+                &(0..rank)
+                    .map(|c| (Dimension(c as u8), 1usize))
+                    .collect::<Vec<_>>()
+            )
+            .all_dynamic()
+        );
+        let map = RuntimeMap {
+            coefficients: Coords::<u32>::new(),
+            residues: Coords::constant(comptime!(vec![0; positional.physical_rank()])),
+            digit_starts: Coords::constant(comptime!(vec![0; split.digit_dimensions().len()])),
+            digit_radices: self.layout.digit_radices(&comptime!(split.clone())),
+        };
+        ProjectionInKernel::new(
+            logical_extent(&positional, &self.layout.physical_shape),
+            map,
+            space,
+            split,
+            1usize,
+        )
+    }
+
     /// [`window_view`](Memory::window_view) at the storage element `I`, grouped `WP` wide.
     pub(crate) fn window_view_storage<I: Numeric, WP: Size>(
         &self,
@@ -269,20 +307,14 @@ impl Memory {
                 let all = self.lines_storage::<I, WP>();
                 all.slice(start, all.len()).view(self.contiguous_layout())
             }
-            WindowStorage::Stored(_) => {
-                let buffer = self.lines_storage::<I, WP>().view(self.base());
-                let buffer = if comptime!(self.layout.projection.is_tiled()) {
-                    buffer.view(self.layout.split())
-                } else {
-                    buffer
-                };
-                WindowedView::new(
-                    buffer,
-                    self.window().with_guard(guard),
-                    comptime!(PastEdge::Clamp),
-                )
-                .view()
-            }
+            WindowStorage::Stored(_) => WindowedView::new(
+                self.lines_storage::<I, WP>()
+                    .view(self.base())
+                    .view(self.coordinate_split()),
+                self.window().with_guard(guard),
+                comptime!(PastEdge::Clamp),
+            )
+            .view(),
         }
     }
 
@@ -302,153 +334,10 @@ impl Memory {
             WindowStorage::Stored(_) => {
                 let base = self.base();
                 let window = self.window().with_guard(guard);
-                let buffer = if comptime!(self.layout.projection.is_tiled()) {
-                    let split = self.layout.split();
-                    self.write_view::<T, W>(base).view_mut(split)
-                } else {
-                    self.write_view::<T, W>(base)
-                };
-                WindowedViewMut::new(buffer, window).view_mut()
+                let split = self.coordinate_split();
+                WindowedViewMut::new(self.write_view::<T, W>(base).view_mut(split), window)
+                    .view_mut()
             }
-        }
-    }
-
-    /// The backing as a [`View`] over the buffer's own coordinates: the base composed under the
-    /// split of each coordinate into its pieces where it is storage-tiled
-    /// ([`BufferLayout::split`]).
-    pub(crate) fn coordinate_view<T: Numeric, W: Size>(&self) -> View<'_, Vector<T, W>, CoordsDyn> {
-        let buffer = self.read_view::<T, W>(self.base());
-        if comptime!(self.layout.projection.is_tiled()) {
-            buffer.view(self.layout.split())
-        } else {
-            buffer
-        }
-    }
-
-    /// Whether a read of this window lands on the pieces of a storage-tiled buffer through the
-    /// operand's own map ([`in_kernel_projection`](Memory::in_kernel_projection)), rather than
-    /// on coordinates split below the window.
-    pub(crate) fn reads_pieces(&self) -> comptime_type!(bool) {
-        comptime!(
-            matches!(self.access.storage, WindowStorage::Stored(_))
-                && self.layout.projection.is_tiled()
-        )
-    }
-
-    /// The map a read of this window evaluates in the kernel: the operand's own
-    /// ([`projection`](Memory::projection)), or for a window over a storage-tiled buffer its
-    /// tiled form ([`Projection::pieces_as_digits`]), which reaches the pieces themselves.
-    pub(crate) fn in_kernel_projection(&self) -> comptime_type!(Projection) {
-        let pieces = self.reads_pieces();
-        let radices = self.layout.radices();
-        comptime!(match pieces {
-            true => self
-                .projection
-                .pieces_as_digits(&self.layout.projection, &radices),
-            false => self.projection.clone(),
-        })
-    }
-
-    /// The runtime map [`in_kernel_projection`](Memory::in_kernel_projection) is evaluated with:
-    /// for a window over a storage-tiled buffer, the window's origin as the start of each
-    /// coordinate's digits and the radices read off the buffer.
-    ///
-    /// # Assumptions
-    ///
-    /// - A storage-tiled window's origin is non-negative.
-    pub(crate) fn in_kernel_map(&self) -> RuntimeMap {
-        let pieces = self.reads_pieces();
-        if comptime!(pieces) {
-            let projection = self.in_kernel_projection();
-            let digits = comptime!(projection.digit_dimensions());
-            let mut digit_starts = Coords::<u32>::new();
-            #[unroll]
-            for d in 0..digits.len() {
-                let coordinate = comptime!(self.projection.carriers(digits[d])[0]);
-                digit_starts.push(self.window.origin.at(coordinate).cast::<u32>());
-            }
-            RuntimeMap {
-                coefficients: self.map.coefficients.clone(),
-                residues: Coords::constant(comptime!(vec![0; projection.physical_rank()])),
-                digit_starts,
-                digit_radices: self.layout.digit_radices(&comptime!(projection.clone())),
-            }
-        } else {
-            self.map.clone()
-        }
-    }
-
-    /// The box of a storage-tiled buffer's pieces, its origin at the buffer's: what a read
-    /// through [`in_kernel_projection`](Memory::in_kernel_projection) lands in. Each coarsest
-    /// piece is past its extent exactly where its coordinate is past the window's bound, and each
-    /// finer one never is, so it masks where the window did.
-    fn piece_box(&self) -> Window {
-        let rank = comptime!(self.layout.projection.physical_rank());
-        let shape = self.layout.physical_shape.clone();
-        let mut origin = Coords::<i32>::new();
-        #[unroll]
-        for _ in 0..rank {
-            origin.push(0i32);
-        }
-        Window::new(
-            origin,
-            shape.clone(),
-            shape,
-            false,
-            comptime!(SmallVec::new()),
-        )
-    }
-
-    /// The view a read through [`in_kernel_projection`](Memory::in_kernel_projection) lands in:
-    /// the window itself, or the piece box ([`piece_box`](Memory::piece_box)) over a
-    /// storage-tiled buffer.
-    fn physical_view<T: Numeric, W: Size>(
-        &self,
-        #[comptime] guard: Guard,
-    ) -> View<'_, Vector<T, W>, CoordsDyn> {
-        let pieces = self.reads_pieces();
-        if comptime!(pieces) {
-            WindowedView::new(
-                self.read_view::<T, W>(self.base()),
-                self.piece_box().with_guard(guard),
-                self.past_edge(),
-            )
-            .view()
-        } else {
-            self.window_view::<T, W>(guard)
-        }
-    }
-
-    /// [`physical_view`](Memory::physical_view) at the storage element `I`, grouped `WP` wide.
-    fn physical_view_storage<I: Numeric, WP: Size>(
-        &self,
-        #[comptime] guard: Guard,
-    ) -> View<'_, Vector<I, WP>, CoordsDyn> {
-        let pieces = self.reads_pieces();
-        if comptime!(pieces) {
-            WindowedView::new(
-                self.lines_storage::<I, WP>().view(self.base()),
-                self.piece_box().with_guard(guard),
-                comptime!(PastEdge::Clamp),
-            )
-            .view()
-        } else {
-            self.window_view_storage::<I, WP>(guard)
-        }
-    }
-
-    /// The mutable twin of [`physical_view`](Memory::physical_view).
-    fn physical_view_mut<T: Numeric, W: Size>(
-        &mut self,
-        #[comptime] guard: Guard,
-    ) -> ViewMut<'_, Vector<T, W>, CoordsDyn> {
-        let pieces = self.reads_pieces();
-        if comptime!(pieces) {
-            let base = self.base();
-            let window = self.piece_box().with_guard(guard);
-            WindowedViewMut::new(self.write_view::<T, W>(base), window).view_mut()
-        } else {
-            self.window_view_mut::<T, W>(guard)
         }
     }
 
@@ -612,7 +501,7 @@ impl Memory {
             )
         }
         self.edged::<T, W, C>(
-            self.physical_view::<T, W>(guard).view(layout),
+            self.window_view::<T, W>(guard).view(layout),
             comptime!(guard.checks() && self.access.overhang.masks()),
         )
     }
@@ -658,7 +547,7 @@ impl Memory {
         }
         let check = self.write_check();
         MaskedMut::new(
-            self.physical_view_mut::<T, W>(comptime!(Guard::Checked))
+            self.window_view_mut::<T, W>(comptime!(Guard::Checked))
                 .view_mut(layout),
             check,
         )
@@ -678,24 +567,10 @@ impl Memory {
     pub(crate) fn flat_unpacked<T: Numeric, WP: Size, W: Size>(
         &self,
     ) -> FlatView<'_, Vector<T, W>> {
-        let flat = FlatLayout::new(self.window.extent.clone());
-        let pieces = self.reads_pieces();
-        if comptime!(pieces) {
-            // The window's coordinates split into the pieces they lie in, from its origin.
-            let rank = comptime!(self.layout.projection.coordinate_rank());
-            let mut origin = Coords::<u32>::new();
-            #[unroll]
-            for c in 0..rank {
-                origin.push(self.window.origin.at(c).cast::<u32>());
-            }
-            let pieces = self.layout.pieces(&origin, self.window.extent.clone());
-            self.unpacked::<T, WP, W, Coords1d, Projected<FlatLayout>>(
-                Projected::new(flat, pieces),
-                comptime!(Guard::Checked),
-            )
-        } else {
-            self.unpacked::<T, WP, W, Coords1d, FlatLayout>(flat, comptime!(Guard::Checked))
-        }
+        self.unpacked::<T, WP, W, Coords1d, FlatLayout>(
+            FlatLayout::new(self.window.extent.clone()),
+            comptime!(Guard::Checked),
+        )
     }
 
     /// [`masked`](Memory::masked) unpacked through [`Packing`].
@@ -716,7 +591,7 @@ impl Memory {
             Packing::Plain | Packing::Words { .. } => self.masked::<T, W, C, L>(layout, guard),
             Packing::Packed { field } => {
                 let words = self
-                    .physical_view_storage::<u32, WP>(comptime!(Guard::Checked))
+                    .window_view_storage::<u32, WP>(comptime!(Guard::Checked))
                     .view(layout);
                 let values = PackedView::<WP, T, W, C>::new(words, comptime!(field));
                 self.edged::<T, W, C>(
@@ -768,7 +643,7 @@ impl Memory {
             matches!(self.store.packing, Packing::Packed { .. }),
             "Memory::nd_words: only a packed store holds words"
         ));
-        let words = self.physical_view_storage::<I, WP>(guard).view(layout);
+        let words = self.window_view_storage::<I, WP>(guard).view(layout);
         Masked::new(
             words,
             comptime!(guard.checks() && self.access.overhang.masks()),
@@ -787,27 +662,19 @@ impl Memory {
         ));
         let check = self.write_check();
         MaskedMut::new(
-            self.physical_view_mut::<u32, WP>(comptime!(Guard::Checked))
+            self.window_view_mut::<u32, WP>(comptime!(Guard::Checked))
                 .view_mut(layout),
             check,
         )
     }
 
     /// The identity step over this window's physical box, for callers that evaluate the map
-    /// themselves ([`in_kernel_projection`](Memory::in_kernel_projection)): the window's extent,
-    /// or the piece box of a storage-tiled buffer. It masks against the physical box only: the
-    /// caller owes in-range logical coordinates.
+    /// themselves. It masks against the physical box only: the caller owes in-range logical
+    /// coordinates.
     pub(crate) fn physical_box(&self) -> CompactionStep {
         comptime!(self.projection.refuse_backward("Memory::physical_box"));
-        let projection = self.in_kernel_projection();
-        let rank = comptime!(projection.physical_rank());
-        let pieces = self.reads_pieces();
-        let extent = if comptime!(pieces) {
-            self.layout.physical_shape.clone()
-        } else {
-            self.window.extent.clone()
-        };
-        CompactionStep::new(extent, comptime!(vec![1; rank]))
+        let rank = comptime!(self.projection.physical_rank());
+        CompactionStep::new(self.window.extent.clone(), comptime!(vec![1; rank]))
     }
 
     /// The `i`-th batch matrix of this window over `dimensions`, through the operand's mapping.
@@ -840,13 +707,12 @@ impl Memory {
         #[comptime] cols: usize,
     ) -> ProjectedMatrix {
         let vector_size = comptime!(self.store.vector_size);
-        let projection = self.in_kernel_projection();
         ProjectedMatrix::new(
             TileMatrix::whole(space, vector_size, rows, cols),
             dimension_projection(
                 comptime!(space),
-                &comptime!(projection),
-                self.in_kernel_map(),
+                &self.projection,
+                self.map.clone(),
                 vector_size,
             ),
         )
@@ -858,9 +724,9 @@ impl Memory {
         let load = self.vector_tile(space);
         ProjectionInKernel::new(
             Coords::constant(comptime!(load.counts(space))),
-            self.in_kernel_map(),
+            self.map.clone(),
             space.clone(),
-            self.in_kernel_projection(),
+            comptime!(self.projection.clone()),
             comptime!(load.values()),
         )
     }
