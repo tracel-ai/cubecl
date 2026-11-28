@@ -56,7 +56,7 @@ fn measure_into<K: ThroughputCacheKey + Copy>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::throughput::{ThroughputMode, cache::tests::in_memory};
+    use crate::throughput::ThroughputMode;
     use core::cell::Cell;
 
     const LAUNCH: ThroughputKey = ThroughputKey {
@@ -64,7 +64,7 @@ mod tests {
     };
 
     fn throughputs() -> CachedThroughput {
-        CachedThroughput::new(Arc::new(Mutex::new(in_memory())))
+        CachedThroughput::new(Arc::new(Mutex::new(ThroughputCache::in_memory())))
     }
 
     #[test]

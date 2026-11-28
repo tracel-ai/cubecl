@@ -194,6 +194,16 @@ impl<K: ThroughputCacheKey> ThroughputCache<K> {
         self.values.get(key).copied()
     }
 
+    /// An empty cache that keeps nothing on disk.
+    #[cfg(test)]
+    pub(crate) fn in_memory() -> Self {
+        Self {
+            values: HashMap::new(),
+            #[cfg(persistence)]
+            stored: None,
+        }
+    }
+
     /// Forgets every value no disk store holds.
     fn clear(&mut self) {
         self.values.clear();
@@ -212,7 +222,7 @@ fn warn_unstored<K: core::fmt::Debug>(err: StoreError<K, ThroughputValue>) {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::throughput::ThroughputMode;
     use alloc::string::ToString;
@@ -221,18 +231,9 @@ pub(crate) mod tests {
         mode: ThroughputMode::Launch,
     };
 
-    /// An empty cache that keeps nothing on disk.
-    pub(crate) fn in_memory() -> ThroughputCache {
-        ThroughputCache {
-            values: HashMap::new(),
-            #[cfg(persistence)]
-            stored: None,
-        }
-    }
-
     #[test]
     fn a_value_is_kept() {
-        let mut cache = in_memory();
+        let mut cache = ThroughputCache::in_memory();
 
         cache.insert(LAUNCH, ThroughputValue::ZERO);
 
@@ -241,7 +242,7 @@ pub(crate) mod tests {
 
     #[test]
     fn clear_forgets_what_memory_holds() {
-        let mut cache = in_memory();
+        let mut cache = ThroughputCache::in_memory();
         cache.insert(LAUNCH, ThroughputValue::ZERO);
 
         cache.clear();
@@ -254,7 +255,7 @@ pub(crate) mod tests {
     fn a_stored_value_outlives_clear() {
         let mut cache = ThroughputCache {
             stored: Some(Store::new(StoreOptions::new())),
-            ..in_memory()
+            ..ThroughputCache::in_memory()
         };
         cache.insert(LAUNCH, ThroughputValue::ZERO);
 

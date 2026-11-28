@@ -5,14 +5,14 @@ use cubecl_runtime::throughput::{ThroughputError, ThroughputValue};
 /// The first probe of a process runs on clocks that have not ramped, which reads it low, and
 /// another process, a thermal cap or an unlucky schedule read it low too. Nothing reads it high,
 /// so the fastest of a few is the closest to what the device can do.
-pub(super) const PROBE_REPEAT_COUNT: usize = 5;
+const PROBE_REPEAT_COUNT: usize = 5;
 
 /// The fastest value `probe` answers over [`PROBE_REPEAT_COUNT`] runs.
 ///
 /// # Errors
 ///
 /// The error of the last run, where no run measured a value.
-pub(super) fn fastest_of(
+pub fn fastest_of(
     mut probe: impl FnMut() -> Result<ThroughputValue, ThroughputError>,
 ) -> Result<ThroughputValue, ThroughputError> {
     (0..PROBE_REPEAT_COUNT)
