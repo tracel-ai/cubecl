@@ -1,8 +1,8 @@
 /// Whether throughput measurements are cached.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ThroughputConfig {
-    /// Whether every measurement probes again, neither reading nor storing a cached one, in
-    /// memory or on disk.
+    /// Whether measurements are kept off disk: each key is still probed once a process, and its
+    /// answer kept in memory for the rest of it, but none is read from or stored to disk.
     #[serde(default)]
     pub disable_cache: bool,
 }

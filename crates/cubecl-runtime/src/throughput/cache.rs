@@ -1,13 +1,17 @@
 #[cfg(persistence)]
 use cubecl_environment::persistence::{Store, StoreError, StoreOptions};
 
+#[cfg(persistence)]
+use crate::config::CubeClRuntimeConfig;
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::namespace_version::NamespaceVersion;
-use crate::throughput::{LinkKey, ThroughputKey, ThroughputValue};
+use crate::throughput::{LinkKey, ThroughputError, ThroughputKey, ThroughputValue};
 use alloc::sync::Arc;
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::collections::HashMap;
+#[cfg(persistence)]
+use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::DeviceProperties;
 
@@ -37,11 +41,13 @@ pub trait ThroughputCacheKey: core::hash::Hash + Eq + core::fmt::Debug {}
 #[cfg(not(persistence))]
 impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 
-/// Caches the [`ThroughputValue`] for a given key: a [`ThroughputKey`] for one device, a
-/// [`LinkKey`] for the devices a link joins.
+/// Caches what probing a key answered: a [`ThroughputKey`] for one device, a [`LinkKey`] for the
+/// devices a link joins.
 ///
-/// This cache is used to avoid recomputing throughput values for the same key.
-/// Stores on disk when std is available, otherwise stores in memory.
+/// A key is probed at most once a process: a measured value is kept, and so is the error of a
+/// probe that failed. Values are also stored on disk where the build persists and the
+/// configuration leaves the throughput cache on, so a later run reads them back. Errors are kept
+/// in memory only, so the next run probes again.
 pub struct ThroughputCache<K = ThroughputKey> {
     /// Each measured value, read and written by its key.
     #[cfg(not(persistence))]
@@ -49,6 +55,8 @@ pub struct ThroughputCache<K = ThroughputKey> {
     /// Each measured value, read and written by its key.
     #[cfg(persistence)]
     cache: Store<K, ThroughputValue>,
+    /// Each error a probe failed with in this process, read and written by its key.
+    failures: HashMap<K, ThroughputError>,
 }
 
 impl ThroughputCache<LinkKey> {
@@ -131,30 +139,55 @@ fn host_id() -> Option<String> {
 }
 
 impl<K: ThroughputCacheKey> ThroughputCache<K> {
-    /// The cache named `name`, empty or as an earlier run stored it.
+    /// The cache named `name`: empty, or as an earlier run stored it where the configuration
+    /// leaves the throughput cache on.
     pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
-        #[cfg(not(persistence))]
-        {
-            ThroughputCache {
-                cache: HashMap::new(),
-            }
+        #[cfg(persistence)]
+        if !CubeClRuntimeConfig::get().throughput.disable_cache {
+            return Self {
+                cache: Store::new(StoreOptions::new().storage(PROBES.namespace(name))),
+                failures: HashMap::new(),
+            };
         }
 
-        #[cfg(persistence)]
-        {
-            Self {
-                cache: Store::new(StoreOptions::new().storage(PROBES.namespace(name))),
-            }
+        Self::in_memory()
+    }
+
+    /// An empty cache that lives in memory alone.
+    pub fn in_memory() -> Self {
+        Self {
+            #[cfg(not(persistence))]
+            cache: HashMap::new(),
+            #[cfg(persistence)]
+            cache: Store::new(StoreOptions::new()),
+            failures: HashMap::new(),
         }
     }
 
-    /// Inserts a new [`ThroughputValue`] into the cache for the given key.
+    /// Keeps what probing `key` answered.
     ///
     /// Throughput measurements are nondeterministic, so a concurrent process (or an
     /// earlier run) may have recorded a different value for the same key; the cache
     /// keeps the existing value in that case rather than failing. A value the storage
     /// refuses to write is still kept for the rest of the run.
-    pub fn insert(&mut self, key: K, value: ThroughputValue) {
+    pub fn insert(&mut self, key: K, outcome: Result<ThroughputValue, ThroughputError>) {
+        match outcome {
+            Ok(value) => self.insert_value(key, value),
+            Err(error) => self.insert_failure(key, error),
+        }
+    }
+
+    /// What probing `key` answered, if it was probed.
+    pub fn get(&self, key: &K) -> Option<Result<ThroughputValue, ThroughputError>> {
+        match self.cache.get(key) {
+            Some(value) => Some(Ok(*value)),
+            None => self.failures.get(key).copied().map(Err),
+        }
+    }
+}
+
+impl<K: ThroughputCacheKey> ThroughputCache<K> {
+    fn insert_value(&mut self, key: K, value: ThroughputValue) {
         #[cfg(persistence)]
         self.cache.insert(key, value).unwrap_or_else(warn_unstored);
 
@@ -162,9 +195,8 @@ impl<K: ThroughputCacheKey> ThroughputCache<K> {
         self.cache.insert(key, value);
     }
 
-    /// The value measured for `key`, if the cache holds one.
-    pub fn get(&self, key: &K) -> Option<&ThroughputValue> {
-        self.cache.get(key)
+    fn insert_failure(&mut self, key: K, error: ThroughputError) {
+        self.failures.insert(key, error);
     }
 }
 

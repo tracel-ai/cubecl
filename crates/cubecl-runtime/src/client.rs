@@ -2425,12 +2425,14 @@ impl Client {
     ///
     /// `probe` runs on the device runner thread with the device to itself,
     /// since one sharing it measures its share rather than the peak. A cached
-    /// answer takes neither.
+    /// answer takes neither, and an error `probe` reported is cached for the
+    /// rest of the process like a value.
     ///
     /// # Errors
     ///
-    /// Whatever `probe` reports, or [`Launch`](ThroughputError::Launch) where
-    /// the device could not be taken.
+    /// Whatever `probe` reports, now or the first time it ran for `key`, or
+    /// [`Launch`](ThroughputError::Launch) where the device could not be
+    /// taken, which is not cached since nothing ran.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
@@ -2439,8 +2441,8 @@ impl Client {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
         let mut throughputs = CachedThroughput::new(cache);
 
-        if let Some(value) = throughputs.cached(key) {
-            return Ok(value);
+        if let Some(outcome) = throughputs.cached(key) {
+            return outcome;
         }
 
         // Kernels queued for compilation compile now, together, rather than in the probe's

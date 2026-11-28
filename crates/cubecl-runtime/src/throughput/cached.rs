@@ -1,73 +1,97 @@
-use crate::{
-    config::CubeClRuntimeConfig,
-    throughput::{
-        ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey, ThroughputValue,
-    },
+use crate::throughput::{
+    ThroughputCache, ThroughputCacheKey, ThroughputError, ThroughputKey, ThroughputValue,
 };
 use alloc::sync::Arc;
-use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
 
-/// The throughput measured for a device or a link, read from its [`ThroughputCache`] unless the
-/// configuration turns the cache off, and measured where the cache holds nothing.
+/// The throughput measured for a device or a link, read from its [`ThroughputCache`], and probed
+/// where the cache holds nothing for its key.
 pub struct CachedThroughput<K = ThroughputKey> {
     cache: Arc<Mutex<ThroughputCache<K>>>,
-    enabled: bool,
 }
 
 impl<K: ThroughputCacheKey + Copy> CachedThroughput<K> {
-    /// The throughput `cache` holds, read through as the global configuration says.
+    /// The throughput `cache` holds.
     pub fn new(cache: Arc<Mutex<ThroughputCache<K>>>) -> Self {
-        Self {
-            cache,
-            enabled: !CubeClRuntimeConfig::get().throughput.disable_cache,
-        }
+        Self { cache }
     }
 
-    /// The value already measured for `key`, where the cache is on and holds one.
-    pub fn cached(&self, key: K) -> Option<ThroughputValue> {
-        cached_value(&self.cache, self.enabled, key)
+    /// What probing `key` already answered, a value or an error, if it was probed.
+    pub fn cached(&self, key: K) -> Option<Result<ThroughputValue, ThroughputError>> {
+        self.cache.lock().get(&key)
     }
 
-    /// The value for `key`, measured by `probe` unless the cache holds one.
+    /// The value for `key`, probed by `probe` unless the cache holds what an earlier probe
+    /// answered.
+    ///
+    /// # Guarantees
+    ///
+    /// Once a probe answered for `key`, a value or an error, no later call through the same
+    /// cache probes it again in this process.
     ///
     /// # Errors
     ///
-    /// Whatever `probe` reports. Only a measurement is cached.
+    /// Whatever `probe` reports, now or when it first ran for `key`.
     pub fn measure(
         &mut self,
         key: K,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
     ) -> Result<ThroughputValue, ThroughputError> {
-        measure_into(&self.cache, self.enabled, key, probe)
+        if let Some(outcome) = self.cached(key) {
+            return outcome;
+        }
+        let outcome = probe();
+        self.cache.lock().insert(key, outcome);
+        outcome
     }
 }
 
-/// What `cache` holds for `key`, or `None` when it holds nothing or is not `enabled`.
-fn cached_value<K: ThroughputCacheKey>(
-    cache: &Mutex<ThroughputCache<K>>,
-    enabled: bool,
-    key: K,
-) -> Option<ThroughputValue> {
-    if !enabled {
-        return None;
-    }
-    cache.lock().get(&key).copied()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::throughput::ThroughputMode;
+    use core::cell::Cell;
 
-/// What `cache` holds for `key`, or what `probe` measures, kept in `cache` when it is `enabled`.
-fn measure_into<K: ThroughputCacheKey + Copy>(
-    cache: &Mutex<ThroughputCache<K>>,
-    enabled: bool,
-    key: K,
-    probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
-) -> Result<ThroughputValue, ThroughputError> {
-    if let Some(value) = cached_value(cache, enabled, key) {
-        return Ok(value);
+    const LAUNCH: ThroughputKey = ThroughputKey {
+        mode: ThroughputMode::Launch,
+    };
+
+    fn throughputs() -> CachedThroughput {
+        CachedThroughput::new(Arc::new(Mutex::new(ThroughputCache::in_memory())))
     }
-    let value = probe()?;
-    if enabled {
-        cache.lock().insert(key, value);
+
+    #[test]
+    fn a_failed_probe_is_not_run_again_for_its_key() {
+        let mut throughputs = throughputs();
+        let probes = Cell::new(0);
+        let failing = || {
+            probes.set(probes.get() + 1);
+            Err(ThroughputError::NoTiming)
+        };
+
+        assert_eq!(
+            throughputs.measure(LAUNCH, failing),
+            Err(ThroughputError::NoTiming)
+        );
+        assert_eq!(
+            throughputs.measure(LAUNCH, failing),
+            Err(ThroughputError::NoTiming)
+        );
+        assert_eq!(probes.get(), 1);
     }
-    Ok(value)
+
+    #[test]
+    fn a_measured_value_is_not_probed_again_for_its_key() {
+        let mut throughputs = throughputs();
+        let probes = Cell::new(0);
+        let measuring = || {
+            probes.set(probes.get() + 1);
+            Ok(ThroughputValue::ZERO)
+        };
+
+        throughputs.measure(LAUNCH, measuring).expect("a value");
+        throughputs.measure(LAUNCH, measuring).expect("a value");
+
+        assert_eq!(probes.get(), 1);
+    }
 }

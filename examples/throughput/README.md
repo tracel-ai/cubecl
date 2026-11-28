@@ -91,9 +91,10 @@ Peak throughput is cached per device, so repeated runs return the first
 measured value instantly. Toggle it with `CUBECL_THROUGHPUT_CACHE`:
 
 ```sh
-# force a fresh measurement (ignore and overwrite the cache)
+# force a fresh measurement (the stored cache is neither read nor written)
 CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all
 ```
 
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /
 `false` to disable.
+Disabled, each key is still measured only once per process.

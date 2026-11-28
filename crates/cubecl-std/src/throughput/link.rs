@@ -106,8 +106,8 @@ impl<'a> LinkProber<'a> {
                 .collect::<Vec<_>>();
             let benchmarker =
                 ThroughputCache::get_for_link(first.name(), &properties).map(CachedThroughput::new);
-            if let Some(value) = benchmarker.as_ref().and_then(|cached| cached.cached(key)) {
-                return Ok(value);
+            if let Some(outcome) = benchmarker.as_ref().and_then(|cached| cached.cached(key)) {
+                return outcome;
             }
 
             let _probing = LINK_PROBES.lock();

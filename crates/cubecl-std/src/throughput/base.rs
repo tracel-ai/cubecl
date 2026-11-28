@@ -96,8 +96,9 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
 /// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
-/// where a probe's kernel did not run. None of them is cached, so a
-/// device that was full is measured the next time it is asked.
+/// where a probe's kernel did not run. Each is kept for the rest of the
+/// process like a value, so a key that failed is not probed again until the
+/// next run.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
@@ -126,8 +127,8 @@ fn measure(
 
     #[cfg(not(target_family = "wasm"))]
     {
-        // Errors are never cached, so a declined key would otherwise take
-        // the device on every call.
+        // Declined before the cache: a type the backend cannot lower panics
+        // rather than answering, so no probe may run for it.
         if declined(&client.properties().features, key) {
             return (Err(ThroughputError::Unsupported), false);
         }
