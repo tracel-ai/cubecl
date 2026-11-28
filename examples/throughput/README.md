@@ -97,4 +97,4 @@ CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all
 
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /
 `false` to disable.
-Disabled, each key is still measured only once per process, until its `ThroughputCache` is cleared.
+Disabled, each key is still measured only once per process, until `ThroughputCache::clear_all` is called.

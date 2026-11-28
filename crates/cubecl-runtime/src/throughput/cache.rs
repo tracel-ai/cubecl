@@ -6,7 +6,7 @@ use crate::config::CubeClRuntimeConfig;
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::namespace_version::NamespaceVersion;
-use crate::throughput::{LinkKey, ThroughputError, ThroughputKey, ThroughputValue};
+use crate::throughput::{LinkKey, ThroughputKey, ThroughputValue};
 use alloc::sync::Arc;
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::collections::HashMap;
@@ -41,17 +41,20 @@ pub trait ThroughputCacheKey: core::hash::Hash + Eq + core::fmt::Debug {}
 #[cfg(not(persistence))]
 impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 
-/// Caches what probing a key answered: a [`ThroughputKey`] for one device, a [`LinkKey`] for the
-/// devices a link joins.
+/// Caches the [`ThroughputValue`] measured for a key: a [`ThroughputKey`] for one device, a
+/// [`LinkKey`] for the devices a link joins.
 ///
-/// A key is probed once a process, until [`clear`](Self::clear): a measured value is kept, and so
-/// is an error that probing again would answer the same way. Values are also stored on disk where
-/// the build persists and the configuration leaves the throughput cache on, so a later run reads
-/// them back. Errors are kept in memory only, so the next run probes again.
+/// # Guarantees
+///
+/// - A value is kept for the rest of the process, until [`clear_all`](Self::clear_all), whether
+///   the configuration turns the throughput cache off or not.
+/// - With the throughput cache on, and where the build persists, a value is also stored on disk,
+///   and a later run reads it back.
+/// - An error is never kept, so a device that was full, or a link asked while it skipped
+///   communication, is measured the next time it is asked.
 pub struct ThroughputCache<K = ThroughputKey> {
-    /// Each answer kept off disk, read and written by its key: every error kept, and every value
-    /// where no disk store is open.
-    answers: HashMap<K, Result<ThroughputValue, ThroughputError>>,
+    /// Each value measured where no disk store is open, read and written by its key.
+    values: HashMap<K, ThroughputValue>,
     /// The values on disk, read and written by their key, where the configuration leaves the
     /// throughput cache on.
     #[cfg(persistence)]
@@ -92,6 +95,14 @@ impl ThroughputCache {
     pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
         cached(&GLOBAL_CACHE, device_name(runtime, properties))
     }
+
+    /// Forgets every value this process measured, for every device and every link, so the next
+    /// call for each key measures it again. A value stored on disk is still answered: with the
+    /// throughput cache on, a key is measured once.
+    pub fn clear_all() {
+        clear_every(&GLOBAL_CACHE);
+        clear_every(&LINK_CACHE);
+    }
 }
 
 /// The name of the cache of a device of `runtime` reporting `properties`.
@@ -117,6 +128,15 @@ fn cached<K: ThroughputCacheKey>(
         .clone()
 }
 
+/// Forgets the values every cache of `caches` measured.
+fn clear_every<K: ThroughputCacheKey>(caches: &Caches<K>) {
+    caches
+        .lock()
+        .iter()
+        .flat_map(HashMap::values)
+        .for_each(|cache| cache.lock().clear());
+}
+
 /// The host a stored cache was measured on, from the machine id systemd writes.
 #[cfg(all(persistence, std_io))]
 fn host_id() -> Option<String> {
@@ -140,71 +160,43 @@ fn host_id() -> Option<String> {
 impl<K: ThroughputCacheKey> ThroughputCache<K> {
     /// The cache named `name`: empty, or as an earlier run stored it where the configuration
     /// leaves the throughput cache on.
-    pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
+    pub(crate) fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
         Self {
+            values: HashMap::new(),
             #[cfg(persistence)]
             stored: (!CubeClRuntimeConfig::get().throughput.disable_cache)
                 .then(|| Store::new(StoreOptions::new().storage(PROBES.namespace(name)))),
-            ..Self::in_memory()
         }
     }
 
-    /// Keeps what probing `key` answered, unless it is an error that probing again could answer
-    /// differently: [`Allocation`](ThroughputError::Allocation) or
-    /// [`Launch`](ThroughputError::Launch).
+    /// Keeps `value` for `key`.
     ///
     /// Throughput measurements are nondeterministic, so a concurrent process (or an
     /// earlier run) may have recorded a different value for the same key; the cache
     /// keeps the existing value in that case rather than failing. A value the storage
     /// refuses to write is still kept for the rest of the run.
-    pub fn insert(&mut self, key: K, outcome: Result<ThroughputValue, ThroughputError>) {
-        match outcome {
-            Ok(value) => self.insert_value(key, value),
-            Err(error) => self.insert_failure(key, error),
-        }
-    }
-
-    /// What probing `key` answered, if it was probed and kept.
-    pub fn get(&self, key: &K) -> Option<Result<ThroughputValue, ThroughputError>> {
-        #[cfg(persistence)]
-        if let Some(value) = self.stored.as_ref().and_then(|stored| stored.get(key)) {
-            return Some(Ok(*value));
-        }
-
-        self.answers.get(key).copied()
-    }
-
-    /// Forgets every answer kept off disk, so the next call for its key probes again. A value
-    /// stored on disk is still answered: with the throughput cache on, a peak is measured once.
-    pub fn clear(&mut self) {
-        self.answers.clear();
-    }
-}
-
-impl<K: ThroughputCacheKey> ThroughputCache<K> {
-    /// An empty cache that keeps nothing on disk.
-    pub(crate) fn in_memory() -> Self {
-        Self {
-            answers: HashMap::new(),
-            #[cfg(persistence)]
-            stored: None,
-        }
-    }
-
-    fn insert_value(&mut self, key: K, value: ThroughputValue) {
+    pub(crate) fn insert(&mut self, key: K, value: ThroughputValue) {
         #[cfg(persistence)]
         if let Some(stored) = self.stored.as_mut() {
-            stored.insert(key, value).unwrap_or_else(warn_unstored);
-            return;
+            return stored.insert(key, value).unwrap_or_else(warn_unstored);
         }
 
-        self.answers.insert(key, Ok(value));
+        self.values.insert(key, value);
     }
 
-    fn insert_failure(&mut self, key: K, error: ThroughputError) {
-        if error.is_lasting() {
-            self.answers.insert(key, Err(error));
+    /// The value measured for `key`, if the cache holds one.
+    pub(crate) fn get(&self, key: &K) -> Option<ThroughputValue> {
+        #[cfg(persistence)]
+        if let Some(value) = self.stored.as_ref().and_then(|stored| stored.get(key)) {
+            return Some(*value);
         }
+
+        self.values.get(key).copied()
+    }
+
+    /// Forgets every value no disk store holds.
+    fn clear(&mut self) {
+        self.values.clear();
     }
 }
 
@@ -220,7 +212,7 @@ fn warn_unstored<K: core::fmt::Debug>(err: StoreError<K, ThroughputValue>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::throughput::ThroughputMode;
     use alloc::string::ToString;
@@ -229,32 +221,46 @@ mod tests {
         mode: ThroughputMode::Launch,
     };
 
-    #[test]
-    fn a_failure_probing_again_could_answer_differently_is_not_kept() {
-        let mut cache = ThroughputCache::in_memory();
-
-        cache.insert(LAUNCH, Err(ThroughputError::Allocation));
-
-        assert_eq!(cache.get(&LAUNCH), None);
+    /// An empty cache that keeps nothing on disk.
+    pub(crate) fn in_memory() -> ThroughputCache {
+        ThroughputCache {
+            values: HashMap::new(),
+            #[cfg(persistence)]
+            stored: None,
+        }
     }
 
     #[test]
-    fn a_lasting_failure_is_kept() {
-        let mut cache = ThroughputCache::in_memory();
+    fn a_value_is_kept() {
+        let mut cache = in_memory();
 
-        cache.insert(LAUNCH, Err(ThroughputError::Unsupported));
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
 
-        assert_eq!(cache.get(&LAUNCH), Some(Err(ThroughputError::Unsupported)));
+        assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
     }
 
     #[test]
     fn clear_forgets_what_memory_holds() {
-        let mut cache = ThroughputCache::in_memory();
-        cache.insert(LAUNCH, Ok(ThroughputValue::ZERO));
+        let mut cache = in_memory();
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
 
         cache.clear();
 
         assert_eq!(cache.get(&LAUNCH), None);
+    }
+
+    #[cfg(persistence)]
+    #[test]
+    fn a_stored_value_outlives_clear() {
+        let mut cache = ThroughputCache {
+            stored: Some(Store::new(StoreOptions::new())),
+            ..in_memory()
+        };
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
+
+        cache.clear();
+
+        assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
     }
 
     #[test]

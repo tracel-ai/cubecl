@@ -11,8 +11,8 @@ use cubecl_runtime::{
 
 use crate::throughput::{
     Arithmetic, CooperativeMatrix, LaunchConfig, PooledProbes, ShapeSweep, WorkerSweep, cache_read,
-    compute_cmma, compute_direct, cube_rate, launch_overhead, memory_direct, memory_probe,
-    memory_read, memory_write, shared_read,
+    compute_cmma, compute_direct, cube_rate, fastest_of, launch_overhead, memory_direct,
+    memory_probe, memory_read, memory_write, shared_read,
 };
 
 /// Measure peak throughput on `device` for each of the given `keys`.
@@ -90,15 +90,18 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// roofline bound built from it has no peak and no time limit, and the tune
 /// runs without one rather than not at all.
 ///
+/// The probe runs a few times and the fastest run is kept, since every
+/// source of error reads a peak low and none reads it high.
+///
 /// # Errors
 ///
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
 /// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
-/// where a probe's kernel did not run. `Unsupported` and `NoTiming` are kept
-/// like a value, so their key is not probed again in this process. The other
-/// two are not, so a device that was full is probed the next time it is asked.
+/// where a probe's kernel did not run, each the error of its last run where no
+/// run of the probe measured. None of them is cached, so a device that was
+/// full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
@@ -127,8 +130,8 @@ fn measure(
 
     #[cfg(not(target_family = "wasm"))]
     {
-        // Declined before the cache: a type the backend cannot lower panics
-        // rather than answering, so no probe may run for it.
+        // Errors are never cached, so a declined key would otherwise take
+        // the device on every call.
         if declined(&client.properties().features, key) {
             return (Err(ThroughputError::Unsupported), false);
         }
@@ -143,7 +146,7 @@ fn measure(
             );
 
             probed = true;
-            let value = probe(client, key);
+            let value = fastest_of(|| probe(client, key));
             core::mem::drop(measuring);
             value
         });

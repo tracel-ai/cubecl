@@ -12,7 +12,7 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    KernelSampler, ShapeSweep, link_collective,
+    KernelSampler, ShapeSweep, fastest_of, link_collective,
     link_peer::{MAX_BYTES, PeerCopier, PeerCopyKind},
     link_transfer,
 };
@@ -106,8 +106,8 @@ impl<'a> LinkProber<'a> {
                 .collect::<Vec<_>>();
             let benchmarker =
                 ThroughputCache::get_for_link(first.name(), &properties).map(CachedThroughput::new);
-            if let Some(outcome) = benchmarker.as_ref().and_then(|cached| cached.cached(key)) {
-                return outcome;
+            if let Some(value) = benchmarker.as_ref().and_then(|cached| cached.cached(key)) {
+                return Ok(value);
             }
 
             let _probing = LINK_PROBES.lock();
@@ -129,9 +129,11 @@ impl<'a> LinkProber<'a> {
             client.compile_queued();
         }
 
-        ShapeSweep::new(alloc::vec![key.bytes])
-            .fastest(|bytes| self.build(key.route, bytes))
-            .map(|(value, _)| value)
+        fastest_of(|| {
+            ShapeSweep::new(alloc::vec![key.bytes])
+                .fastest(|bytes| self.build(key.route, bytes))
+                .map(|(value, _)| value)
+        })
     }
 
     fn build(&self, route: LinkRoute, bytes: u64) -> Result<KernelSampler, ThroughputError> {
