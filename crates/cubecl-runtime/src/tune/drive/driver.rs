@@ -133,7 +133,7 @@ where
         if let Some(name) = outcome.short_circuit {
             self.committer.log_short_circuit(name);
         }
-        self.committer.commit(Vec::new(), outcome.decided)
+        self.committer.commit(Vec::new(), outcome.winner)
     }
 
     /// Benchmark every candidate with a fixed sample count, batch by batch until one measures a

@@ -56,10 +56,13 @@ impl core::fmt::Display for AutotuneLogContext {
 pub struct AutotuneDecision<'a, K: Clone> {
     /// The key for the autotuning job.
     pub key: Cow<'a, K>,
-    /// The candidate the tune decided, as the table stores it.
-    pub decided_index: usize,
-    /// Its median time, `None` where it was decided with nothing measured.
-    pub decided_time: Option<Duration>,
+    /// The winner, as the table stores it. Read under its earlier name too.
+    #[serde(alias = "decided_index")]
+    pub winner_index: usize,
+    /// Its median time, `None` where it won with nothing measured. Read under its earlier name
+    /// too.
+    #[serde(alias = "decided_time")]
+    pub winner_time: Option<Duration>,
     /// Every candidate's result, ranked as the table stores them (Arrival Usage).
     pub results: Cow<'a, [AutotuneResult]>,
     /// What the tune logged, when something read it.

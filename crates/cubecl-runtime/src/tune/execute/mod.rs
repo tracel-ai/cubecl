@@ -1,4 +1,4 @@
-//! Running a call site's autotune: its sets, its tuners, and the decided candidate.
+//! Running a call site's autotune: its sets, its tuners, and the winner.
 
 #[cfg(feature = "autotune-checks")]
 pub mod checks;
