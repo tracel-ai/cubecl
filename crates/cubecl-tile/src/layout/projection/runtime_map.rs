@@ -20,7 +20,7 @@ pub(crate) struct RuntimeMap {
     pub(crate) digit_starts: Coords<u32>,
     /// The [`Radix::Dynamic`](crate::Radix) place values and extents of the digits, in
     /// [`digit_radix_index`](crate::Projection::digit_radix_index) order.
-    pub(crate) digit_radices: Coords<u32>,
+    pub digit_radices: Coords<u32>,
 }
 
 #[cube]

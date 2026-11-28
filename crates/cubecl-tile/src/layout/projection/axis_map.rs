@@ -3,7 +3,7 @@
 use cubecl::zspace::SmallVec;
 
 use crate::space::extent::Extent;
-use crate::{Dimension, Space, WalkUnits, algebra::gcd};
+use crate::{Dimension, Space, algebra::gcd};
 
 /// How far one unit of a dimension moves along one physical axis.
 /// A `Static` coefficient is signed: a negative one steps the physical axis backward. A `Dynamic`
@@ -123,7 +123,7 @@ pub(crate) struct Digit {
 /// A digit's place value or extent: known where the kernel is written, or read off the buffer
 /// when it runs, from the runtime map's digit radices.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Radix {
+pub enum Radix {
     Static(usize),
     Dynamic,
 }
@@ -140,10 +140,10 @@ mod radix_expand {
 /// How one term of a physical axis moves when its dimension is walked one count of a compile-time
 /// unit ([`PhysicalAxisMap::term_step`]).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum TermStep {
+pub enum TermStep {
     /// By this constant, in the physical axis's units.
     Adds(isize),
-    /// By the term's runtime coefficient times this many coordinates.
+    /// By the term's runtime coefficient, read off the runtime map, times this many coordinates.
     AddsCoefficient(usize),
     /// Not at all.
     Holds,
@@ -156,8 +156,9 @@ impl Digit {
     /// own units, before its term's coefficient: a coarsest digit adds the quotient once its place
     /// value divides the unit, a digit inside another holds once its period does, and any other
     /// digit, or one whose radix the rule reads is [`Radix::Dynamic`], is evaluated again. A
-    /// coarsest digit's extent is never read.
-    pub(crate) fn step(&self, coords_per_count: usize) -> TermStep {
+    /// coarsest digit's extent is never read, and a digit never answers
+    /// [`TermStep::AddsCoefficient`]: its coefficient is static.
+    pub fn step_by_coords(&self, coords_per_count: usize) -> TermStep {
         match (self.quotient, self.place_value, self.extent) {
             (Quotient::Whole, Radix::Static(place), _)
                 if coords_per_count.is_multiple_of(place) =>
@@ -171,6 +172,14 @@ impl Digit {
             }
             _ => TermStep::Reevaluates,
         }
+    }
+}
+
+impl Radix {
+    /// The radix a value known as `constant` where the kernel expands is: [`Radix::Static`] where
+    /// it is a constant, [`Radix::Dynamic`] where it is only read when the kernel runs.
+    pub fn from_constant(constant: Option<u64>) -> Self {
+        constant.map_or(Radix::Dynamic, |value| Radix::Static(value as usize))
     }
 }
 
@@ -200,8 +209,8 @@ impl DimensionTerm {
         match self.digit.map(|digit| digit.extent) {
             Some(Radix::Static(digits)) => digits - 1,
             Some(Radix::Dynamic) => panic!(
-                "DimensionTerm::largest_coordinate: {:?}'s digit has an extent read off the buffer, so \
-                 its span is not known where the kernel is written",
+                "DimensionTerm::largest_coordinate: {:?}'s digit should have a static extent to span \
+                 a known range, and this one is read off the buffer",
                 self.dimension
             ),
             None => extent - 1,
@@ -514,14 +523,16 @@ impl PhysicalAxisMap {
     }
 
     /// How term `term` moves when its dimension moves `coords_per_count` a count, in this axis's
-    /// units ([`TermStep`]): a digit as [`Digit::step`] says, scaled by its coefficient; a plain
-    /// term on an integer axis by its coefficient; a plain term under a static divisor by the
-    /// quotient once the divisor divides its move, every other one evaluated again.
+    /// units read `lines` values a line ([`TermStep`]): a digit as [`Digit::step_by_coords`] says,
+    /// scaled by its coefficient; a plain term by its coefficient times the move, over the divisor
+    /// and the line, where both divide it; every other one evaluated again.
     ///
     /// # Assumptions
     ///
     /// - `term` is one of this axis's terms.
     /// - `coords_per_count` counts the units the term's coordinate counts.
+    /// - `lines` is the values a line of this axis holds where the term's coefficient is read in
+    ///   lines, `1` where it is read in values.
     ///
     /// # Guarantees
     ///
@@ -531,35 +542,32 @@ impl PhysicalAxisMap {
     ///   moves so whatever its other terms.
     /// - It answers [`TermStep::Reevaluates`] only where no such constant exists or a radix or
     ///   divisor it needs is only known at runtime.
-    pub(crate) fn term_step(&self, term: usize, coords_per_count: usize) -> TermStep {
+    pub(crate) fn term_step(&self, term: usize, coords_per_count: usize, lines: usize) -> TermStep {
         let at = self.terms[term];
-        match at.digit.map(|digit| digit.step(coords_per_count)) {
+        match at.digit.map(|digit| digit.step_by_coords(coords_per_count)) {
             Some(TermStep::Adds(digits)) => TermStep::Adds(digits * at.scale.get()),
             Some(step) => step,
-            None => self.plain_step(at.scale, coords_per_count),
+            None => self.plain_step(at.scale, coords_per_count, lines),
         }
     }
 
-    /// Whether walking `walk` moves a term of this axis that stays inside its floor, so the
-    /// floor is taken again where the walk lands.
-    pub(crate) fn reevaluates_floor(&self, walk: &WalkUnits) -> bool {
-        self.is_rational()
-            && self.terms.iter().enumerate().any(|(t, term)| {
-                walk.coords_per_count(term.dimension)
-                    .is_some_and(|unit| self.term_step(t, unit) == TermStep::Reevaluates)
-            })
+    /// Whether term `term` is summed inside this axis's floor rather than stepped past it: a term
+    /// of a rational axis whose coefficient the divisor does not divide.
+    pub(crate) fn kept_in_floor(&self, term: usize) -> bool {
+        self.is_rational() && self.static_offset_step(term).is_none()
     }
 
-    /// [`term_step`](Self::term_step) of a plain term of coefficient `scale`.
-    fn plain_step(&self, scale: Scale, coords_per_count: usize) -> TermStep {
+    /// [`term_step`](Self::term_step) of a plain term of coefficient `scale`: the move over the
+    /// divisor and the line together, so a step a line division makes fractional is no constant.
+    fn plain_step(&self, scale: Scale, coords_per_count: usize, lines: usize) -> TermStep {
         let moved = coords_per_count as isize;
+        let whole = |d: usize| (d * lines) as isize;
         match (self.divisor, scale) {
-            (Divisor::Static(1), Scale::Static(s)) => TermStep::Adds(moved * s),
+            (Divisor::Static(d), Scale::Static(s)) if (moved * s).rem_euclid(whole(d)) == 0 => {
+                TermStep::Adds(moved * s / whole(d))
+            }
             (Divisor::Static(1), Scale::Dynamic { .. }) => {
                 TermStep::AddsCoefficient(coords_per_count)
-            }
-            (Divisor::Static(d), Scale::Static(s)) if (moved * s).rem_euclid(d as isize) == 0 => {
-                TermStep::Adds(moved * s / d as isize)
             }
             _ => TermStep::Reevaluates,
         }
@@ -697,8 +705,7 @@ mod tests {
     #[test]
     fn a_plain_affine_term_steps_by_its_coefficient() {
         let map = PhysicalAxisMap::affine(&[(A, 2), (B, 3)]);
-        assert_eq!(map.term_step(0, 1), TermStep::Adds(2));
-        assert_eq!(map.term_step(1, 4), TermStep::Adds(12));
+        assert_eq!(map.term_step(1, 4, 1), TermStep::Adds(12));
     }
 
     /// A digit of place `7`: whole, it adds once the unit is a multiple of `7`.
@@ -709,10 +716,10 @@ mod tests {
             extent: Radix::Static(5),
             quotient: Quotient::Whole,
         };
-        assert_eq!(digit.step(14), TermStep::Adds(2));
+        assert_eq!(digit.step_by_coords(14), TermStep::Adds(2));
     }
 
-    /// A digit of place `2` inside another, `3` of it: one count of `6` or `12` wraps it whole.
+    /// A digit of place `2` inside another, `3` of it: one count of `6` wraps it whole.
     #[test]
     fn a_modulo_digit_holds_when_the_unit_spans_its_period() {
         let digit = Digit {
@@ -720,85 +727,111 @@ mod tests {
             extent: Radix::Static(3),
             quotient: Quotient::Modulo,
         };
-        assert_eq!(digit.step(6), TermStep::Holds);
-        assert_eq!(digit.step(12), TermStep::Holds);
+        assert_eq!(digit.step_by_coords(6), TermStep::Holds);
     }
 
     #[test]
-    fn a_digit_reevaluates_when_its_place_does_not_divide_the_unit() {
+    fn a_whole_digit_reevaluates_when_its_place_does_not_divide_the_unit() {
         let whole = Digit {
             place_value: Radix::Static(7),
             extent: Radix::Static(5),
             quotient: Quotient::Whole,
         };
-        assert_eq!(whole.step(3), TermStep::Reevaluates);
-        // A multiple of its place, not of its period.
+        assert_eq!(whole.step_by_coords(3), TermStep::Reevaluates);
+    }
+
+    /// A unit that is a multiple of the digit's place, not of its period, moves it by no constant.
+    #[test]
+    fn a_modulo_digit_reevaluates_inside_its_period() {
         let inside = Digit {
             place_value: Radix::Static(2),
             extent: Radix::Static(7),
             quotient: Quotient::Modulo,
         };
-        assert_eq!(inside.step(4), TermStep::Reevaluates);
+        assert_eq!(inside.step_by_coords(4), TermStep::Reevaluates);
     }
 
-    /// The coarsest digit never reads its extent, so the buffer's runtime count of its tiles does
-    /// not stop it from adding; a digit inside another reads both radices.
     #[test]
-    fn a_dynamic_radix_reevaluates_unless_the_rule_never_reads_it() {
+    fn a_modulo_digit_whose_extent_is_read_off_the_buffer_reevaluates() {
         let inside = Digit {
             place_value: Radix::Static(1),
             extent: Radix::Dynamic,
             quotient: Quotient::Modulo,
         };
-        assert_eq!(inside.step(16), TermStep::Reevaluates);
+        assert_eq!(inside.step_by_coords(16), TermStep::Reevaluates);
+    }
+
+    /// The coarsest digit never reads its extent, so the buffer's runtime count of its tiles does
+    /// not stop it from adding.
+    #[test]
+    fn a_whole_digit_adds_whatever_its_extent() {
         let coarsest = Digit {
             place_value: Radix::Static(16),
             extent: Radix::Dynamic,
             quotient: Quotient::Whole,
         };
-        assert_eq!(coarsest.step(32), TermStep::Adds(2));
+        assert_eq!(coarsest.step_by_coords(32), TermStep::Adds(2));
+    }
+
+    #[test]
+    fn a_digit_whose_place_value_is_read_off_the_buffer_reevaluates() {
         let unstated = Digit {
             place_value: Radix::Dynamic,
             extent: Radix::Dynamic,
             quotient: Quotient::Whole,
         };
-        assert_eq!(unstated.step(16), TermStep::Reevaluates);
+        assert_eq!(unstated.step_by_coords(16), TermStep::Reevaluates);
     }
 
-    /// `⌊(3a + 4b)/2⌋`: `a` walked by two moves the floor by three, by one it does not move it by
-    /// a constant; `b` moves it by two a count whatever the unit.
+    /// `⌊(3a + 4b)/2⌋`: `a` walked by two moves the floor by three.
     #[test]
     fn a_floored_term_adds_once_the_unit_makes_it_whole() {
         let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
-        assert_eq!(map.term_step(0, 2), TermStep::Adds(3));
-        assert_eq!(map.term_step(0, 1), TermStep::Reevaluates);
-        assert_eq!(map.term_step(1, 1), TermStep::Adds(2));
-        assert!(map.reevaluates_floor(&WalkUnits::along(A, 1)));
-        assert!(!map.reevaluates_floor(&WalkUnits::over(&[(A, 2), (B, 1)])));
+        assert_eq!(map.term_step(0, 2, 1), TermStep::Adds(3));
+    }
+
+    /// `⌊(3a + 4b)/2⌋`: `a` walked by one moves the floor by no constant.
+    #[test]
+    fn a_floored_term_reevaluates_while_the_unit_leaves_it_fractional() {
+        let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
+        assert_eq!(map.term_step(0, 1, 1), TermStep::Reevaluates);
+    }
+
+    /// `⌊(2a + b)/4⌋` read two values a line, `a` walked by two: `a`'s move is one value past the
+    /// floor, half a line, so no constant.
+    #[test]
+    fn a_step_a_line_makes_fractional_reevaluates() {
+        let map = PhysicalAxisMap::affine(&[(A, 2), (B, 1)]).over(4);
+        assert_eq!(map.term_step(0, 2, 1), TermStep::Adds(1));
+        assert_eq!(map.term_step(0, 2, 2), TermStep::Reevaluates);
     }
 
     #[test]
-    fn a_dynamic_divisor_reevaluates_and_a_dynamic_coefficient_adds_its_coefficient() {
+    fn a_dynamic_coefficient_adds_its_coefficient() {
         let map = PhysicalAxisMap::scaled(&[(A, Scale::Static(2)), (B, Scale::Dynamic { max: 4 })]);
-        assert_eq!(map.term_step(1, 3), TermStep::AddsCoefficient(3));
-        let divided = PhysicalAxisMap::affine(&[(A, 4)]).over(Divisor::Dynamic { min: 2 });
-        assert_eq!(divided.term_step(0, 2), TermStep::Reevaluates);
+        assert_eq!(map.term_step(1, 3, 1), TermStep::AddsCoefficient(3));
     }
 
-    /// Every step [`PhysicalAxisMap::term_step`] answers is the difference of the axis's values at
-    /// both ends of the walk, wherever it starts: digits of every place, extent and coefficient,
-    /// and plain terms under every divisor.
     #[test]
-    fn term_step_matches_evaluating_the_axis() {
-        let digit_value = |digit: Digit, x: usize| {
-            let (Radix::Static(place), Radix::Static(extent)) = (digit.place_value, digit.extent)
-            else {
-                unreachable!("only static radices are evaluated on the host")
-            };
-            match digit.quotient {
-                Quotient::Whole => x / place,
-                Quotient::Modulo => x / place % extent,
-            }
+    fn a_dynamic_divisor_reevaluates() {
+        let divided = PhysicalAxisMap::affine(&[(A, 4)]).over(Divisor::Dynamic { min: 2 });
+        assert_eq!(divided.term_step(0, 2, 1), TermStep::Reevaluates);
+    }
+
+    #[test]
+    fn a_term_whose_coefficient_the_divisor_does_not_divide_is_kept_in_the_floor() {
+        let map = PhysicalAxisMap::affine(&[(A, 3), (B, 4)]).over(2);
+        assert!(map.kept_in_floor(0));
+        assert!(!map.kept_in_floor(1));
+    }
+
+    /// The step a digit answers is the difference of its values at both ends of the walk,
+    /// wherever it starts, for every place, extent, coefficient and unit.
+    #[test]
+    fn a_digit_step_matches_evaluating_the_digit() {
+        let digit_value = |place: usize, extent: usize, quotient, x: usize| match quotient {
+            Quotient::Whole => x / place,
+            Quotient::Modulo => x / place % extent,
         };
         for place in 1..5 {
             for extent in 1..5 {
@@ -821,20 +854,19 @@ mod tests {
                             piece: 0,
                         };
                         for unit in 1..13 {
-                            let step = map.term_step(0, unit);
-                            for x in 0..24 {
-                                for n in 0..4 {
-                                    let moved = (digit_value(digit, x + n * unit) as isize
-                                        - digit_value(digit, x) as isize)
-                                        * scale;
-                                    match step {
-                                        TermStep::Adds(c) => assert_eq!(moved, n as isize * c),
-                                        TermStep::Holds => assert_eq!(moved, 0),
-                                        TermStep::AddsCoefficient(_) => {
-                                            unreachable!("a digit's coefficient is static")
-                                        }
-                                        TermStep::Reevaluates => {}
-                                    }
+                            let step = map.term_step(0, unit, 1);
+                            let constant = match step {
+                                TermStep::Adds(c) => Some(c),
+                                TermStep::Holds => Some(0),
+                                TermStep::AddsCoefficient(_) | TermStep::Reevaluates => None,
+                            };
+                            for (x, n) in (0..24).flat_map(|x| (0..4).map(move |n| (x, n))) {
+                                let moved = (digit_value(place, extent, quotient, x + n * unit)
+                                    as isize
+                                    - digit_value(place, extent, quotient, x) as isize)
+                                    * scale;
+                                if let Some(c) = constant {
+                                    assert_eq!(moved, n as isize * c);
                                 }
                             }
                         }
@@ -842,13 +874,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The step a plain term under a divisor answers is the difference of the axis's values at
+    /// both ends of the walk, and it is a constant exactly where the divisor divides the move.
+    #[test]
+    fn a_floored_step_matches_evaluating_the_axis() {
+        let plain = |dimension, scale| DimensionTerm {
+            dimension,
+            scale: Scale::Static(scale),
+            digit: None,
+        };
         for divisor in 1..5usize {
             for scale in 0..6isize {
-                let plain = |dimension, scale| DimensionTerm {
-                    dimension,
-                    scale: Scale::Static(scale),
-                    digit: None,
-                };
                 // Built whole, as `over` would reduce a divisor every coefficient cancels.
                 let map = PhysicalAxisMap {
                     terms: SmallVec::from_slice(&[plain(A, scale), plain(B, 3)]),
@@ -859,23 +897,15 @@ mod tests {
                 };
                 let axis = |a: isize, b: isize| (a * scale + b * 3).div_euclid(divisor as isize);
                 for unit in 1..7 {
-                    let step = map.term_step(0, unit);
-                    for (a, b) in (0..6).flat_map(|a| (0..6).map(move |b| (a, b))) {
-                        for n in 0..4isize {
-                            let moved = axis(a + n * unit as isize, b) - axis(a, b);
-                            match step {
-                                TermStep::Adds(c) => assert_eq!(moved, n * c),
-                                TermStep::Holds => assert_eq!(moved, 0),
-                                TermStep::AddsCoefficient(_) => {
-                                    unreachable!("a static coefficient adds a constant")
-                                }
-                                TermStep::Reevaluates => {}
-                            }
-                        }
-                    }
-                    // A divisor of the move is a constant step.
+                    let step = map.term_step(0, unit, 1);
                     let whole = (unit as isize * scale).rem_euclid(divisor as isize) == 0;
                     assert_eq!(step != TermStep::Reevaluates, whole);
+                    let TermStep::Adds(c) = step else { continue };
+                    for (a, b) in (0..6).flat_map(|a| (0..6).map(move |b| (a, b))) {
+                        for n in 0..4isize {
+                            assert_eq!(axis(a + n * unit as isize, b) - axis(a, b), n * c);
+                        }
+                    }
                 }
             }
         }
@@ -917,7 +947,7 @@ mod tests {
         let map =
             PhysicalAxisMap::scaled(&[(A, Scale::Static(1)), (B, Scale::Static(-2))]).shifted(3);
         assert_eq!(map.scale(B), -2);
-        assert_eq!(map.term_step(1, 1), TermStep::Adds(-2));
+        assert_eq!(map.term_step(1, 1, 1), TermStep::Adds(-2));
         assert!(map.has_negative_scale());
         assert!(!PhysicalAxisMap::scaled(&[(A, Scale::Static(-1))]).is_identity(A));
 
@@ -1174,9 +1204,7 @@ mod tests {
         );
         assert_eq!(map.scale(P), 2);
         assert_eq!(map.offset(), Offset::Static(-1));
-        assert_eq!(map.term_step(0, 1), TermStep::Reevaluates);
-        assert_eq!(map.term_step(0, 7), TermStep::Adds(2));
-        assert_eq!(map.term_step(1, 1), TermStep::Adds(1));
+        assert_eq!(map.term_step(0, 7, 1), TermStep::Adds(2));
         assert_eq!(map.composition(), Composition::Overlapping);
         assert!(map.claimed_radices().is_empty());
         assert_eq!(map.terms()[0].largest_coordinate(64), 4);

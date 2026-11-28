@@ -5,7 +5,7 @@ use cubecl::zspace::SmallVec;
 
 use crate::layout::storage::pieces_named;
 use crate::{
-    AxesBuilder, Composition, Decline, Digit, Dimension, Divisor, Geometry, Offset,
+    AnchorSlots, AxesBuilder, Composition, Decline, Digit, Dimension, Divisor, Geometry, Offset,
     PhysicalAxisMap, Quotient, Radix, Space, TermStep, WalkUnits,
 };
 
@@ -238,10 +238,10 @@ impl Projection {
 
     /// The physical axes storing finer pieces of the coordinate physical axis `pa` stores a piece
     /// of, whose extents its place value is the product of; none for a coordinate stored whole.
-    pub(crate) fn finer_pieces(&self, pa: usize) -> Vec<usize> {
+    pub(crate) fn finer_pieces_of_axis(&self, pa: usize) -> impl Iterator<Item = usize> {
         let dimension = self.physical[pa].terms()[0].dimension;
         let (finer, _) = self.carried_by(pa, dimension);
-        finer.to_vec()
+        finer.into_iter()
     }
 
     /// Whether this operand addresses `dimension`; a spanned but unaddressed dimension is a
@@ -435,52 +435,79 @@ impl Projection {
         self.physical.iter().any(|m| m.has_negative_scale())
     }
 
-    /// Whether the ends of a run along `walk` bound every position between them: no coefficient
-    /// steps backward, and every term the walk moves adds or holds ([`TermStep`]), where a term
-    /// evaluated again, a digit wrapping or a floor, may land outside both ends' box.
-    pub(crate) fn run_bounded_by_ends(&self, walk: &WalkUnits) -> bool {
+    /// How term `t` of physical axis `pa` moves along `walk`, read `width` values a line
+    /// ([`PhysicalAxisMap::term_step`]); `None` where the walk does not move its dimension.
+    pub(crate) fn walked_step(
+        &self,
+        pa: usize,
+        t: usize,
+        walk: &WalkUnits,
+        width: usize,
+    ) -> Option<TermStep> {
+        let axis = &self.physical[pa];
+        let dimension = axis.terms()[t].dimension;
+        walk.coords_per_count(dimension)
+            .map(|unit| axis.term_step(t, unit, self.lines_of_term(pa, dimension, width)))
+    }
+
+    /// The values a line holds where a term of `dimension` on physical axis `pa` is read `width`
+    /// values a line: `width` on the innermost axis for a dimension other than the innermost,
+    /// whose coordinate already counts lines; `1` everywhere else.
+    pub(crate) fn lines_of_term(&self, pa: usize, dimension: Dimension, width: usize) -> usize {
+        let innermost = self.dimensions.last() == Some(&dimension);
+        match pa + 1 == self.physical_rank() && !innermost {
+            true => width,
+            false => 1,
+        }
+    }
+
+    /// Whether the ends of a run along `walk`, read `width` values a line, bound every position
+    /// between them: no coefficient steps backward, and every term the walk moves adds or holds
+    /// ([`TermStep`]), where a term evaluated again, a digit wrapping or a floor, may land outside
+    /// both ends' box.
+    pub(crate) fn run_bounded_by_ends(&self, walk: &WalkUnits, width: usize) -> bool {
         !self.has_negative_scale()
-            && self.physical.iter().all(|m| {
-                m.terms().iter().enumerate().all(|(t, term)| {
-                    walk.coords_per_count(term.dimension)
-                        .is_none_or(|unit| m.term_step(t, unit) != TermStep::Reevaluates)
-                })
+            && (0..self.physical_rank()).all(|pa| {
+                (0..self.physical[pa].terms().len())
+                    .all(|t| self.walked_step(pa, t, walk, width) != Some(TermStep::Reevaluates))
             })
     }
 
-    /// The physical axes whose floor `walk` takes again where it lands, in axis order
-    /// ([`PhysicalAxisMap::reevaluates_floor`]).
-    pub(crate) fn floors_reevaluated(&self, walk: &WalkUnits) -> Vec<usize> {
-        (0..self.physical_rank())
-            .filter(|&pa| self.physical[pa].reevaluates_floor(walk))
-            .collect()
-    }
-
-    /// The dimensions of `walk` some digit is evaluated again along, in the walk's order: where
-    /// the walk lands along them is the position those digits are read at.
-    pub(crate) fn digits_reevaluated(&self, walk: &WalkUnits) -> Vec<Dimension> {
-        walk.dimensions
+    /// Where each word of a walk's [`Anchor`](crate::Anchor) over this map sits, the walk read
+    /// `width` values a line.
+    pub(crate) fn anchor_slots(&self, walk: &WalkUnits, width: usize) -> AnchorSlots {
+        let reevaluated = |pa: usize, t: usize| {
+            self.walked_step(pa, t, walk, width) == Some(TermStep::Reevaluates)
+        };
+        let floors = (0..self.physical_rank())
+            .filter(|&pa| {
+                let axis = &self.physical[pa];
+                (0..axis.terms().len()).any(|t| axis.kept_in_floor(t) && reevaluated(pa, t))
+            })
+            .collect();
+        let origins = walk
+            .dimensions
             .iter()
-            .filter(|walked| {
-                self.physical.iter().any(|m| {
-                    m.terms().iter().enumerate().any(|(t, term)| {
-                        term.dimension == walked.dimension
-                            && term.digit.is_some()
-                            && m.term_step(t, walked.coords_per_count) == TermStep::Reevaluates
-                    })
+            .map(|walked| walked.dimension)
+            .filter(|&dimension| {
+                (0..self.physical_rank()).any(|pa| {
+                    self.physical[pa]
+                        .terms()
+                        .iter()
+                        .enumerate()
+                        .any(|(t, term)| {
+                            term.dimension == dimension
+                                && term.digit.is_some()
+                                && reevaluated(pa, t)
+                        })
                 })
             })
-            .map(|walked| walked.dimension)
-            .collect()
-    }
-
-    /// The words a walk's anchor over this map holds ([`Anchor`](crate::Anchor)): a value per
-    /// physical axis, the numerator of each floor `walk` takes again, and the start's coordinate
-    /// along each dimension a digit is read again along.
-    pub(crate) fn anchor_len(&self, walk: &WalkUnits) -> usize {
-        self.physical_rank()
-            + self.floors_reevaluated(walk).len()
-            + self.digits_reevaluated(walk).len()
+            .collect();
+        AnchorSlots {
+            axes: self.physical_rank(),
+            floors,
+            origins,
+        }
     }
 
     /// This operand's buffer axes read as the digits of the coordinates they store pieces of: the
@@ -512,12 +539,13 @@ impl Projection {
     ) -> Projection {
         assert!(
             self.digit_dimensions().is_empty(),
-            "Projection::pieces_as_digits: this map already reads digits; a folded operand is \
+            "Projection::pieces_as_digits: the untiled map should read no digit; a folded operand is \
              never storage-tiled, so its pieces cannot be read as digits too"
         );
         assert!(
             radices.len() == positional.physical_rank(),
-            "Projection::pieces_as_digits: {} radices for {} buffer axes",
+            "Projection::pieces_as_digits: there should be one radix pair a buffer axis, and there \
+             are {} for {}",
             radices.len(),
             positional.physical_rank()
         );
@@ -544,38 +572,30 @@ impl Projection {
         Projection::of_maps(&self.dimensions, physical)
     }
 
-    /// Where physical axis `pa`'s [`Radix::Dynamic`] place value and extent sit in a
-    /// `RuntimeMap`'s digit radices, `None` for a static one: axis major, its place value first.
-    pub(crate) fn digit_radix_index(&self, pa: usize) -> (Option<usize>, Option<usize>) {
-        let before = self.digit_radix_base(pa);
-        let [place, extent] = self.dynamic_radices(pa);
-        (
-            place.then_some(before),
-            extent.then_some(before + usize::from(place)),
-        )
+    /// The radices this map's digits read off the buffer, each as its physical axis and whether
+    /// it is that axis's extent rather than its place value, in the order a `RuntimeMap`'s digit
+    /// radices hold them: axis major, the place value first. A coarsest digit's extent is never
+    /// read, so it takes no slot.
+    pub(crate) fn dynamic_radices(&self) -> impl Iterator<Item = (usize, bool)> + '_ {
+        self.physical.iter().enumerate().flat_map(|(pa, axis)| {
+            let digit = axis.terms().iter().find_map(|term| term.digit);
+            let place = digit.is_some_and(|d| d.place_value == Radix::Dynamic);
+            let extent =
+                digit.is_some_and(|d| d.quotient == Quotient::Modulo && d.extent == Radix::Dynamic);
+            [(pa, false, place), (pa, true, extent)]
+                .into_iter()
+                .filter_map(|(pa, is_extent, read)| read.then_some((pa, is_extent)))
+        })
     }
 
-    /// How many [`Radix::Dynamic`] place values and extents this map's digits read.
-    pub(crate) fn digit_radix_count(&self) -> usize {
-        self.digit_radix_base(self.physical_rank())
-    }
-
-    /// Where physical axis `pa`'s dynamic radices start in a `RuntimeMap`'s digit radices.
-    fn digit_radix_base(&self, pa: usize) -> usize {
-        (0..pa)
-            .map(|q| self.dynamic_radices(q).into_iter().filter(|&d| d).count())
-            .sum()
-    }
-
-    /// Whether physical axis `pa`'s digit reads its place value and its extent at runtime.
-    fn dynamic_radices(&self, pa: usize) -> [bool; 2] {
-        match self.physical[pa].terms().iter().find_map(|term| term.digit) {
-            Some(digit) => [
-                digit.place_value == Radix::Dynamic,
-                digit.extent == Radix::Dynamic,
-            ],
-            None => [false, false],
-        }
+    /// Where physical axis `pa`'s place value and extent sit among the
+    /// [`dynamic_radices`](Projection::dynamic_radices), `None` for one read as a constant.
+    pub(crate) fn digit_radix_index_of_axis(&self, pa: usize) -> (Option<usize>, Option<usize>) {
+        let index = |is_extent| {
+            self.dynamic_radices()
+                .position(|radix| radix == (pa, is_extent))
+        };
+        (index(false), index(true))
     }
 
     /// Refuses a backward coefficient for `what`, which takes the window's physical box as its
@@ -1173,7 +1193,7 @@ mod tests {
         assert_eq!(&digits.digit_dimensions()[..], &[A, B]);
         for pa in 0..4 {
             let term = digits.physical_axis(pa).terms()[0];
-            let digit = term.digit.expect("every axis stores a piece");
+            let digit = term.digit.expect("every axis should store a piece");
             let c = Dimension(term.dimension.0);
             let (finer, modulo) = positional.carried_by(pa, c);
             assert_eq!(term.scale, Scale::Static(1));
@@ -1210,7 +1230,7 @@ mod tests {
     }
 
     /// An axis whose radices the buffer sets reads them off the runtime map, each axis's place
-    /// value before its extent, axis after axis.
+    /// value before its extent, axis after axis; a coarsest piece's extent takes no slot.
     #[test]
     fn unstated_piece_extents_read_as_dynamic_radices() {
         let (tiled, _) = fp8_tiles();
@@ -1218,62 +1238,83 @@ mod tests {
         let digits = tiled
             .untiled()
             .pieces_as_digits(&tiled.positional(), &unstated);
-        assert_eq!(digits.digit_radix_count(), 8);
-        assert_eq!(digits.digit_radix_index(0), (Some(0), Some(1)));
-        assert_eq!(digits.digit_radix_index(3), (Some(6), Some(7)));
-        let (_, stated) = fp8_tiles();
+        assert_eq!(
+            digits.dynamic_radices().collect::<Vec<_>>(),
+            vec![
+                (0, false),
+                (1, false),
+                (2, false),
+                (2, true),
+                (3, false),
+                (3, true)
+            ]
+        );
+        assert_eq!(digits.digit_radix_index_of_axis(3), (Some(4), Some(5)));
+    }
+
+    /// Every radix of `[m/16][k/8][m%16][k%8]` the buffer does not set is stated, so none is read.
+    #[test]
+    fn stated_piece_extents_read_no_radix() {
+        let (tiled, stated) = fp8_tiles();
         let digits = tiled
             .untiled()
             .pieces_as_digits(&tiled.positional(), &stated);
-        assert_eq!(digits.digit_radix_count(), 2);
-        assert_eq!(digits.digit_radix_index(1), (None, Some(1)));
-        assert_eq!(digits.digit_radix_index(2), (None, None));
+        assert_eq!(digits.dynamic_radices().count(), 0);
     }
 
     #[test]
-    #[should_panic(expected = "already reads digits")]
+    #[should_panic(expected = "should read no digit")]
     fn pieces_as_digits_refuses_a_projection_read_as_digits() {
         let folded = input().folded(A, &[(OH, 5), (OW, 7)]);
         let positional = Projection::direct(&[A, B]);
         folded.pieces_as_digits(&positional, &[(Radix::Static(1), Radix::Static(1)); 2]);
     }
 
-    /// Walked a row at a time, the row inside a tile is evaluated again, which wraps; walked a
-    /// tile of rows at a time, or along `k`, every piece adds or holds.
+    /// Walked a row at a time, the row inside a tile is evaluated again, which wraps.
     #[test]
     fn a_walk_reevaluating_a_modulo_digit_is_not_bounded_by_its_ends() {
         let (tiled, radices) = fp8_tiles();
         let digits = tiled
             .untiled()
             .pieces_as_digits(&tiled.positional(), &radices);
-        assert!(!digits.run_bounded_by_ends(&WalkUnits::along(A, 1)));
-        assert!(digits.run_bounded_by_ends(&WalkUnits::along(A, 16)));
-        assert!(digits.run_bounded_by_ends(&WalkUnits::along(B, 1)));
-        assert_eq!(digits.digits_reevaluated(&WalkUnits::along(A, 1)), vec![A]);
-        assert_eq!(digits.anchor_len(&WalkUnits::along(A, 1)), 5);
-        assert_eq!(digits.anchor_len(&WalkUnits::along(B, 2)), 4);
+        assert!(!digits.run_bounded_by_ends(&WalkUnits::along(A, 1), 1));
     }
 
-    /// The pieces of a coordinate lie inside the buffer's extents exactly where the coordinate
-    /// lies inside its bound, the product of those extents: at the bound and one past it alike.
+    /// Walked a tile of rows at a time, the tile adds one and the row inside it holds.
     #[test]
-    fn the_piece_box_masks_where_the_coordinate_window_did() {
+    fn a_walk_of_whole_tiles_is_bounded_by_its_ends() {
         let (tiled, radices) = fp8_tiles();
         let digits = tiled
             .untiled()
             .pieces_as_digits(&tiled.positional(), &radices);
-        let shape = [3, 4, 16, 1];
-        let bound = [48, 4];
-        for m in 0..=bound[0] {
-            for k in 0..=bound[1] {
-                let inside = (0..4).all(|pa| {
-                    let term = digits.physical_axis(pa).terms()[0];
-                    let x = if term.dimension == A { m } else { k };
-                    digit_at(term.digit.unwrap(), x) < shape[pa]
-                });
-                assert_eq!(inside, m < bound[0] && k < bound[1], "({m}, {k})");
-            }
-        }
+        assert!(digits.run_bounded_by_ends(&WalkUnits::along(A, 16), 1));
+    }
+
+    /// The row inside a tile, evaluated again along a walk of rows, reads where the walk started:
+    /// the anchor keeps that row past its axes' words.
+    #[test]
+    fn an_anchor_keeps_the_start_of_a_dimension_whose_digit_is_evaluated_again() {
+        let (tiled, radices) = fp8_tiles();
+        let digits = tiled
+            .untiled()
+            .pieces_as_digits(&tiled.positional(), &radices);
+        let slots = digits.anchor_slots(&WalkUnits::along(A, 1), 1);
+        assert_eq!(slots.origins, vec![A]);
+        assert_eq!(slots.origin_slot(A), 4);
+    }
+
+    /// Two loads along `k` at a time add to the tile of `k` and hold inside it: the anchor is its
+    /// axes' words alone.
+    #[test]
+    fn an_anchor_moved_only_by_constants_holds_its_axes_alone() {
+        let (tiled, radices) = fp8_tiles();
+        let digits = tiled
+            .untiled()
+            .pieces_as_digits(&tiled.positional(), &radices);
+        assert_eq!(
+            digits.anchor_slots(&WalkUnits::along(B, 2), 1).word_count(),
+            4
+        );
     }
 
     /// Which piece an axis is comes from its statement, not from the axes around it.

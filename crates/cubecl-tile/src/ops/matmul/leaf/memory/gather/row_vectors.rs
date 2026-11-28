@@ -26,7 +26,8 @@ pub(super) struct RowVectors<'a, EL: Numeric, L: Size> {
     /// Split only on the anchored path: a split refuses a backward window, which never anchors.
     lhs: &'a Tile,
     vectors: Array<Vector<EL, L>>,
-    /// Each vector's anchor ([`Anchor`]), its words one after another.
+    /// Each vector's [`Anchor`], `rank` words a vector: a walk the map moves only by constants
+    /// keeps one word an axis.
     anchors: Array<u32>,
     /// Whether each vector's run in the current tap is in bounds, as `1` or `0`.
     run_in_bounds: Array<u32>,
@@ -45,13 +46,13 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
             (LhsRole::FreeOfColumn, true) => RowReads::Anchored,
         });
         let anchored = comptime!(reads == RowReads::Anchored);
-        let projection = lhs.in_kernel_projection();
-        let words = comptime!(projection.anchor_len(&walk));
+        let projection = lhs.projection();
+        let rank = comptime!(projection.physical_rank());
         let vectors = problem.row_vector_count();
         RowVectors::<'a, EL, L> {
             lhs,
             vectors: Array::new(vectors),
-            anchors: Array::new(comptime!(if anchored { vectors * words } else { 1 })),
+            anchors: Array::new(comptime!(if anchored { vectors * rank } else { 1 })),
             run_in_bounds: Array::new(comptime!(if anchored { vectors } else { 1 })),
             reads,
         }
@@ -74,8 +75,13 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
     ) {
         if comptime!(self.reads == RowReads::Anchored) {
             let split = self.lhs.nd_split::<EL, L>();
+            let rank = comptime!(split.rank);
             let walk = comptime!(problem.block.fastest_walk());
             let words = split.map.anchor_len(&walk);
+            comptime!(assert!(
+                words == rank,
+                "RowVectors::anchor: a walk the map moves only by constants should keep one word                  an axis"
+            ));
             let rows_per_vector = problem.rows_per_vector();
             let run = problem.block.fastest_extent();
             let first_step = step_coords(tap_coords, 0u32);
@@ -104,7 +110,7 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
                 split
                     .map
                     .anchor(first, &walk)
-                    .store_into(&mut self.anchors, row_vector * comptime!(words));
+                    .store_into(&mut self.anchors, row_vector * comptime!(rank));
             }
         }
     }
@@ -169,12 +175,16 @@ impl<'a, EL: Numeric, L: Size> RowVectors<'a, EL, L> {
         #[comptime] problem: GatherProblem,
     ) -> Vector<EL, L> {
         let split = self.lhs.nd_split::<EL, L>();
+        let rank = comptime!(split.rank);
+        let anchor = Anchor::load_from(&self.anchors, row_vector * comptime!(rank), rank);
         let walk = comptime!(problem.block.fastest_walk());
-        let words = split.map.anchor_len(&walk);
-        let anchor = Anchor::load_from(&self.anchors, row_vector * comptime!(words), words);
+        let walked_at = comptime!(
+            walk.positions_in(problem.space(Side::Lhs))
+                .collect::<Vec<_>>()
+        );
         let at = split
             .map
-            .advance(&anchor, &split.map.counts_at(&pos, &walk), &walk);
+            .advance(&anchor, &Coords::picked(&pos, walked_at), &walk);
         split.view.read_unchecked(at)
     }
 }

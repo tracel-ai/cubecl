@@ -114,6 +114,19 @@ impl Coords<u32> {
         out
     }
 
+    /// The entries of `pos` at comptime `picks`, in that order.
+    #[allow(clippy::needless_range_loop)] // `#[unroll]` requires a range loop.
+    pub(crate) fn picked(pos: &CoordsDyn, #[comptime] picks: Vec<usize>) -> Coords<u32> {
+        let mut out = Coords::<u32>::new();
+
+        #[unroll]
+        for i in 0..picks.len() {
+            out.push(pos[comptime!(picks[i])]);
+        }
+
+        out
+    }
+
     /// Append `other`'s coordinates after these.
     pub(crate) fn extend(&mut self, other: &Coords<u32>) {
         #[unroll]

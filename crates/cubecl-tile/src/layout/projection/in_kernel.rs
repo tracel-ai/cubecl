@@ -33,21 +33,63 @@ pub(crate) struct ProjectionInKernel {
 
 /// Where a walk over a [`ProjectionInKernel`] starts, evaluated once
 /// ([`ProjectionInKernel::anchor`]): what [`advance`](ProjectionInKernel::advance) adds each
-/// position's constants to, and what it reads again the terms that move by none.
+/// position's constants to, and reads again the terms that move by none from.
 #[derive(CubeType, Clone)]
 #[expand(derive(Clone))]
-pub(crate) struct Anchor {
-    /// Each physical axis's value at the start without the terms the walk evaluates again, then
-    /// the numerator of each floor it takes again, then the start's coordinate along each
-    /// dimension a digit is evaluated again along.
+pub struct Anchor {
+    /// The words [`AnchorSlots`] places.
     words: Coords<u32>,
+}
+
+/// Where each word of a walk's [`Anchor`] sits ([`Projection::anchor_slots`]): each physical
+/// axis's value at the start without the terms the walk evaluates again, then the numerator of
+/// each floor it takes again, then the start's coordinate along each dimension it reads a digit
+/// of again.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct AnchorSlots {
+    /// The physical axes, one word each, first.
+    pub axes: usize,
+    /// The physical axes whose floor the walk takes again, in axis order.
+    pub floors: Vec<usize>,
+    /// The walked dimensions some digit is evaluated again along, in the walk's order.
+    pub origins: Vec<Dimension>,
+}
+
+impl AnchorSlots {
+    /// The words an anchor of these slots holds.
+    pub fn word_count(&self) -> usize {
+        self.axes + self.floors.len() + self.origins.len()
+    }
+
+    /// The word holding the numerator of physical axis `pa`'s floor, `None` where the walk does
+    /// not take it again.
+    pub fn floor_slot_of_axis(&self, pa: usize) -> Option<usize> {
+        self.floors
+            .iter()
+            .position(|&floor| floor == pa)
+            .map(|at| self.axes + at)
+    }
+
+    /// The word holding the start's coordinate along `dimension`.
+    ///
+    /// # Panics
+    ///
+    /// Where no digit of `dimension` is evaluated again.
+    pub fn origin_slot(&self, dimension: Dimension) -> usize {
+        let at = self
+            .origins
+            .iter()
+            .position(|&origin| origin == dimension)
+            .expect("AnchorSlots: a dimension read again should have its start kept");
+        self.axes + self.floors.len() + at
+    }
 }
 
 #[cube]
 impl Anchor {
     /// Store this anchor's words into `words` from `at` on, to read it back later with
     /// [`load_from`](Anchor::load_from).
-    pub(crate) fn store_into(&self, words: &mut Array<u32>, at: usize) {
+    pub fn store_into(&self, words: &mut Array<u32>, at: usize) {
         #[unroll]
         for w in 0..self.words.len() {
             words[at + w] = self.words.at(w);
@@ -56,7 +98,7 @@ impl Anchor {
 
     /// The anchor `len` words long stored in `words` from `at` on
     /// ([`ProjectionInKernel::anchor_len`]).
-    pub(crate) fn load_from(words: &Array<u32>, at: usize, #[comptime] len: usize) -> Anchor {
+    pub fn load_from(words: &Array<u32>, at: usize, #[comptime] len: usize) -> Anchor {
         let mut stored = Coords::<u32>::new();
         #[unroll]
         for w in 0..len {
@@ -68,7 +110,7 @@ impl Anchor {
 
 #[cube]
 impl ProjectionInKernel {
-    pub(crate) fn new(
+    pub fn new(
         shape: Coords<u32>,
         map: RuntimeMap,
         #[comptime] space: Space,
@@ -97,16 +139,16 @@ impl ProjectionInKernel {
         let digits = map.digit_starts.len();
         comptime!(assert!(
             digits == projection.digit_dimensions().len(),
-            "ProjectionInKernel: the projection reads digits of {} dimensions but {digits} digit \
-             starts were given",
+            "ProjectionInKernel: the projection reads digits of {} dimensions, and there should be \
+             a start for each, but {digits} were given",
             projection.digit_dimensions().len()
         ));
         let radices = map.digit_radices.len();
         comptime!(assert!(
-            radices == projection.digit_radix_count(),
-            "ProjectionInKernel: the projection's digits read {} radices off the buffer but \
-             {radices} were given",
-            projection.digit_radix_count()
+            radices == projection.dynamic_radices().count(),
+            "ProjectionInKernel: the projection's digits read {} radices off the buffer, and there \
+             should be one for each, but {radices} were given",
+            projection.dynamic_radices().count()
         ));
         ProjectionInKernel {
             shape,
@@ -118,62 +160,47 @@ impl ProjectionInKernel {
     }
 }
 
-/// A coefficient in its physical axis's units: lines on the innermost, which must divide.
-/// A backward coefficient is its two's complement, so a wrapping product and sum subtract it.
-fn line_scale(
-    space: &Space,
-    projection: &Projection,
-    width: usize,
-    pa: usize,
-    dimension: Dimension,
-    scale: isize,
-) -> u32 {
-    let innermost = space.dimension_at(space.rank() - 1);
-    if pa != projection.physical_rank() - 1 || width == 1 || dimension == innermost {
-        return scale as u32;
-    }
+/// A coefficient in its physical axis's units, read `lines` values a line
+/// ([`Projection::lines_of_term`]). A backward coefficient is its two's complement, so a wrapping
+/// product and sum subtract it.
+fn line_scale(dimension: Dimension, scale: isize, lines: usize) -> u32 {
     assert!(
-        scale.unsigned_abs().is_multiple_of(width),
-        "ProjectionInKernel: {dimension:?} steps {scale} values of a physical axis read {width} at a time, \
-         so one line spans more than one {dimension:?}; serve narrower lines, or give {dimension:?} a \
-         physical axis of its own"
+        scale.unsigned_abs().is_multiple_of(lines),
+        "ProjectionInKernel: {dimension:?} steps {scale} values of a physical axis read {lines} at a \
+         time, and a line should span one {dimension:?} at most; serve narrower lines, or give \
+         {dimension:?} a physical axis of its own"
     );
-    (scale / width as isize) as u32
+    (scale / lines as isize) as u32
 }
 
 #[cube]
 impl ProjectionInKernel {
     /// Where a walk along `walk` from `pos` starts.
-    ///
-    /// # Assumptions
-    ///
-    /// - `pos` lies in the logical box.
     // `#[unroll]` needs a range loop over the comptime lists.
     #[allow(clippy::needless_range_loop)]
-    pub(crate) fn anchor(&self, pos: CoordsDyn, #[comptime] walk: &WalkUnits) -> Anchor {
-        let floors = comptime!(self.projection.floors_reevaluated(walk));
-        let origins = comptime!(self.projection.digits_reevaluated(walk));
+    pub fn anchor(&self, pos: CoordsDyn, #[comptime] walk: &WalkUnits) -> Anchor {
+        let slots = comptime!(self.projection.anchor_slots(walk, self.width));
         let mut words = Coords::<u32>::new();
 
         #[unroll]
-        for pa in 0..comptime!(self.projection.physical_rank()) {
+        for pa in 0..slots.axes {
             words.push(self.anchored_axis(&pos, pa, walk));
         }
         #[unroll]
-        for k in 0..floors.len() {
-            words.push(self.floor_numerator(&pos, comptime!(floors[k])));
+        for k in 0..slots.floors.len() {
+            words.push(self.floor_numerator(&pos, comptime!(slots.floors[k])));
         }
         #[unroll]
-        for j in 0..origins.len() {
-            words.push(pos[comptime!(self.space.position(origins[j]))]);
+        for j in 0..slots.origins.len() {
+            words.push(pos[comptime!(self.space.position(slots.origins[j]))]);
         }
 
         Anchor { words }
     }
 
     /// The words an [`Anchor`] of `walk` holds, for a caller that stores it.
-    pub(crate) fn anchor_len(&self, #[comptime] walk: &WalkUnits) -> comptime_type!(usize) {
-        comptime!(self.projection.anchor_len(walk))
+    pub fn anchor_len(&self, #[comptime] walk: &WalkUnits) -> comptime_type!(usize) {
+        comptime!(self.projection.anchor_slots(walk, self.width).word_count())
     }
 
     /// The source coordinate a walk from `anchor` lands on after `counts[i]` counts along each
@@ -182,16 +209,16 @@ impl ProjectionInKernel {
     /// # Assumptions
     ///
     /// - `anchor` is this map's [`anchor`](Self::anchor) of `walk`.
-    /// - `counts` holds one count per dimension of `walk`, in its order, and the position the
-    ///   walk lands on lies in the logical box.
+    /// - `counts` holds one count per dimension of `walk`, in its order.
     ///
     /// # Guarantees
     ///
     /// - The result is [`to_source_pos`](Layout::to_source_pos) of the anchor's position moved
     ///   `counts[i]·coords_per_count` along each walked dimension.
-    /// - Where every term the walk moves adds or holds ([`TermStep`]), it is the anchor's words
-    ///   plus a product of each count by a constant, with no division and no remainder.
-    pub(crate) fn advance(
+    /// - Where every term the walk moves adds a compile-time constant or holds ([`TermStep`]), it
+    ///   is the anchor's words plus a product of each count by a constant, with no division and
+    ///   no remainder; a term adding its runtime coefficient adds a product by that coefficient.
+    pub fn advance(
         &self,
         anchor: &Anchor,
         counts: &Coords<u32>,
@@ -200,52 +227,39 @@ impl ProjectionInKernel {
         let walked = counts.len();
         comptime!(assert!(
             walked == walk.dimensions.len(),
-            "ProjectionInKernel::advance: {walked} counts for a walk along {} dimensions",
+            "ProjectionInKernel::advance: there should be a count a walked dimension, and there \
+             are {walked} for {}",
             walk.dimensions.len()
         ));
-        let floors = comptime!(self.projection.floors_reevaluated(walk));
         let mut out = CoordsDyn::new();
 
         #[unroll]
         for pa in 0..comptime!(self.projection.physical_rank()) {
-            let axis_map = comptime!(self.projection.physical_axis(pa).clone());
-            let floored = comptime!(floors.iter().position(|&f| f == pa));
-            let mut steps = Coords::<u32>::new();
-            steps.push(anchor.words.at(pa));
-            #[unroll]
-            for t in 0..axis_map.terms().len() {
-                let term = comptime!(axis_map.terms()[t]);
-                if comptime!(walk.position(term.dimension).is_some()) {
-                    steps.push(self.term_moved(anchor, counts, pa, t, walk));
-                }
-            }
-            if comptime!(floored.is_some()) {
-                steps.push(self.floor_moved(anchor, counts, pa, walk));
-            }
-            let n_steps = steps.len();
-            out.push(steps.sum(comptime!((0..n_steps).collect::<Vec<_>>())));
+            out.push(self.advanced_axis(anchor, counts, pa, walk));
         }
 
         out
     }
 
-    /// The count of each dimension of `walk` that reaches `pos` from where that dimension's
-    /// coordinate is zero: the counts of a walk of unit steps anchored there.
-    pub(crate) fn counts_at(&self, pos: &CoordsDyn, #[comptime] walk: &WalkUnits) -> Coords<u32> {
-        let mut counts = Coords::<u32>::new();
+    /// Physical axis `pa` where the walk lands: the anchor's word, each term's move, and the
+    /// floor taken again.
+    fn advanced_axis(
+        &self,
+        anchor: &Anchor,
+        counts: &Coords<u32>,
+        #[comptime] pa: usize,
+        #[comptime] walk: &WalkUnits,
+    ) -> u32 {
+        let n = comptime!(self.projection.physical_axis(pa).terms().len());
+        let mut steps = Coords::<u32>::new();
+        steps.push(anchor.words.at(pa));
         #[unroll]
-        for i in 0..walk.dimensions.len() {
-            let walked = comptime!(walk.dimensions[i]);
-            comptime!(assert!(
-                walked.coords_per_count == 1,
-                "ProjectionInKernel::counts_at: {:?} is walked {} coordinates a count, so a \
-                 coordinate is not its count",
-                walked.dimension,
-                walked.coords_per_count
-            ));
-            counts.push(pos[comptime!(self.space.position(walked.dimension))]);
+        for t in 0..n {
+            steps.push(self.term_moved(anchor, counts, pa, t, walk));
         }
-        counts
+        steps.push(self.floor_moved(anchor, counts, pa, walk));
+        let n_steps = steps.len();
+        steps.sum(comptime!((0..n_steps).collect::<Vec<_>>()))
     }
 
     /// Physical axis `pa` at `pos`, without the terms `walk` evaluates again: a digit read again
@@ -256,49 +270,78 @@ impl ProjectionInKernel {
         #[comptime] pa: usize,
         #[comptime] walk: &WalkUnits,
     ) -> u32 {
-        let axis_map = comptime!(self.projection.physical_axis(pa).clone());
-        let floor_again = comptime!(axis_map.reevaluates_floor(walk));
-        // Exact steps stay outside the numerator, added after the floor.
-        let mut offsets = Coords::<u32>::new();
+        let n = comptime!(self.projection.physical_axis(pa).terms().len());
+        let mut parts = Coords::<u32>::new();
         #[unroll]
-        for t in 0..axis_map.terms().len() {
-            let term = comptime!(axis_map.terms()[t]);
-            let again = comptime!(
-                term.digit.is_some()
-                    && walk
-                        .coords_per_count(term.dimension)
-                        .is_some_and(|unit| axis_map.term_step(t, unit) == TermStep::Reevaluates)
-            );
-            let outside =
-                comptime!(!axis_map.is_rational() || axis_map.static_offset_step(t).is_some());
-            if comptime!(!again && outside) {
-                offsets.push(self.term_at(pos, pa, t));
-            }
+        for t in 0..n {
+            parts.push(self.anchored_term(pos, pa, t, walk));
         }
-        let n_exact = offsets.len();
-        let offset = offsets.sum(comptime!((0..n_exact).collect::<Vec<_>>()));
+        parts.push(self.anchored_floor(pos, pa, walk));
+        let n_parts = parts.len();
+        parts.sum(comptime!((0..n_parts).collect::<Vec<_>>()))
+    }
 
-        if comptime!(!axis_map.is_rational() || floor_again) {
-            offset
-        } else {
-            self.floored(self.floor_numerator(pos, pa), pa).plus(offset)
+    /// Term `t` of physical axis `pa` at `pos`, as the anchor keeps it outside the floor: `0` for
+    /// a term kept in the floor, and for a digit `walk` evaluates again.
+    fn anchored_term(
+        &self,
+        pos: &CoordsDyn,
+        #[comptime] pa: usize,
+        #[comptime] t: usize,
+        #[comptime] walk: &WalkUnits,
+    ) -> u32 {
+        let axis = comptime!(self.projection.physical_axis(pa).clone());
+        let step = comptime!(self.projection.walked_step(pa, t, walk, self.width));
+        let left_out = comptime!(
+            axis.kept_in_floor(t)
+                || (axis.terms()[t].digit.is_some() && step == Some(TermStep::Reevaluates))
+        );
+        match left_out {
+            true => 0u32.runtime(),
+            false => self.term_at(pos, pa, t),
+        }
+    }
+
+    /// Physical axis `pa`'s floor at `pos`, where the anchor takes it: `0` for an integer axis,
+    /// and for a floor `walk` takes again.
+    fn anchored_floor(
+        &self,
+        pos: &CoordsDyn,
+        #[comptime] pa: usize,
+        #[comptime] walk: &WalkUnits,
+    ) -> u32 {
+        let slots = comptime!(self.projection.anchor_slots(walk, self.width));
+        let taken_here = comptime!(
+            self.projection.physical_axis(pa).is_rational()
+                && slots.floor_slot_of_axis(pa).is_none()
+        );
+        match taken_here {
+            true => self.floored(self.floor_numerator(pos, pa), pa),
+            false => 0u32.runtime(),
         }
     }
 
     /// The numerator of rational physical axis `pa`'s floor at `pos`: its residue plus every term
     /// kept inside the floor.
     fn floor_numerator(&self, pos: &CoordsDyn, #[comptime] pa: usize) -> u32 {
-        let axis_map = comptime!(self.projection.physical_axis(pa).clone());
+        let n = comptime!(self.projection.physical_axis(pa).terms().len());
         let mut terms = Coords::<u32>::new();
         terms.push(self.map.residues.at(pa));
         #[unroll]
-        for t in 0..axis_map.terms().len() {
-            if comptime!(axis_map.static_offset_step(t).is_none()) {
-                terms.push(self.term_at(pos, pa, t));
-            }
+        for t in 0..n {
+            terms.push(self.numerator_term(pos, pa, t));
         }
         let n_kept = terms.len();
         terms.sum(comptime!((0..n_kept).collect::<Vec<_>>()))
+    }
+
+    /// Term `t` of physical axis `pa` at `pos` as its floor's numerator holds it, `0` for a term
+    /// stepped past the floor.
+    fn numerator_term(&self, pos: &CoordsDyn, #[comptime] pa: usize, #[comptime] t: usize) -> u32 {
+        match comptime!(self.projection.physical_axis(pa).kept_in_floor(t)) {
+            true => self.term_at(pos, pa, t),
+            false => 0u32.runtime(),
+        }
     }
 
     /// `numerator` divided by rational physical axis `pa`'s divisor, floored.
@@ -316,40 +359,29 @@ impl ProjectionInKernel {
     fn term_at(&self, pos: &CoordsDyn, #[comptime] pa: usize, #[comptime] t: usize) -> u32 {
         let term = comptime!(self.projection.physical_axis(pa).terms()[t]);
         let coordinate = pos[comptime!(self.space.position(term.dimension))];
-        if comptime!(term.digit.is_some()) {
-            self.digit_term(coordinate, pa, t)
-        } else {
-            coordinate.times(self.coefficient(pa, t))
+        match comptime!(term.digit.is_some()) {
+            true => self.digit_term(coordinate, pa, t),
+            false => coordinate.times(self.coefficient(pa, t)),
         }
     }
 
     /// The coefficient of plain term `t` of physical axis `pa` where it is summed, in the axis's
-    /// units: past the floor a static step exact under the divisor, else its own, lined on the
-    /// innermost axis ([`line_scale`]); a dynamic one read off the runtime map. What a coordinate
-    /// of the term is multiplied by, at the anchor and along a walk alike.
+    /// units: past the floor a static step exact under the divisor, else its own, read in lines
+    /// where [`Projection::lines_of_term`] says; a dynamic one read off the runtime map. What a
+    /// coordinate of the term is multiplied by, at the anchor and along a walk alike.
     fn coefficient(&self, #[comptime] pa: usize, #[comptime] t: usize) -> u32 {
         let axis_map = comptime!(self.projection.physical_axis(pa).clone());
         let term = comptime!(axis_map.terms()[t]);
+        let lines = comptime!(
+            self.projection
+                .lines_of_term(pa, term.dimension, self.width)
+        );
         let exact = comptime!(axis_map.static_offset_step(t));
         match (term.scale, exact) {
-            (_, Some(step)) => comptime!(line_scale(
-                &self.space,
-                &self.projection,
-                self.width,
-                pa,
-                term.dimension,
-                step as isize
-            ))
-            .runtime(),
-            (Scale::Static(s), None) => comptime!(line_scale(
-                &self.space,
-                &self.projection,
-                self.width,
-                pa,
-                term.dimension,
-                s
-            ))
-            .runtime(),
+            (_, Some(step)) => {
+                comptime!(line_scale(term.dimension, step as isize, lines)).runtime()
+            }
+            (Scale::Static(s), None) => comptime!(line_scale(term.dimension, s, lines)).runtime(),
             (Scale::Dynamic { .. }, None) => self.map.coefficients.at(comptime!(
                 self.projection.dynamic_scale_index(pa, t).unwrap()
             )),
@@ -361,7 +393,7 @@ impl ProjectionInKernel {
     fn digit_term(&self, coordinate: u32, #[comptime] pa: usize, #[comptime] t: usize) -> u32 {
         let term = comptime!(self.projection.physical_axis(pa).terms()[t]);
         let digit = comptime!(term.digit.unwrap());
-        let (place_at, extent_at) = comptime!(self.projection.digit_radix_index(pa));
+        let (place_at, extent_at) = comptime!(self.projection.digit_radix_index_of_axis(pa));
         let start = self
             .map
             .digit_starts
@@ -384,9 +416,13 @@ impl ProjectionInKernel {
         }
     }
 
-    /// What term `t` of physical axis `pa`, on a dimension of `walk`, adds to the anchor's word
-    /// after `counts`: its constant step per count, or its digit read again where the walk lands.
-    /// A term inside a floor taken again adds through the numerator ([`floor_moved`]).
+    /// What term `t` of physical axis `pa` adds to the anchor's word after `counts` of `walk`: its
+    /// constant step per count, its runtime coefficient's, or its digit read again where the walk
+    /// lands; `0` where the walk does not move it, and for a term inside a floor taken again,
+    /// which moves through the numerator ([`floor_moved`]).
+    ///
+    /// A term that moves by no constant outside a floor is a digit: a plain term's coefficient is
+    /// read in lines exactly ([`line_scale`]), so its step per count is a whole number of them.
     ///
     /// [`floor_moved`]: Self::floor_moved
     fn term_moved(
@@ -397,42 +433,42 @@ impl ProjectionInKernel {
         #[comptime] t: usize,
         #[comptime] walk: &WalkUnits,
     ) -> u32 {
-        let axis_map = comptime!(self.projection.physical_axis(pa).clone());
-        let term = comptime!(axis_map.terms()[t]);
-        let i = comptime!(walk.position(term.dimension).unwrap());
-        let unit = comptime!(walk.dimensions[i].coords_per_count);
-        let count = counts.at(i);
-        let inside_again =
-            comptime!(axis_map.reevaluates_floor(walk) && axis_map.static_offset_step(t).is_none());
-        match comptime!((
-            axis_map.term_step(t, unit),
-            inside_again,
-            term.digit.is_some()
-        )) {
-            (_, true, _) | (TermStep::Holds, _, _) => 0u32.runtime(),
-            (TermStep::Adds(c), false, true) => count.times(comptime!(c as u32)),
-            (TermStep::Adds(c), false, false) => count.times(comptime!(line_scale(
-                &self.space,
-                &self.projection,
-                self.width,
-                pa,
-                term.dimension,
-                c
-            ))),
-            (TermStep::AddsCoefficient(coordinates), false, _) => count
+        let term = comptime!(self.projection.physical_axis(pa).terms()[t]);
+        let step = comptime!(self.projection.walked_step(pa, t, walk, self.width));
+        let slots = comptime!(self.projection.anchor_slots(walk, self.width));
+        let through_floor = comptime!(
+            slots.floor_slot_of_axis(pa).is_some()
+                && self.projection.physical_axis(pa).kept_in_floor(t)
+        );
+        let i = comptime!(walk.position(term.dimension));
+        match comptime!((step, through_floor, term.digit.is_some())) {
+            (None, _, _) | (Some(TermStep::Holds), _, _) | (_, true, _) => 0u32.runtime(),
+            (Some(TermStep::Adds(c)), false, _) => {
+                counts.at(comptime!(i.unwrap())).times(comptime!(c as u32))
+            }
+            (Some(TermStep::AddsCoefficient(coordinates)), false, _) => counts
+                .at(comptime!(i.unwrap()))
                 .times(comptime!(coordinates as u32))
                 .times(self.coefficient(pa, t)),
-            (TermStep::Reevaluates, false, _) => self.digit_term(
-                self.walked_origin(anchor, term.dimension, walk)
-                    .plus(count.times(comptime!(unit as u32))),
+            (Some(TermStep::Reevaluates), false, true) => self.digit_term(
+                anchor
+                    .words
+                    .at(comptime!(slots.origin_slot(term.dimension)))
+                    .plus(counts.at(comptime!(i.unwrap())).times(comptime!(
+                        walk.dimensions[i.unwrap()].coords_per_count as u32
+                    ))),
                 pa,
                 t,
             ),
+            (Some(TermStep::Reevaluates), false, false) => comptime!(panic!(
+                "ProjectionInKernel::advance: a plain term outside its floor should move by a \
+                 constant, its coefficient read in whole lines"
+            )),
         }
     }
 
     /// Rational physical axis `pa`'s floor taken again after `counts`: the anchor's numerator plus
-    /// each walked term kept inside the floor, divided.
+    /// each walked term kept inside the floor, divided; `0` where the walk does not take it again.
     fn floor_moved(
         &self,
         anchor: &Anchor,
@@ -440,50 +476,52 @@ impl ProjectionInKernel {
         #[comptime] pa: usize,
         #[comptime] walk: &WalkUnits,
     ) -> u32 {
-        let axis_map = comptime!(self.projection.physical_axis(pa).clone());
-        let floors = comptime!(self.projection.floors_reevaluated(walk));
-        let slot = comptime!(
-            self.projection.physical_rank() + floors.iter().position(|&f| f == pa).unwrap()
-        );
+        let slots = comptime!(self.projection.anchor_slots(walk, self.width));
+        match comptime!(slots.floor_slot_of_axis(pa)) {
+            Some(slot) => self.floored(self.moved_numerator(anchor, counts, pa, slot, walk), pa),
+            None => 0u32.runtime(),
+        }
+    }
+
+    /// The numerator of physical axis `pa`'s floor after `counts`, the anchor's at word `slot`.
+    fn moved_numerator(
+        &self,
+        anchor: &Anchor,
+        counts: &Coords<u32>,
+        #[comptime] pa: usize,
+        #[comptime] slot: usize,
+        #[comptime] walk: &WalkUnits,
+    ) -> u32 {
+        let n = comptime!(self.projection.physical_axis(pa).terms().len());
         let mut numerator = Coords::<u32>::new();
         numerator.push(anchor.words.at(slot));
         #[unroll]
-        for t in 0..axis_map.terms().len() {
-            let term = comptime!(axis_map.terms()[t]);
-            let walked = comptime!(walk.position(term.dimension));
-            if comptime!(walked.is_some() && axis_map.static_offset_step(t).is_none()) {
-                let i = comptime!(walked.unwrap());
-                numerator.push(
-                    counts
-                        .at(i)
-                        .times(comptime!(walk.dimensions[i].coords_per_count as u32))
-                        .times(self.coefficient(pa, t)),
-                );
-            }
+        for t in 0..n {
+            numerator.push(self.numerator_moved(counts, pa, t, walk));
         }
-        let n = numerator.len();
-        self.floored(numerator.sum(comptime!((0..n).collect::<Vec<_>>())), pa)
+        let n_terms = numerator.len();
+        numerator.sum(comptime!((0..n_terms).collect::<Vec<_>>()))
     }
 
-    /// The anchor's coordinate along `dimension`, a dimension of `walk` some digit is evaluated
-    /// again along.
-    fn walked_origin(
+    /// What term `t` of physical axis `pa` adds to its floor's numerator after `counts`: its
+    /// coefficient times the coordinates the walk moves it, `0` where it is stepped past the
+    /// floor or not walked.
+    fn numerator_moved(
         &self,
-        anchor: &Anchor,
-        #[comptime] dimension: Dimension,
+        counts: &Coords<u32>,
+        #[comptime] pa: usize,
+        #[comptime] t: usize,
         #[comptime] walk: &WalkUnits,
     ) -> u32 {
-        let slot = comptime!(
-            self.projection.physical_rank()
-                + self.projection.floors_reevaluated(walk).len()
-                + self
-                    .projection
-                    .digits_reevaluated(walk)
-                    .iter()
-                    .position(|&d| d == dimension)
-                    .unwrap()
-        );
-        anchor.words.at(slot)
+        let axis = comptime!(self.projection.physical_axis(pa).clone());
+        let i = comptime!(walk.position(axis.terms()[t].dimension));
+        match comptime!(i.filter(|_| axis.kept_in_floor(t))) {
+            Some(i) => counts
+                .at(i)
+                .times(comptime!(walk.dimensions[i].coords_per_count as u32))
+                .times(self.coefficient(pa, t)),
+            None => 0u32.runtime(),
+        }
     }
 }
 
@@ -523,9 +561,9 @@ mod tests {
 
     /// The innermost physical axis of `[A, B]` read two values a line, `⌊(8a + 3b)/2⌋`: `A`'s
     /// term exact past the floor, `B`'s inside it. The axis walked `count` counts of `unit` along
-    /// `A` from `(a, b)`, and the map evaluated where that walk lands.
+    /// `A` from `(a, b)`.
     #[cube(harness)]
-    fn walked_on_a_divided_axis(a: u32, b: u32, count: u32, #[comptime] unit: usize) -> (u32, u32) {
+    fn walked_on_a_divided_axis(a: u32, b: u32, count: u32, #[comptime] unit: usize) -> u32 {
         let projection = comptime!(Projection::new(
             &[A, B],
             &[
@@ -547,22 +585,19 @@ mod tests {
         from.push(b);
         let mut counts = Coords::<u32>::new();
         counts.push(count);
-        let walked = map.advance(&map.anchor(from, &walk), &counts, &walk);
-        let mut landed = CoordsDyn::new();
-        landed.push(a + count * comptime!(unit as u32));
-        landed.push(b);
-        (walked[1], map.to_source_pos(landed)[1])
+        map.advance(&map.anchor(from, &walk), &counts, &walk)[1]
     }
 
-    /// A step taken past the floor is scaled to lines where the walk starts as where it lands.
+    /// A step taken past the floor lands where the map does, its coefficient read in lines:
+    /// `⌊(8a + 3b)/2⌋` with `a`'s eight values four lines, `⌊(4a + 3b)/2⌋`.
     #[test]
     fn anchor_and_advance_agree_on_an_innermost_divided_axis() {
         for unit in [1, 2] {
             for (a, b, count) in
                 (0..3).flat_map(|a| (0..4).flat_map(move |b| (0..3).map(move |n| (a, b, n))))
             {
-                let (walked, landed) =
-                    walked_on_a_divided_axis::harness::<TestRuntime>(a, b, count, unit);
+                let walked = walked_on_a_divided_axis::harness::<TestRuntime>(a, b, count, unit);
+                let landed = (4 * (a + count * unit as u32) + 3 * b) / 2;
                 assert_eq!(walked, landed, "a {a}, b {b}, {count} counts of {unit}");
             }
         }
