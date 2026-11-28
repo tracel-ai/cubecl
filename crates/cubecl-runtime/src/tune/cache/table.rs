@@ -83,6 +83,10 @@ pub struct TuneTableName<'a> {
     pub hardware: &'a str,
     /// The tuner, named by the code that declared it.
     pub tuner: &'a str,
+    /// Whether the answers were measured with
+    /// [register spills refused](crate::config::compilation::CompilationConfig::refuse_register_spills),
+    /// which drops the candidates that spill from the race.
+    pub refuses_register_spills: bool,
 }
 
 #[cfg(persistence)]
@@ -93,15 +97,49 @@ impl TuneTableName<'_> {
     ///
     /// - It reads `autotune/<version>/layout-v<layout>/<hardware>/<tuner>`, the layout a reader
     ///   of the environment parses.
+    /// - With spills refused, the tuner segment ends in `@no-spills`: an answer a spilling
+    ///   candidate won is never served to a process that refuses it.
     pub fn namespace(&self) -> Namespace {
-        let Self { hardware, tuner } = self;
-        TABLE_LAYOUT_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))
+        let Self {
+            hardware,
+            tuner,
+            refuses_register_spills,
+        } = self;
+        let policy = if *refuses_register_spills {
+            NO_SPILLS_SUFFIX
+        } else {
+            ""
+        };
+        TABLE_LAYOUT_VERSION.namespace(&alloc::format!("{hardware}/{tuner}{policy}"))
     }
 }
+
+/// What a table's tuner segment ends with when its answers were measured with spills refused.
+#[cfg(persistence)]
+const NO_SPILLS_SUFFIX: &str = "@no-spills";
 
 #[cfg(all(test, persistence))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refused_spills_name_a_table_of_their_own() {
+        let name = |refuses_register_spills| {
+            TuneTableName {
+                hardware: "gfx1151",
+                tuner: "matmul",
+                refuses_register_spills,
+            }
+            .namespace()
+        };
+
+        assert_ne!(name(true).as_str(), name(false).as_str());
+        assert_eq!(
+            name(false).as_str(),
+            TABLE_LAYOUT_VERSION.namespace("gfx1151/matmul").as_str(),
+            "the table of answers with spills accepted keeps its name"
+        );
+    }
 
     /// A row a table stored when the winner's index was named `decided_index` still reads.
     #[test]

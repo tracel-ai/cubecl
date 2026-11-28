@@ -39,6 +39,8 @@ pub fn override_from_env(config: CubeClRuntimeConfig) -> CubeClRuntimeConfig {
         env_variant("CUBECL_SPIRV_DEBUG_FORMAT").unwrap_or(config.compilation.spirv_debug_format);
     config.compilation.source_cache =
         env_path("CUBECL_SOURCE_CACHE").or(config.compilation.source_cache);
+    config.compilation.refuse_register_spills = env_bool("CUBECL_REFUSE_REGISTER_SPILLS")
+        .unwrap_or(config.compilation.refuse_register_spills);
 
     config.throughput.disable_cache = disabled_by(
         env_bool("CUBECL_THROUGHPUT_CACHE"),

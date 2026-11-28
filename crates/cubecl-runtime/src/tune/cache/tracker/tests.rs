@@ -135,6 +135,7 @@ fn opening_a_table_drops_the_earlier_layouts_only() {
     TuneTracker::<String>::open(TuneTableName {
         hardware: "cuda_l4",
         tuner: "matmul",
+        refuses_register_spills: false,
     });
 
     let mut left = persistence::namespaces();
