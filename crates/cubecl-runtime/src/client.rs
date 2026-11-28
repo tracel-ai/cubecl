@@ -2425,7 +2425,8 @@ impl Client {
     ///
     /// `probe` runs on the device runner thread with the device to itself,
     /// since one sharing it measures its share rather than the peak. A cached
-    /// answer takes neither.
+    /// answer takes neither, and [`ThroughputCache`] says how long an answer
+    /// is kept.
     ///
     /// # Errors
     ///

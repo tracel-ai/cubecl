@@ -12,7 +12,7 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    KernelSampler, ShapeSweep, link_collective,
+    KernelSampler, ShapeSweep, fastest_of, link_collective,
     link_peer::{MAX_BYTES, PeerCopier, PeerCopyKind},
     link_transfer,
 };
@@ -129,9 +129,11 @@ impl<'a> LinkProber<'a> {
             client.compile_queued();
         }
 
-        ShapeSweep::new(alloc::vec![key.bytes])
-            .fastest(|bytes| self.build(key.route, bytes))
-            .map(|(value, _)| value)
+        fastest_of(|| {
+            ShapeSweep::new(alloc::vec![key.bytes])
+                .fastest(|bytes| self.build(key.route, bytes))
+                .map(|(value, _)| value)
+        })
     }
 
     fn build(&self, route: LinkRoute, bytes: u64) -> Result<KernelSampler, ThroughputError> {

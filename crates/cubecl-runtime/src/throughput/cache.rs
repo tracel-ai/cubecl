@@ -1,6 +1,8 @@
 #[cfg(persistence)]
 use cubecl_environment::persistence::{Store, StoreError, StoreOptions};
 
+#[cfg(persistence)]
+use crate::config::CubeClRuntimeConfig;
 use crate::device::HardwareIdentity;
 #[cfg(persistence)]
 use crate::namespace_version::NamespaceVersion;
@@ -8,6 +10,8 @@ use crate::throughput::{LinkKey, ThroughputKey, ThroughputValue};
 use alloc::sync::Arc;
 use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::collections::HashMap;
+#[cfg(persistence)]
+use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::DeviceProperties;
 
@@ -37,18 +41,24 @@ pub trait ThroughputCacheKey: core::hash::Hash + Eq + core::fmt::Debug {}
 #[cfg(not(persistence))]
 impl<K: core::hash::Hash + Eq + core::fmt::Debug> ThroughputCacheKey for K {}
 
-/// Caches the [`ThroughputValue`] for a given key: a [`ThroughputKey`] for one device, a
+/// Caches the [`ThroughputValue`] measured for a key: a [`ThroughputKey`] for one device, a
 /// [`LinkKey`] for the devices a link joins.
 ///
-/// This cache is used to avoid recomputing throughput values for the same key.
-/// Stores on disk when std is available, otherwise stores in memory.
+/// # Guarantees
+///
+/// - A value is kept for the rest of the process, whether the configuration turns the throughput
+///   cache off or not, so a key is measured once a process.
+/// - With the throughput cache on, and where the build persists, a value is also stored on disk,
+///   and a later run reads it back.
+/// - An error is never kept, so a device that was full, or a link asked while it skipped
+///   communication, is measured the next time it is asked.
 pub struct ThroughputCache<K = ThroughputKey> {
-    /// Each measured value, read and written by its key.
-    #[cfg(not(persistence))]
-    cache: HashMap<K, ThroughputValue>,
-    /// Each measured value, read and written by its key.
+    /// Each value measured where no disk store is open, read and written by its key.
+    values: HashMap<K, ThroughputValue>,
+    /// The values on disk, read and written by their key, where the configuration leaves the
+    /// throughput cache on.
     #[cfg(persistence)]
-    cache: Store<K, ThroughputValue>,
+    stored: Option<Store<K, ThroughputValue>>,
 }
 
 impl ThroughputCache<LinkKey> {
@@ -131,40 +141,50 @@ fn host_id() -> Option<String> {
 }
 
 impl<K: ThroughputCacheKey> ThroughputCache<K> {
-    /// The cache named `name`, empty or as an earlier run stored it.
-    pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
-        #[cfg(not(persistence))]
-        {
-            ThroughputCache {
-                cache: HashMap::new(),
-            }
-        }
-
-        #[cfg(persistence)]
-        {
-            Self {
-                cache: Store::new(StoreOptions::new().storage(PROBES.namespace(name))),
-            }
+    /// The cache named `name`: empty, or as an earlier run stored it where the configuration
+    /// leaves the throughput cache on.
+    pub(crate) fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
+        Self {
+            values: HashMap::new(),
+            #[cfg(persistence)]
+            stored: (!CubeClRuntimeConfig::get().throughput.disable_cache)
+                .then(|| Store::new(StoreOptions::new().storage(PROBES.namespace(name)))),
         }
     }
 
-    /// Inserts a new [`ThroughputValue`] into the cache for the given key.
+    /// Keeps `value` for `key`.
     ///
     /// Throughput measurements are nondeterministic, so a concurrent process (or an
     /// earlier run) may have recorded a different value for the same key; the cache
     /// keeps the existing value in that case rather than failing. A value the storage
     /// refuses to write is still kept for the rest of the run.
-    pub fn insert(&mut self, key: K, value: ThroughputValue) {
+    pub(crate) fn insert(&mut self, key: K, value: ThroughputValue) {
         #[cfg(persistence)]
-        self.cache.insert(key, value).unwrap_or_else(warn_unstored);
+        if let Some(stored) = self.stored.as_mut() {
+            return stored.insert(key, value).unwrap_or_else(warn_unstored);
+        }
 
-        #[cfg(not(persistence))]
-        self.cache.insert(key, value);
+        self.values.insert(key, value);
     }
 
     /// The value measured for `key`, if the cache holds one.
-    pub fn get(&self, key: &K) -> Option<&ThroughputValue> {
-        self.cache.get(key)
+    pub(crate) fn get(&self, key: &K) -> Option<ThroughputValue> {
+        #[cfg(persistence)]
+        if let Some(value) = self.stored.as_ref().and_then(|stored| stored.get(key)) {
+            return Some(*value);
+        }
+
+        self.values.get(key).copied()
+    }
+
+    /// An empty cache that keeps nothing on disk.
+    #[cfg(test)]
+    pub(crate) fn in_memory() -> Self {
+        Self {
+            values: HashMap::new(),
+            #[cfg(persistence)]
+            stored: None,
+        }
     }
 }
 
@@ -182,7 +202,34 @@ fn warn_unstored<K: core::fmt::Debug>(err: StoreError<K, ThroughputValue>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::throughput::ThroughputMode;
     use alloc::string::ToString;
+
+    const LAUNCH: ThroughputKey = ThroughputKey {
+        mode: ThroughputMode::Launch,
+    };
+
+    #[test]
+    fn a_value_is_kept() {
+        let mut cache = ThroughputCache::in_memory();
+
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
+
+        assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
+    }
+
+    #[cfg(persistence)]
+    #[test]
+    fn a_value_is_kept_in_its_store() {
+        let mut cache = ThroughputCache {
+            stored: Some(Store::new(StoreOptions::new())),
+            ..ThroughputCache::in_memory()
+        };
+
+        cache.insert(LAUNCH, ThroughputValue::ZERO);
+
+        assert_eq!(cache.get(&LAUNCH), Some(ThroughputValue::ZERO));
+    }
 
     #[test]
     fn a_link_is_named_in_the_order_its_bytes_move() {

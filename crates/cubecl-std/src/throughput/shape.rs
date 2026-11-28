@@ -3,12 +3,12 @@ use cubecl_runtime::throughput::{ThroughputError, ThroughputValue};
 
 /// The shapes a probe can be launched in, ranked against each other so that
 /// only the winner is measured in full.
-pub(super) struct ShapeSweep<S> {
+pub struct ShapeSweep<S> {
     shapes: alloc::vec::Vec<S>,
 }
 
 impl<S: Copy> ShapeSweep<S> {
-    pub(super) fn new(shapes: alloc::vec::Vec<S>) -> Self {
+    pub fn new(shapes: alloc::vec::Vec<S>) -> Self {
         Self { shapes }
     }
 
@@ -21,7 +21,7 @@ impl<S: Copy> ShapeSweep<S> {
     ///
     /// Whatever `build` reports, and [`ThroughputError::NoTiming`] where no
     /// shape ran.
-    pub(super) fn fastest(
+    pub fn fastest(
         &self,
         build: impl Fn(S) -> Result<KernelSampler, ThroughputError>,
     ) -> Result<(ThroughputValue, S), ThroughputError> {
