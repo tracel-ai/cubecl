@@ -48,10 +48,10 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
 
 impl<K, F: TuneInputs, Output: 'static, Id> Tunable<K, F, Output, Id> {
     /// A tunable identified by `identity`, and named by it: the value
-    /// [`LocalTuner::decided_identity`](crate::tune::LocalTuner::decided_identity) hands back once the
+    /// [`LocalTuner::winner_identity`](crate::tune::LocalTuner::winner_identity) hands back once the
     /// tunable is decided for a key.
     ///
-    /// For a caller that builds something else from the decided candidate — a variant of the same
+    /// For a caller that builds something else from the winner — a variant of the same
     /// kernel, say — and so needs to know *which* candidate was decided rather than only to run it
     /// again. The name a cached result is checksummed by is `identity`'s own, so the two cannot
     /// disagree.

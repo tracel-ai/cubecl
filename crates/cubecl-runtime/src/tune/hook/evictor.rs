@@ -15,7 +15,7 @@ use alloc::string::{String, ToString};
 /// cache's capacity through the inputs' client. It receives the reference inputs the tune was
 /// called with rather than the generated ones the candidates are measured on, so it can scrub
 /// through buffers the caller already holds instead of allocating its own: an output the
-/// decided candidate overwrites afterwards is scratch until then. Whether that reaches past the cache is
+/// winner overwrites afterwards is scratch until then. Whether that reaches past the cache is
 /// the set's call — an operand-sized write evicts an operand-sized cache, no more.
 ///
 /// # Assumptions

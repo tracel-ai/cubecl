@@ -60,7 +60,7 @@ pub struct ResolvedBench {
     pub result: AutotuneResult,
 }
 
-/// Commits a tune: resolves the samples still queued, picks the decided candidate, and hands it to the
+/// Commits a tune: resolves the samples still queued, picks the winner, and hands it to the
 /// [`TuneSettler`]. Holds no borrow, so the browser event loop can run it.
 pub struct TuneCommitter<K: AutotuneKey> {
     key: K,
@@ -136,24 +136,24 @@ impl<K: AutotuneKey> TuneCommitter<K> {
             .stop_on_lost_card(service, &self.key, &self.logger)
     }
 
-    /// Commit the tune, `pending` the benches of its last batch still queued and `decided` the
-    /// candidate its strategy picked, if it picked one: inline natively, on the browser event
+    /// Commit the tune, `pending` the benches of its last batch still queued and `winner` the
+    /// candidate its strategy made win, if it made one: inline natively, on the browser event
     /// loop on wasm, where it answers [`Pending`](TuneAnswer::Pending) until then.
     ///
-    /// A tune that measured nothing decides a candidate that executed unmeasured
-    /// ([`unmeasured_decision`]).
-    pub fn commit(self, pending: Vec<LaunchedBench>, decided: Option<usize>) -> TuneAnswer {
+    /// A tune that measured nothing has a winner that executed unmeasured
+    /// ([`unmeasured_winner`]).
+    pub fn commit(self, pending: Vec<LaunchedBench>, winner: Option<usize>) -> TuneAnswer {
         #[cfg(target_family = "wasm")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                self.commit_resolved(pending, decided).await;
+                self.commit_resolved(pending, winner).await;
             });
             TuneAnswer::Pending
         }
 
         #[cfg(not(target_family = "wasm"))]
         {
-            cubecl_environment::future::block_on(self.commit_resolved(pending, decided))
+            cubecl_environment::future::block_on(self.commit_resolved(pending, winner))
         }
     }
 }
@@ -162,30 +162,30 @@ impl<K: AutotuneKey> TuneCommitter<K> {
     async fn commit_resolved(
         mut self,
         pending: Vec<LaunchedBench>,
-        decided: Option<usize>,
+        winner: Option<usize>,
     ) -> TuneAnswer {
         self.record_launched(pending).await;
 
-        let decided_index = decided
+        let winner_index = winner
             .or_else(|| best_scored(self.results.iter()))
-            .unwrap_or_else(|| unmeasured_decision(&self.key, &self.results));
-        // A decided candidate whose own outcome is an error is one picked with nothing measured:
+            .unwrap_or_else(|| unmeasured_winner(&self.key, &self.results));
+        // A winner whose own outcome is an error is one picked with nothing measured:
         // it executed but could not be timed.
         let unmeasured = self
             .results
-            .get(decided_index)
-            .expect("a decided index should be one of the set's candidates")
+            .get(winner_index)
+            .expect("a winner index should be one of the set's candidates")
             .outcome
             .is_err();
         self.settler.settle(
             self.key,
             self.results,
-            decided_index,
+            winner_index,
             unmeasured,
             &self.logger,
         );
 
-        TuneAnswer::Hit { decided_index }
+        TuneAnswer::Hit { winner_index }
     }
 }
 
@@ -223,7 +223,7 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 ///
 /// A timing failure — a profiling hiccup, timestamp query sets on a busy stream — leaves a usable
 /// kernel: deciding it unmeasured beats panicking the device thread, since a dead tune poisons
-/// every stream sharing it, and the decided kernel executes for real right after, where it fails
+/// every stream sharing it, and the winner's kernel executes for real right after, where it fails
 /// exactly as a measured one would if it truly cannot run. A rejection, a panic, a launch
 /// failure, a skip, an unheld device or an unopened profile says the kernel did not run or runs
 /// wrong: deciding it would fail the same way.
@@ -232,7 +232,7 @@ pub fn record_bench(logger: &mut TuneLogger, results: &mut [AutotuneResult], ben
 ///
 /// When no candidate of `results` executed unmeasured: the plan's candidates end as
 /// [`LocalTuner::execute`](crate::tune::LocalTuner::execute)'s third Assumption says.
-pub fn unmeasured_decision<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
+pub fn unmeasured_winner<K: core::fmt::Debug>(key: &K, results: &[AutotuneResult]) -> usize {
     let index = results
         .iter()
         .position(AutotuneResult::executed_unmeasured)
@@ -318,16 +318,13 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_that_panicked_is_never_decided_unmeasured() {
+    fn a_candidate_that_panicked_never_wins_unmeasured() {
         let panicked = failed(AutotuneError::Panicked {
             name: "panicked".into(),
             message: "the block divides the vector".into(),
         });
 
-        assert_eq!(
-            unmeasured_decision(&"key", &[panicked, failed(unknown())]),
-            1
-        );
+        assert_eq!(unmeasured_winner(&"key", &[panicked, failed(unknown())]), 1);
     }
 
     #[test]
@@ -337,20 +334,17 @@ mod tests {
             name: "skipped".into(),
         });
 
-        unmeasured_decision(&"key", &[launch]);
+        unmeasured_winner(&"key", &[launch]);
     }
 
     #[test]
-    fn a_rejection_is_never_decided_unmeasured() {
+    fn a_rejection_never_wins_unmeasured() {
         let rejected = failed(AutotuneError::Rejected {
             name: "rejects".into(),
             reason: "not this shape".into(),
         });
 
-        assert_eq!(
-            unmeasured_decision(&"key", &[rejected, failed(unknown())]),
-            1
-        );
+        assert_eq!(unmeasured_winner(&"key", &[rejected, failed(unknown())]), 1);
     }
 
     #[test]
@@ -361,7 +355,7 @@ mod tests {
             reason: "the device thread is gone".into(),
         });
 
-        unmeasured_decision(&"key", &[unheld]);
+        unmeasured_winner(&"key", &[unheld]);
     }
 
     /// A sample of `micros` timed by the system clock.

@@ -82,7 +82,7 @@ where
         self.executor.init(id, init_set)
     }
 
-    /// What the candidate decided for `key` of `operations` on `id` is
+    /// What the winner for `key` of `operations` on `id` is
     /// [identified](crate::tune::Tunable::identified) by.
     ///
     /// # Guarantees
@@ -95,7 +95,7 @@ where
     ///   an `execute` opens a tuner, which may purge the tables of an earlier layout, or while a
     ///   tune reads or writes the store.
     /// - An `id` that has not executed `operations` sees none.
-    pub fn decided_identity<I, Out, Id>(
+    pub fn winner_identity<I, Out, Id>(
         &self,
         id: &ID,
         operations: &TunableSet<AK, I, Out, Id>,
@@ -105,7 +105,7 @@ where
         I: TuneInputs,
         Id: Clone,
     {
-        self.executor.decided_identity(id, operations, key)
+        self.executor.winner_identity(id, operations, key)
     }
 
     /// Forget every tune and every set [`init`](Self::init) built.
@@ -134,19 +134,19 @@ where
     ///   wasm, that candidate is in the first batch of the plan that queues a sample: the
     ///   fixed-count pass there resolves its samples on the browser event loop, and commits that
     ///   batch without reaching a later one.
-    /// - The decided candidate serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
+    /// - The winner serves `inputs`, or `inputs` have a [spare](TuneInputs::spare).
     /// - Under `autotune-checks`, every candidate that serves `inputs` matches the others' output.
     ///
     /// # Guarantees
     ///
-    /// - A call the decided candidate rejects runs the next one that serves it.
+    /// - A call the winner rejects runs the next one that serves it.
     /// - A tune that stopped on a lost card decides nothing: the call runs the candidates in plan
     ///   order.
     ///
     /// # Panics
     ///
     /// When no candidate serves `inputs`; when a tune measured none and none it scheduled ended
-    /// [`Unknown`](crate::tune::AutotuneError::Unknown); when the decided candidate rejects `inputs` and
+    /// [`Unknown`](crate::tune::AutotuneError::Unknown); when the winner rejects `inputs` and
     /// they have no spare; and under `autotune-checks`, when a candidate's output does not match
     /// and nothing reports it: the assumptions above.
     pub fn execute<'a, I: TuneInputs, Out, Id>(

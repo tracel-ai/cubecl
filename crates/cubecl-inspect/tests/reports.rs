@@ -134,7 +134,7 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-a",
         }),
         PersistentCacheValue {
-            decided_index: 1,
+            winner_index: 1,
             results: vec![
                 measured("tiled", 1, 10),
                 measured("naive", 0, 40),
@@ -160,7 +160,7 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-a",
         }),
         PersistentCacheValue {
-            decided_index: 1,
+            winner_index: 1,
             results: vec![measured("tiled", 1, 20), measured("naive", 0, 22)],
             bounds: None,
             limit: None,
@@ -173,13 +173,13 @@ fn fixture(dir: &Path) -> PathBuf {
             checksum: "list-b",
         }),
         PersistentCacheValue {
-            decided_index: 0,
+            winner_index: 0,
             results: vec![measured("row", 0, 5)],
             bounds: None,
             limit: None,
         },
     );
-    // The session that tuned the m=64 key recorded it: the decided candidate first, then
+    // The session that tuned the m=64 key recorded it: the winner first, then
     // the candidate that lost by 4x, then the one that failed.
     let session = Session {
         id: SessionId(7),
@@ -215,7 +215,7 @@ fn fixture(dir: &Path) -> PathBuf {
                 },
                 checksum: "list-a".to_string(),
             },
-            decided_index: 1,
+            winner_index: 1,
             trials: vec![
                 trial("tiled", 100),
                 trial("naive", 300),
@@ -438,7 +438,7 @@ fn every_key_decodes_without_its_type() {
         "m=64 elem=Float(F16)"
     );
     assert_eq!(gemm.checksum, "list-a");
-    assert_eq!(gemm.decided_name(), "tiled");
+    assert_eq!(gemm.winner_name(), "tiled");
     assert_eq!(gemm.measured(), 2);
     assert_eq!(gemm.failed(), 1);
     assert_eq!(gemm.margin(), Some(4.0));
@@ -499,9 +499,7 @@ fn candidates_that_never_win_come_first() {
 
     let naive = &candidates[0];
     assert_eq!((naive.measured, naive.won), (2, 0));
-    let slowdown = naive
-        .slowdown
-        .expect("measured against the decided candidate");
+    let slowdown = naive.slowdown.expect("measured against the winner");
     assert!(
         (slowdown - (4.0f64 * 1.1).sqrt()).abs() < 1e-3,
         "{slowdown}"
@@ -850,7 +848,7 @@ fn a_tune_of_an_unlisted_session_joins_its_key() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                decided_index: 1,
+                winner_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(40),
@@ -984,7 +982,7 @@ fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                decided_index: 0,
+                winner_index: 0,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(1),
@@ -1021,7 +1019,7 @@ fn a_key_tuned_twice_joins_its_latest_tune() {
                     },
                     checksum: "list-a".to_string(),
                 },
-                decided_index: 1,
+                winner_index: 1,
                 trials: Vec::new(),
                 short_circuit: None,
                 wall: Duration::from_millis(900),
@@ -1134,7 +1132,7 @@ fn rebuilt(dir: &Path) -> PathBuf {
         GEMM,
         &key(128),
         &cbor(&PersistentCacheValue {
-            decided_index: 0,
+            winner_index: 0,
             results: vec![measured("naive", 0, 20), measured("tiled", 1, 21)],
             bounds: None,
             limit: None,
@@ -1146,7 +1144,7 @@ fn rebuilt(dir: &Path) -> PathBuf {
         GEMM,
         &key(256),
         &cbor(&PersistentCacheValue {
-            decided_index: 1,
+            winner_index: 1,
             results: vec![measured("tiled", 1, 30)],
             bounds: None,
             limit: None,
@@ -1168,16 +1166,16 @@ fn a_diff_names_what_was_added_removed_and_answered_differently() {
     let count = |change| diff.with(change).count();
     assert_eq!(count(KeyChange::Added), 1);
     assert_eq!(count(KeyChange::Removed), 1);
-    assert_eq!(count(KeyChange::DecisionChanged), 1);
+    assert_eq!(count(KeyChange::WinnerChanged), 1);
     assert_eq!(count(KeyChange::Kept), 1);
 
-    let changed = diff.with(KeyChange::DecisionChanged).next().expect("one");
+    let changed = diff.with(KeyChange::WinnerChanged).next().expect("one");
     assert_eq!(
-        changed.before.as_ref().map(|a| a.decided.as_str()),
+        changed.before.as_ref().map(|a| a.winner.as_str()),
         Some("tiled")
     );
     assert_eq!(
-        changed.after.as_ref().map(|a| a.decided.as_str()),
+        changed.after.as_ref().map(|a| a.winner.as_str()),
         Some("naive")
     );
     assert!(!changed.candidates_changed(), "the same list: variance");
@@ -1211,7 +1209,7 @@ fn a_diff_tells_apart_keys_of_two_adapters() {
                 checksum: "list-a",
             }),
             &cbor(&PersistentCacheValue {
-                decided_index: 0,
+                winner_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,
@@ -1224,7 +1222,7 @@ fn a_diff_tells_apart_keys_of_two_adapters() {
     let added: Vec<_> = diff.with(KeyChange::Added).collect();
     assert_eq!(added.len(), 1);
     assert_eq!(added[0].fingerprint.as_deref(), Some("ptx_sm80"));
-    assert_eq!(diff.with(KeyChange::DecisionChanged).count(), 0);
+    assert_eq!(diff.with(KeyChange::WinnerChanged).count(), 0);
     let text = Text(&diff).to_string();
     assert!(text.contains("hip-0 via ptx_sm80"), "{text}");
     assert!(text.contains("hip-0 via hip-kernel_gfx1151"), "{text}");
@@ -1254,7 +1252,7 @@ fn a_diff_reads_a_keys_newest_version() {
                 checksum: "list-a",
             }),
             &cbor(&PersistentCacheValue {
-                decided_index: 0,
+                winner_index: 0,
                 results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
                 bounds: None,
                 limit: None,
@@ -1265,7 +1263,7 @@ fn a_diff_reads_a_keys_newest_version() {
     let after = Inspector::open(&path).expect("opens");
 
     let diff = before.diff(&after);
-    assert_eq!(diff.with(KeyChange::DecisionChanged).count(), 0);
+    assert_eq!(diff.with(KeyChange::WinnerChanged).count(), 0);
     assert_eq!(diff.with(KeyChange::Kept).count(), 3);
 }
 

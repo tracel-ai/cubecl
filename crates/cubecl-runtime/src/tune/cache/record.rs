@@ -1,6 +1,6 @@
 //! What a tune leaves in the environment beside its answer.
 //!
-//! The table stores a key's decided candidate and every candidate's result, ranked. What
+//! The table stores a key's winner and every candidate's result, ranked. What
 //! it cannot say is how the tune went: which candidates ran and in what order,
 //! what each cost to compile and benchmark, whether the tune stopped early,
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
@@ -24,7 +24,7 @@ pub struct TuneRecord<K> {
     pub entry: PersistentCacheKey<K>,
     /// Read under its earlier name too, which environments already saved hold.
     #[serde(alias = "winner")]
-    pub decided_index: usize,
+    pub winner_index: usize,
     /// Each candidate's cost, in the order the tune reports them (Arrival Usage): run order on the
     /// fixed-count pass, batch order on the adaptive one, where a candidate its group's patience
     /// skipped or that a short circuit left unreached costs zero. A skipped candidate the batch
@@ -56,7 +56,7 @@ pub struct TuneRecord<K> {
 pub struct PlannedCandidate {
     /// The candidate's name.
     pub name: String,
-    /// Its index in the tunable set, as the record's decided index names it.
+    /// Its index in the tunable set, as the record's winner index names it.
     pub index: usize,
     /// The batch the plan releases it in, counting from 0. A tune stops
     /// after the first batch with a valid result, so later batches only run
@@ -117,7 +117,7 @@ pub struct OpenRecording<K> {
 
 /// What [`TuneRecorder::record_answer`] needs to know of the answer.
 pub struct Answer {
-    pub decided_index: usize,
+    pub winner_index: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
 }
@@ -167,7 +167,7 @@ impl<K: AutotuneKey> TuneRecorder<K> {
         let record = TuneRecord {
             table: open.table,
             entry: open.entry,
-            decided_index: answer.decided_index,
+            winner_index: answer.winner_index,
             trials,
             short_circuit,
             wall,
@@ -217,7 +217,7 @@ mod tests {
     use alloc::string::ToString;
     use alloc::vec;
 
-    /// A record saved before the decided candidate had its name still reads.
+    /// A record saved when the winner's index was stored as `winner` still reads.
     #[test]
     fn a_record_saved_under_the_earlier_name_reads() {
         let record = TuneRecord {
@@ -226,7 +226,7 @@ mod tests {
                 key: "key".to_string(),
                 checksum: "checksum".to_string(),
             },
-            decided_index: 2,
+            winner_index: 2,
             trials: Vec::new(),
             short_circuit: None,
             wall: Duration::ZERO,
@@ -238,14 +238,14 @@ mod tests {
         let fields = value
             .as_object_mut()
             .expect("a record should serialize as a map");
-        let decided = fields
-            .remove("decided_index")
-            .expect("a record should name its decided candidate");
-        fields.insert("winner".to_string(), decided);
+        let winner = fields
+            .remove("winner_index")
+            .expect("a record should name its winner");
+        fields.insert("winner".to_string(), winner);
 
         let read: TuneRecord<String> = serde_json::from_value(value).unwrap();
 
-        assert_eq!(read.decided_index, 2);
+        assert_eq!(read.winner_index, 2);
     }
 
     #[test]

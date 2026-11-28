@@ -33,7 +33,7 @@ pub struct BatchOutcome {
     /// the caller must not re-derive it by comparing the results. `None` where every survivor
     /// failed after elimination: the commit then falls back on the best-scored result, an
     /// eliminated candidate, as the base commit did.
-    pub decided: Option<usize>,
+    pub winner: Option<usize>,
     /// The candidates skipped by their groups' patience or not reached before a short circuit, in
     /// batch order (Arrival Usage).
     pub unmeasured: Vec<usize>,
@@ -60,7 +60,7 @@ impl BatchOutcome {
             steps: Vec::new(),
             short_circuit: None,
             any_success: false,
-            decided: None,
+            winner: None,
             unmeasured: Vec::new(),
         }
     }
@@ -72,7 +72,7 @@ pub struct PlanOutcome {
     /// What each candidate of every batch that ran cost, batch after batch (Arrival Usage).
     pub steps: Vec<(String, Duration)>,
     pub short_circuit: Option<String>,
-    pub decided: Option<usize>,
+    pub winner: Option<usize>,
     /// Whether every batch of the plan ran without a candidate measured.
     pub exhausted: bool,
 }
@@ -167,7 +167,7 @@ impl<'i> Scheduler<'i> {
                 return PlanOutcome {
                     steps,
                     short_circuit: None,
-                    decided: None,
+                    winner: None,
                     exhausted: true,
                 };
             }
@@ -184,7 +184,7 @@ impl<'i> Scheduler<'i> {
                 return PlanOutcome {
                     steps,
                     short_circuit: outcome.short_circuit,
-                    decided: outcome.decided,
+                    winner: outcome.winner,
                     exhausted: false,
                 };
             }
@@ -352,9 +352,9 @@ impl<'i> Scheduler<'i> {
         core::mem::drop(gathering);
     }
 
-    /// Fold the finished candidates into the batch outcome, naming the decided candidate.
+    /// Fold the finished candidates into the batch outcome, naming the winner.
     ///
-    /// The decided candidate is picked here rather than left to the caller's comparison of the results,
+    /// The winner is picked here rather than left to the caller's comparison of the results,
     /// because by this point the candidates no longer hold comparable evidence: an eliminated one
     /// stopped at `min_sample_count` while a survivor kept sampling, and
     /// `BenchmarkComputations::score` inflates with observed spread, which grows with the sample
@@ -398,7 +398,7 @@ impl<'i> Scheduler<'i> {
             .into_iter()
             .map(|candidate| (candidate.state().index, candidate.into_result()))
             .collect();
-        let decided = best_scored(
+        let winner = best_scored(
             results
                 .iter()
                 .zip(&self.ranked)
@@ -411,7 +411,7 @@ impl<'i> Scheduler<'i> {
             results,
             steps,
             short_circuit,
-            decided,
+            winner,
             unmeasured,
         }
     }
@@ -871,7 +871,7 @@ mod tests {
 
         let outcome = schedule(1.5).conclude_batch(candidates, Some(1));
 
-        assert_eq!(outcome.decided, Some(1));
+        assert_eq!(outcome.winner, Some(1));
     }
 
     #[test]
@@ -1028,7 +1028,7 @@ mod tests {
 
         let outcome = schedule(1.5).conclude_batch(vec![survivor, eliminated], None);
 
-        assert_eq!(outcome.decided, Some(0));
+        assert_eq!(outcome.winner, Some(0));
     }
 
     #[test]
@@ -1049,7 +1049,7 @@ mod tests {
         ];
 
         assert_eq!(
-            schedule(1.5).conclude_batch(candidates, None).decided,
+            schedule(1.5).conclude_batch(candidates, None).winner,
             Some(1)
         );
     }
@@ -1065,7 +1065,7 @@ mod tests {
 
         let outcome = schedule(1.5).conclude_batch(vec![failed, candidate(1, [])], None);
 
-        assert_eq!(outcome.decided, None);
+        assert_eq!(outcome.winner, None);
     }
 
     #[test]

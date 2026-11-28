@@ -134,12 +134,12 @@ mod commit {
 
         assert!(matches!(
             committer.commit(Vec::new(), Some(1)),
-            TuneAnswer::Hit { decided_index: 1 }
+            TuneAnswer::Hit { winner_index: 1 }
         ));
     }
 
     #[test]
-    fn with_no_decision_the_best_score_is_decided() {
+    fn with_no_strategy_winner_the_best_score_wins() {
         let tracker = tracker();
         let mut committer = committer(&tracker);
         committer.record_bench(measured_at(0, 50));
@@ -147,7 +147,7 @@ mod commit {
 
         assert!(matches!(
             committer.commit(Vec::new(), None),
-            TuneAnswer::Hit { decided_index: 1 }
+            TuneAnswer::Hit { winner_index: 1 }
         ));
     }
 }

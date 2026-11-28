@@ -26,9 +26,9 @@ pub struct CandidateRow {
     pub skipped: u64,
     pub failed: u64,
     /// The geometric mean, over the keys it was measured for, of its score
-    /// over the decided candidate's: 1 when it always wins, 3 when it is typically three
+    /// over the winner's: 1 when it always wins, 3 when it is typically three
     /// times slower than the answer. `None` when it was never measured against
-    /// a measured decided candidate.
+    /// a measured winner.
     pub slowdown: Option<f64>,
     /// What running it cost, over the recorded tunes; `None` when none of its
     /// tunes was recorded.
@@ -107,7 +107,7 @@ impl From<&AutotuneReport> for CandidateReport {
                     CandidateOutcome::Skipped => row.skipped += 1,
                     CandidateOutcome::Failed { .. } => row.failed += 1,
                 }
-                if result.index == Some(key.decided) {
+                if result.index == Some(key.winner) {
                     row.won += 1;
                 }
                 if let Some(slowdown) = key.slowdown(result) {

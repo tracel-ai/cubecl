@@ -21,7 +21,7 @@ use alloc::string::String;
 #[derive(Debug)]
 pub enum TrackedKey {
     Done {
-        decided_index: usize,
+        winner_index: usize,
     },
     Pending,
     /// The key [answers `Compiled`](TuneAnswer::Compiled) on `services`. Never persisted.
@@ -68,8 +68,8 @@ pub struct TuneTracker<K> {
 /// What a tuner answers for a key.
 #[derive(Debug)]
 pub enum TuneAnswer {
-    /// The key is settled: callers run the candidate the tune decided.
-    Hit { decided_index: usize },
+    /// The key is settled: callers run the winner.
+    Hit { winner_index: usize },
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job. A card a tune found lost answers this for every key it has not settled,
@@ -121,8 +121,8 @@ impl<K: AutotuneKey> TuneTracker<K> {
         }
 
         match self.answers.get(key) {
-            Some(TrackedKey::Done { decided_index }) => TuneAnswer::Hit {
-                decided_index: *decided_index,
+            Some(TrackedKey::Done { winner_index }) => TuneAnswer::Hit {
+                winner_index: *winner_index,
             },
             Some(TrackedKey::Pending) => TuneAnswer::Pending,
             // Nothing was decided: a tune of the key is still owed.
@@ -191,10 +191,10 @@ impl<K: AutotuneKey> TuneTracker<K> {
         self.lost.insert(service);
     }
 
-    /// Track `decided_index` as the pick of `key`, in memory, and answer it.
-    pub fn track_answer(&mut self, key: K, decided_index: usize) -> TuneAnswer {
-        self.answers.insert(key, TrackedKey::Done { decided_index });
-        TuneAnswer::Hit { decided_index }
+    /// Track `winner_index` as the pick of `key`, in memory, and answer it.
+    pub fn track_answer(&mut self, key: K, winner_index: usize) -> TuneAnswer {
+        self.answers.insert(key, TrackedKey::Done { winner_index });
+        TuneAnswer::Hit { winner_index }
     }
 }
 
@@ -252,7 +252,7 @@ impl<K: AutotuneKey> TuneTracker<K> {
         let Some(value) = persistent_cache.remove(&stored) else {
             return TuneAnswer::Miss;
         };
-        if value.decided_index >= len {
+        if value.winner_index >= len {
             persistent_cache.purge_key(&stored);
             return TuneAnswer::Miss;
         }
@@ -263,7 +263,7 @@ impl<K: AutotuneKey> TuneTracker<K> {
         if let Some(registration) = gathered.or_else(TuneRegistration::register) {
             registration.settle(TuneOutcome::Loaded);
         }
-        self.track_answer(key.clone(), value.decided_index)
+        self.track_answer(key.clone(), value.winner_index)
     }
 
     /// Store an answer in the table, and say whether it took it: never when the cache is
@@ -405,7 +405,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.answer(&key(), service_at(0), false),
-            Some(TuneAnswer::Hit { decided_index: 3 })
+            Some(TuneAnswer::Hit { winner_index: 3 })
         ));
     }
 
@@ -437,7 +437,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.decided(&key()),
-            TuneAnswer::Hit { decided_index: 1 }
+            TuneAnswer::Hit { winner_index: 1 }
         ));
     }
 
@@ -512,7 +512,7 @@ mod small_tests {
 
         assert!(matches!(
             tracker.decided(&key()),
-            TuneAnswer::Hit { decided_index: 2 }
+            TuneAnswer::Hit { winner_index: 2 }
         ));
     }
 
@@ -529,7 +529,7 @@ mod small_tests {
     #[test]
     fn a_tracker_without_a_store_stores_nothing() {
         let value = PersistentCacheValue {
-            decided_index: 0,
+            winner_index: 0,
             results: Vec::new(),
             bounds: None,
             limit: None,

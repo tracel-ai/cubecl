@@ -19,12 +19,12 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
         fields.line(f, "after", diff.after.display())?;
         writeln!(
             f,
-            "{} keys: {} added, {} removed, {} decisions changed ({} under a changed candidate list), {} kept",
+            "{} keys: {} added, {} removed, {} winners changed ({} under a changed candidate list), {} kept",
             diff.keys.len(),
             count(KeyChange::Added),
             count(KeyChange::Removed),
-            count(KeyChange::DecisionChanged),
-            diff.with(KeyChange::DecisionChanged)
+            count(KeyChange::WinnerChanged),
+            diff.with(KeyChange::WinnerChanged)
                 .filter(|key| key.candidates_changed())
                 .count(),
             count(KeyChange::Kept),
@@ -38,7 +38,7 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
             ("list", Align::Left),
             ("key", Align::Left),
         ]));
-        for key in diff.with(KeyChange::DecisionChanged) {
+        for key in diff.with(KeyChange::WinnerChanged) {
             let (Some(before), Some(after)) = (&key.before, &key.after) else {
                 continue;
             };
@@ -46,8 +46,8 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
                 key,
                 vec![
                 key.tuner.clone(),
-                before.decided.clone(),
-                after.decided.clone(),
+                before.winner.clone(),
+                after.winner.clone(),
                 format!("{} / {}", Ratio(before.margin), Ratio(after.margin)),
                 if key.candidates_changed() {
                     "changed"
@@ -59,12 +59,12 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
             ],
             ));
         }
-        section(f, "decisions changed", changed)?;
+        section(f, "winners changed", changed)?;
 
         for (title, change) in [("added", KeyChange::Added), ("removed", KeyChange::Removed)] {
             let mut table = Table::new(&place.columns(&[
                 ("tuner", Align::Left),
-                ("decided", Align::Left),
+                ("winner", Align::Left),
                 ("key", Align::Left),
             ]));
             for key in diff.with(change) {
@@ -74,7 +74,7 @@ impl fmt::Display for Text<'_, EnvironmentDiff> {
                     vec![
                     key.tuner.clone(),
                     answer
-                        .map(|answer| answer.decided.clone())
+                        .map(|answer| answer.winner.clone())
                         .unwrap_or_default(),
                     KeyText(&key.key).to_string(),
                 ],
