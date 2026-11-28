@@ -22,11 +22,11 @@ use crate::tune::measure::candidate_gathering::CandidateGathering;
 use crate::tune::measure::candidate_sampler::CandidateSampler;
 use crate::tune::{AutotuneKey, AutotuneOutput, CheckResult, TunableSet, TuneInputs, TuneStage};
 
-/// Tunes the keys of one candidate list on the devices of one hardware, and keeps their answers.
+/// Tunes the keys of one candidate list on the devices of one hardware, and keeps their tunes.
 ///
 /// # Assumptions
 ///
-/// - Every tune of one tuner runs the same candidate list: the answers are keyed by the key alone.
+/// - Every tune of one tuner runs the same candidate list: the tunes are keyed by the key alone.
 #[derive(Debug)]
 pub struct Tuner<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
@@ -52,7 +52,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    /// Drop the answers of an environment the process switched away from, then answer what memory
+    /// Drop the tunes of an environment the process switched away from, then answer what memory
     /// holds for `key`, both under one lock of the tracker: the probe of a call's fast path.
     pub fn reset_and_answer(&self, key: &K) -> TuneAnswer {
         #[cfg_attr(not(persistence), allow(unused_mut))]
@@ -63,13 +63,13 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// What memory holds for `key`, reading only: it never reads the persistent cache and never
-    /// drops an earlier environment's answers, which it reports as a miss.
+    /// drops an earlier environment's tunes, which it reports as a miss.
     pub fn decided(&self, key: &K) -> TuneAnswer {
         self.tracker.lock().decided(key)
     }
 
     /// Answer `key` on `client`'s device: from memory, from the store when memory holds no
-    /// answer, and otherwise by tuning `tunables` on `inputs`. `checks` cross-checks the
+    /// tune, and otherwise by tuning `tunables` on `inputs`. `checks` cross-checks the
     /// candidates, collecting a mismatch when asked to: only a tune that drives reports them, so
     /// every other answer runs them uncollected.
     ///
@@ -88,7 +88,7 @@ impl<K: AutotuneKey> Tuner<K> {
     ///   more for the new environment while the old one's finishes.
     /// - A tune that unwinds leaves the key to the next call; one that stops on a lost card leaves
     ///   it to another card.
-    /// - An answer picked with nothing measured is kept in memory, never in the store.
+    /// - A tune picked with nothing measured is kept in memory, never in the store.
     pub fn tune<'a, F: TuneInputs, Out: AutotuneOutput, Id: Sync>(
         &self,
         key: &K,
@@ -117,8 +117,8 @@ impl<K: AutotuneKey> Tuner<K> {
         };
         // Sure to measure now: a tune registered nowhere yet registers with the override open.
         let settling = (unmarker, gathered.or_else(TuneRegistration::register));
-        let decisions = self.logger.lock().config().autotune.decisions_enabled();
-        self.prepare_driver(key, inputs, tunables, client, settling, checks(decisions))
+        let logged = self.logger.lock().config().autotune.tunes_logged();
+        self.prepare_driver(key, inputs, tunables, client, settling, checks(logged))
             .drive(client)
     }
 }
@@ -146,7 +146,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
         // A key with one candidate is answered, not tuned: nothing to read or to store.
         if tunables.len() <= 1 {
-            return Err(tracker.track_answer(key.clone(), 0));
+            return Err(tracker.track_tune(key.clone(), 0));
         }
         #[cfg(persistence)]
         if let hit @ TuneAnswer::Hit { .. } = self.track_stored(&mut tracker, key, tunables) {

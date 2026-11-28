@@ -68,7 +68,7 @@ pub use stream_mode::{StreamMode, StreamModeOverride};
 pub(crate) use countable::TuneOutcome;
 // Only a persisted pick names it.
 #[cfg_attr(not(persistence), allow(unused_imports))]
-pub(crate) use countable::TunePick;
+pub(crate) use countable::TuneHandling;
 pub(crate) use purpose::{race, run_provisionally};
 pub(crate) use registration::TuneRegistration;
 pub(crate) use stream_mode::ServiceStream;

@@ -148,7 +148,7 @@ impl Inspector {
         report
     }
 
-    /// This file's autotune answers against `other`'s, this one before.
+    /// This file's tunes against `other`'s, this one before.
     pub fn diff(&self, other: &Inspector) -> EnvironmentDiff {
         EnvironmentDiff::new(Comparison {
             before: DiffSide {

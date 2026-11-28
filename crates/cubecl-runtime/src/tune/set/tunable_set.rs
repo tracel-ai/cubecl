@@ -25,7 +25,7 @@ use crate::tune::{
 /// - Two sets whose candidates have the same names, in the same order, hold the same candidates:
 ///   a set is told apart from another, in memory and in the persistent cache, by its
 ///   [checksum](Self::compute_checksum) alone, so a kernel changed behind an unchanged name keeps
-///   the answers tuned before the change.
+///   the tunes made before the change.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static, Id = ()> {
     candidates: CandidateOrderer<K, F, Output, Id>,
     /// The hash of the candidates' names, kept in step with them: every launch looks its tuner up
@@ -124,8 +124,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static, Id> TunableSet<K, F, Output
         self
     }
 
-    /// The checksum a cached answer is stored under: an answer to another candidate list is an
-    /// answer to another question.
+    /// The checksum a cached tune is stored under: a tune under another candidate list
+    /// tunes another problem.
     pub fn compute_checksum(&self) -> String {
         format!("{:x}", self.checksum)
     }

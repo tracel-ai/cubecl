@@ -21,7 +21,7 @@ use crate::tune::TuneInputs;
 /// # Guarantees
 ///
 /// - Every implementation answers inputs posing the problem the reference inputs pose: the tune
-///   measures the one and keeps its answer for the other.
+///   measures the one and keeps its tune for the other.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid input generator",
     label = "invalid input generator"

@@ -2,8 +2,8 @@ use super::{AutotuneTable, KeyId};
 use cubecl_environment::records::Stamped;
 use cubecl_server::benchmark::BenchmarkComputations;
 use cubecl_server::tune::{
-    AutotuneError, AutotuneResult, Bounds, PersistentCacheKey, PersistentCacheValue,
-    PlannedCandidate, Trial, TuneRecord,
+    AutotuneError, AutotuneResult, Bounds, PlannedCandidate, StoredTune, Trial, TuneEntry,
+    TuneRecord,
 };
 use serde::Serialize;
 use std::time::Duration;
@@ -13,7 +13,7 @@ use std::time::Duration;
 /// knowing its key.
 pub type UntypedTuneRecord = TuneRecord<ciborium::Value>;
 
-/// Every autotune key an environment holds an answer for.
+/// Every autotune key an environment holds a tune of.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct AutotuneReport {
     pub keys: Vec<TunedKey>,
@@ -22,7 +22,7 @@ pub struct AutotuneReport {
     pub undecoded: u64,
 }
 
-/// One key's answer, and everything cubecl kept of how it was reached.
+/// One key's tune, and everything cubecl kept of how it was reached.
 #[derive(Clone, Debug, Serialize)]
 pub struct TunedKey {
     pub id: KeyId,
@@ -139,8 +139,8 @@ impl TunedKey {
     /// A stored entry of `table`, decoded; `None` when either half does not
     /// decode. The [tune](Self::tune) is left for the records to fill.
     pub fn new(table: &AutotuneTable, key: &[u8], value: &[u8]) -> Option<Self> {
-        let stored: PersistentCacheKey<ciborium::Value> = ciborium::from_reader(key).ok()?;
-        let value: PersistentCacheValue = ciborium::from_reader(value).ok()?;
+        let stored: TuneEntry<ciborium::Value> = ciborium::from_reader(key).ok()?;
+        let value: StoredTune = ciborium::from_reader(value).ok()?;
         Some(Self {
             id: KeyId::new(&table.namespace(), key),
             table: table.clone(),
@@ -175,7 +175,7 @@ impl TunedKey {
 
     /// The runner-up's score over the winner's: how close the race was. Near
     /// 1 means the candidates were interchangeable here; a wide margin means
-    /// the answer was never in doubt and the race could have been shorter.
+    /// the tune was never in doubt and the race could have been shorter.
     /// `None` when fewer than two candidates were measured.
     pub fn margin(&self) -> Option<f64> {
         let winner = self.winning()?.score()?;
@@ -202,7 +202,7 @@ impl TunedKey {
     }
 
     /// The roofline over the winner's median: 1 at the roofline, 0.25 when
-    /// the answer runs four times slower than the device allows.
+    /// the tune runs four times slower than the device allows.
     pub fn efficiency(&self) -> Option<f64> {
         let CandidateOutcome::Measured(winner) = &self.winning()?.outcome else {
             return None;
@@ -223,7 +223,7 @@ impl TunedKey {
         Some(winner.median <= self.limit?)
     }
 
-    /// From the cache miss to the answer, when the tune was recorded.
+    /// From the cache miss to the decision, when the tune was recorded.
     pub fn wall(&self) -> Option<Duration> {
         self.trace().map(|trace| trace.record.wall)
     }
@@ -340,7 +340,7 @@ pub enum KeyOrder {
     Wall,
     /// Most candidates measured first.
     Trials,
-    /// Widest margin first: the races whose answer was never in doubt.
+    /// Widest margin first: the races whose tune was never in doubt.
     Margin,
     /// Grouped by tuner, as the file stores them.
     Table,

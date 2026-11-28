@@ -30,7 +30,7 @@ pub enum KernelHandling {
 pub enum TuneOutcome {
     /// Tuned by measuring its candidates.
     Measured,
-    /// Answered from the persistent autotune cache instead.
+    /// Loaded from the persistent autotune cache instead.
     Loaded,
     /// Every candidate failed: the pick was made unmeasured.
     Failed,
@@ -40,7 +40,7 @@ pub enum TuneOutcome {
 
 /// What became of a settled key's pick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TunePick {
+pub enum TuneHandling {
     /// The persistent autotune cache kept it.
     Persisted,
 }
@@ -107,7 +107,7 @@ impl Countable for KernelOutcome {
 }
 
 impl Countable for TuneOutcome {
-    type Later = TunePick;
+    type Later = TuneHandling;
     const WORK: CountedWork = CountedWork::Tune;
     const OUTCOME_COUNT: usize = 4;
     const LATER_COUNT: usize = 1;
@@ -122,9 +122,9 @@ impl Countable for TuneOutcome {
         }
     }
 
-    fn later_index(later: TunePick) -> usize {
+    fn later_index(later: TuneHandling) -> usize {
         match later {
-            TunePick::Persisted => 0,
+            TuneHandling::Persisted => 0,
         }
     }
 }

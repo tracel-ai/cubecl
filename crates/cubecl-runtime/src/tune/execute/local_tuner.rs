@@ -13,7 +13,7 @@ use core::hash::Hash;
 ///
 /// # Guarantees
 ///
-/// - An answer is shared by every id of the same [hardware](crate::device::HardwareIdentity)
+/// - A tune is shared by every id of the same [hardware](crate::device::HardwareIdentity)
 ///   executing the same candidates, from the first [`execute`](Self::execute) of each.
 ///
 /// # Examples
@@ -49,7 +49,7 @@ where
     AK: AutotuneKey,
     ID: Hash + PartialEq + Eq + Clone,
 {
-    /// A tuner whose answers are stored in the table `name` names, for each hardware.
+    /// A tuner whose tunes are stored in the table `name` names, for each hardware.
     ///
     /// # Assumptions
     ///

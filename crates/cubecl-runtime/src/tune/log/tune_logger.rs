@@ -18,12 +18,12 @@ pub struct TuneLogger {
 }
 
 impl TuneLogger {
-    /// A logger of one tune, keeping its context only when `logger` logs or writes decisions, or
+    /// A logger of one tune, keeping its context only when `logger` logs, tunes are logged, or
     /// when the tune is `recorded`.
     pub fn new(logger: &Logger, recorded: bool) -> Self {
         let autotune = &logger.config().autotune;
         let logging = !matches!(autotune.logger.level, AutotuneLogLevel::Disabled);
-        let read = logging || autotune.decisions_enabled() || recorded;
+        let read = logging || autotune.tunes_logged() || recorded;
         Self {
             context: read.then(AutotuneLogContext::default),
         }
@@ -65,7 +65,7 @@ impl TuneLogger {
     }
 
     /// Write the tune's result to `logger`: the
-    /// [`AutotuneDecision`](crate::tune::AutotuneDecision) for tools if decisions have a sink,
+    /// [`LoggedTune`](crate::tune::LoggedTune) for tools if logged tunes have a sink,
     /// and a line for humans at the logger's level. Either, both, or neither.
     ///
     /// A winner with no measurement writes no line for humans: an all-failed plan can
@@ -83,13 +83,13 @@ impl TuneLogger {
             log_context: self.context.as_ref(),
             winner_index,
         };
-        reporter.report_decision(logger);
+        reporter.report_tune(logger);
         if let Some(decided) = measured_at(results, winner_index) {
             reporter.report_log(logger, decided);
         }
     }
 
-    /// Report the cross-checks of a tune that stopped on a lost card, which no decision carries:
+    /// Report the cross-checks of a tune that stopped on a lost card, which no logged tune carries:
     /// written to the log, as a warning.
     #[cfg(not(target_family = "wasm"))]
     pub fn report_stopped<K: AutotuneKey>(&self, key: &K) {
@@ -106,7 +106,7 @@ impl TuneLogger {
             .and_then(|context| context.checks.as_ref())
             .map(|checks| {
                 format!(
-                    "Autotune of {key} stopped on a lost card, so no decision reports its cross-checks: {checks:?}"
+                    "Autotune of {key} stopped on a lost card, so no logged tune reports its cross-checks: {checks:?}"
                 )
             })
     }
@@ -138,16 +138,16 @@ struct ResultReporter<'a, K> {
 }
 
 impl<K: AutotuneKey> ResultReporter<'_, K> {
-    /// The decision: one JSON object.
-    pub fn report_decision(&self, logger: &mut Logger) {
-        if !logger.config().autotune.decisions_enabled() {
+    /// The logged tune: one JSON object.
+    pub fn report_tune(&self, logger: &mut Logger) {
+        if !logger.config().autotune.tunes_logged() {
             return;
         }
         #[cfg(std_io)]
         {
             use alloc::borrow::Cow;
 
-            let decision = crate::tune::AutotuneDecision {
+            let logged = crate::tune::LoggedTune {
                 key: Cow::Borrowed(self.key),
                 winner_index: self.winner_index,
                 winner_time: measured_at(self.results, self.winner_index)
@@ -160,16 +160,14 @@ impl<K: AutotuneKey> ResultReporter<'_, K> {
                     .map(Cow::Borrowed),
             };
 
-            let msg = serde_json::to_string(&decision).unwrap_or_else(|err| {
-                format!("{{\"error\": \"Failed to serialize the autotune decision: {err}\"}}")
+            let msg = serde_json::to_string(&logged).unwrap_or_else(|err| {
+                format!("{{\"error\": \"Failed to serialize the logged tune: {err}\"}}")
             });
-            logger.log_autotune_decision(&msg);
+            logger.log_tune(&msg);
         }
         #[cfg(not(std_io))]
         {
-            logger.log_autotune_decision(
-                &"{\"error\": \"Writing autotune decisions is not available without std_io\"}",
-            );
+            logger.log_tune(&"{\"error\": \"Logging tunes is not available without std_io\"}");
         }
     }
 

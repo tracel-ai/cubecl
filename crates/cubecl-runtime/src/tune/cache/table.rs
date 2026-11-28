@@ -21,18 +21,18 @@ use crate::tune::AutotuneResult;
 pub static TABLE_LAYOUT_VERSION: NamespaceVersion =
     NamespaceVersion::new(NamespaceRoot::AUTOTUNE, LAYOUT_PREFIX, 2);
 
-/// The table entry an answer is stored under.
+/// The table entry a tune is stored under.
 #[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
-pub struct PersistentCacheKey<K> {
+pub struct TuneEntry<K> {
     /// The autotune key identifying the operation.
     pub key: K,
-    /// The checksum of the candidate list the key was tuned under: an answer to another list is
-    /// an answer to another question.
+    /// The checksum of the candidate list the key was tuned under: a tune under another list
+    /// tunes another problem.
     pub checksum: String,
 }
 
-/// The answer a table stores for one entry.
+/// The tune a table stores for one entry.
 ///
 /// Only [`winner_index`](Self::winner_index) is read back: a look-up seeds the in-memory cache
 /// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
@@ -41,7 +41,7 @@ pub struct PersistentCacheKey<K> {
 /// type is `pub`: reading an entry back is the point.
 #[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct PersistentCacheValue {
+pub struct StoredTune {
     /// The index of the candidate the key runs: the winner of its race, under the race's rules,
     /// where a round robin or a short circuit may make a candidate other than the best-scored one
     /// win. Read under its earlier name too, which tables written before hold.
@@ -55,14 +55,14 @@ pub struct PersistentCacheValue {
     pub limit: Option<core::time::Duration>,
 }
 
-/// The table a [`TuneTracker`](crate::tune::cache::tracker::TuneTracker) stores its answers in,
+/// The table a [`TuneTracker`](crate::tune::cache::tracker::TuneTracker) stores its tunes in,
 /// whether or not it persists them.
 #[cfg(persistence)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuneTable {
     /// The namespace the table is stored under: what a [record](crate::tune::TuneRecord) names it by.
     pub namespace: String,
-    /// The environment generation the in-memory answers were built under, or last reset to; see
+    /// The environment generation the in-memory tunes were built under, or last reset to; see
     /// [`cubecl_environment::environment::generation`].
     pub generation: u32,
 }
@@ -70,7 +70,7 @@ pub struct TuneTable {
 /// What the segment numbering a table layout starts with, as in `layout-v1`.
 pub const LAYOUT_PREFIX: &str = "layout-v";
 
-/// What names the table one tuner stores its answers in on one hardware.
+/// What names the table one tuner stores its tunes in on one hardware.
 ///
 /// # Assumptions
 ///
@@ -78,7 +78,7 @@ pub const LAYOUT_PREFIX: &str = "layout-v";
 #[cfg(persistence)]
 #[derive(Clone, Copy, Debug)]
 pub struct TuneTableName<'a> {
-    /// The hardware the answers were measured on, as its
+    /// The hardware the tunes were measured on, as its
     /// [`HardwareIdentity`](crate::device::HardwareIdentity) displays.
     pub hardware: &'a str,
     /// The tuner, named by the code that declared it.
@@ -151,7 +151,7 @@ mod tests {
             "limit": null,
         });
 
-        let read: PersistentCacheValue = serde_json::from_value(row).unwrap();
+        let read: StoredTune = serde_json::from_value(row).unwrap();
 
         assert_eq!(read.winner_index, 2);
     }

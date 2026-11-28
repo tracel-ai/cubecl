@@ -3,7 +3,7 @@ use crate::report::{CanonicalKey, RecordedTune, TunedKey, UntypedTuneRecord};
 use cubecl_environment::records::{SessionId, Stamped};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// The tunes of a file that its tables took, by the key each answers, with
+/// The tunes of a file that its tables took, by the key each tunes, with
 /// the compiling of every session that ran one: built once, so joining each
 /// key to its tune is a lookup rather than a scan of every record.
 pub struct TuneIndex<'a> {
@@ -19,7 +19,7 @@ impl<'a> TuneIndex<'a> {
         let mut tunes = HashMap::new();
         // Oldest first, so a later tune of a key replaces the earlier: the
         // index keeps each key's latest. A tune the table did not take
-        // answered its process alone, and says nothing of the answer stored.
+        // answered its process alone, and says nothing of the tune stored.
         for trace in records.tunes.iter().filter(|trace| trace.record.stored) {
             let record = &trace.record;
             let entry = (

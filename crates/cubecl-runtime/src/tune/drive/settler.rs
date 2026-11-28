@@ -13,7 +13,7 @@ use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
 use crate::tune::{AutotuneKey, AutotuneResult};
 
-/// Settles the key one tune answered: reports the answer, keeps it in memory, settles the tune's
+/// Settles the key one tune answered: reports the tune, keeps it in memory, settles the tune's
 /// registration, and, where tunes persist, stores and records it.
 pub struct TuneSettler<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
@@ -59,7 +59,7 @@ impl<K: AutotuneKey> TuneSettler<K> {
         tune_logger.log_result(&mut self.logger.lock(), &key, &results, winner_index);
         // In-memory regardless: without it this key re-tunes on every call, and a tune that
         // measured nothing would keep failing the same way.
-        self.tracker.lock().track_answer(key.clone(), winner_index);
+        self.tracker.lock().track_tune(key.clone(), winner_index);
         // Where the tune was registered, whether or not that override is still open.
         let outcome = if unmeasured {
             TuneOutcome::Failed
@@ -82,7 +82,7 @@ impl<K: AutotuneKey> TuneSettler<K> {
                 tune_logger.as_context(),
             );
             if stored && let Some(settled) = settled.as_ref() {
-                settled.record(crate::execution::TunePick::Persisted);
+                settled.record(crate::execution::TuneHandling::Persisted);
             }
         }
         #[cfg(not(persistence))]

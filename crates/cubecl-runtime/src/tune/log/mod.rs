@@ -1,4 +1,4 @@
-//! What a tune reports: the log context it collects, the decision it writes, and the logger
+//! What a tune reports: the log context it collects, the tune it logs, and the logger
 //! that writes them.
 
 pub mod context;

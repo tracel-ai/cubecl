@@ -14,12 +14,12 @@ const KEY: &str = "matmul-64x64";
 const STALE: &str = "0000-older-list";
 const CURRENT: &str = "ffff-current-list";
 
-/// An answer stored under an older candidate list is never served for
+/// A tune stored under an older candidate list is never served for
 /// the current one, even when it sorts first: the lookup asks for the key
 /// and the list together.
 #[test]
 #[serial_test::serial]
-fn an_answer_to_an_older_list_is_never_served() {
+fn a_tune_of_an_older_list_is_never_served() {
     let table = "tune-cache-tests/stale-first";
     plant(table, KEY, STALE, 1);
 
@@ -31,7 +31,7 @@ fn an_answer_to_an_older_list_is_never_served() {
 
 #[test]
 #[serial_test::serial]
-fn an_answer_to_the_current_list_is_served() {
+fn a_tune_of_the_current_list_is_served() {
     let table = "tune-cache-tests/current";
     plant(table, KEY, STALE, 1);
     plant(table, KEY, CURRENT, 2);
@@ -54,7 +54,7 @@ fn a_stored_index_past_the_set_is_a_miss() {
     ));
 }
 
-/// A row past the set is deleted, so the tune that follows can store its answer.
+/// A row past the set is deleted, so the tune that follows can store its own.
 #[test]
 #[serial_test::serial]
 fn a_stored_index_past_the_set_is_deleted() {
@@ -67,19 +67,19 @@ fn a_stored_index_past_the_set_is_deleted() {
 
 #[test]
 #[serial_test::serial]
-fn a_second_answer_to_a_stored_key_is_not_stored() {
-    let table = "tune-cache-tests/second-answer";
+fn a_second_tune_of_a_stored_key_is_not_stored() {
+    let table = "tune-cache-tests/second-tune";
     let mut tracker = tracker_over(table);
-    tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(1));
+    tracker.store_tune(KEY.to_string(), CURRENT.into(), tune_at(1));
 
-    assert!(!tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(2)));
+    assert!(!tracker.store_tune(KEY.to_string(), CURRENT.into(), tune_at(2)));
 }
 
 #[test]
 #[serial_test::serial]
-fn a_switched_environment_misses_every_answer() {
+fn a_switched_environment_misses_every_tune() {
     let mut tracker = tracker_over("tune-cache-tests/switched");
-    tracker.track_answer(KEY.to_string(), 1);
+    tracker.track_tune(KEY.to_string(), 1);
     // Far from any generation a concurrent switch of the environment reaches.
     tracker.table.generation = tracker.table.generation.wrapping_add(u32::MAX / 2);
 
@@ -91,15 +91,15 @@ fn a_switched_environment_misses_every_answer() {
 
 #[test]
 #[serial_test::serial]
-fn a_reset_drops_the_answers_of_the_switched_environment() {
+fn a_reset_drops_the_tunes_of_the_switched_environment() {
     let mut tracker = tracker_over("tune-cache-tests/reset");
-    tracker.track_answer(KEY.to_string(), 1);
+    tracker.track_tune(KEY.to_string(), 1);
     // Far from any generation a concurrent switch of the environment reaches.
     tracker.table.generation = tracker.table.generation.wrapping_add(u32::MAX / 2);
 
     tracker.reset_if_environment_switched();
 
-    assert!(tracker.answers.is_empty());
+    assert!(tracker.keys.is_empty());
 }
 
 /// Opening a table drops the tables an earlier layout wrote, and nothing else. The only test of
@@ -147,7 +147,7 @@ fn opening_a_table_drops_the_earlier_layouts_only() {
 
 #[test]
 #[serial_test::serial]
-fn a_loaded_answer_is_recorded_as_used() {
+fn a_loaded_tune_is_recorded_as_used() {
     let table = "tune-cache-tests/used-loaded";
     plant(table, KEY, CURRENT, 1);
 
@@ -158,7 +158,7 @@ fn a_loaded_answer_is_recorded_as_used() {
 
 #[test]
 #[serial_test::serial]
-fn a_missed_answer_is_not_recorded_as_used() {
+fn a_missed_tune_is_not_recorded_as_used() {
     let table = "tune-cache-tests/used-missed";
 
     tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3);
@@ -166,10 +166,10 @@ fn a_missed_answer_is_not_recorded_as_used() {
     assert_eq!(used(table), []);
 }
 
-/// The work runs another candidate than one past the set, so that row is no answer it used.
+/// The work runs another candidate than one past the set, so that row is no tune it used.
 #[test]
 #[serial_test::serial]
-fn an_answer_past_the_set_is_not_recorded_as_used() {
+fn a_tune_past_the_set_is_not_recorded_as_used() {
     let table = "tune-cache-tests/used-past-the-set";
     plant(table, KEY, CURRENT, 3);
 
@@ -180,39 +180,39 @@ fn an_answer_past_the_set_is_not_recorded_as_used() {
 
 #[test]
 #[serial_test::serial]
-fn a_stored_answer_is_recorded_as_used() {
+fn a_stored_tune_is_recorded_as_used() {
     let table = "tune-cache-tests/used-stored";
 
-    tracker_over(table).store_answer(KEY.to_string(), CURRENT.into(), answer_at(1));
+    tracker_over(table).store_tune(KEY.to_string(), CURRENT.into(), tune_at(1));
 
     assert_eq!(used(table), [pair(KEY, CURRENT)]);
 }
 
-/// The table keeps the answer it held, and that answer is the one the next process loads.
+/// The table keeps the tune it held, and that tune is the one the next process loads.
 #[test]
 #[serial_test::serial]
-fn the_answer_a_table_kept_is_recorded_as_used() {
+fn the_tune_a_table_kept_is_recorded_as_used() {
     let table = "tune-cache-tests/used-kept";
     plant(table, KEY, CURRENT, 1);
 
-    tracker_over(table).store_answer(KEY.to_string(), CURRENT.into(), answer_at(2));
+    tracker_over(table).store_tune(KEY.to_string(), CURRENT.into(), tune_at(2));
 
     assert_eq!(used(table), [pair(KEY, CURRENT)]);
 }
 
-/// Storing an answer to the current list leaves the key's answer to an
-/// older list in the table: an environment never loses an answer, and the
+/// Storing a tune of the current list leaves the key's tune of an
+/// older list in the table: an environment never loses a tune, and the
 /// older one only costs a row, since no lookup for the current list reads
 /// it.
 #[test]
 #[serial_test::serial]
-fn a_stored_answer_leaves_the_answers_to_older_lists() {
+fn a_stored_tune_leaves_the_tunes_of_older_lists() {
     let table = "tune-cache-tests/kept";
     plant(table, KEY, STALE, 1);
     let mut tracker = tracker_over(table);
     tracker.track_stored(&KEY.to_string(), CURRENT, 3);
 
-    assert!(tracker.store_answer(KEY.to_string(), CURRENT.into(), answer_at(2)));
+    assert!(tracker.store_tune(KEY.to_string(), CURRENT.into(), tune_at(2)));
 
     assert_eq!(stored(table), [pair(KEY, STALE), pair(KEY, CURRENT)]);
 }
@@ -221,7 +221,7 @@ fn a_stored_answer_leaves_the_answers_to_older_lists() {
 fn tracker_over(table: &str) -> TuneTracker<String> {
     TuneTracker::with_store(
         Some(PersistedTable {
-            tunes: answers(table),
+            tunes: tunes(table),
             uses: WorkUses::from_store(uses(table)),
         }),
         TuneTable {
@@ -232,7 +232,7 @@ fn tracker_over(table: &str) -> TuneTracker<String> {
 }
 
 /// The store of the in-memory table `table`, read lazily as a tuner's is.
-fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValue> {
+fn tunes(table: &str) -> Store<TuneEntry<String>, StoredTune> {
     Store::new(
         StoreOptions::new()
             .storage_with(Box::new(MemoryStorage::new(table)), Namespace::new(table))
@@ -241,7 +241,7 @@ fn answers(table: &str) -> Store<PersistentCacheKey<String>, PersistentCacheValu
 }
 
 /// The in-memory record of the entries of `table` the work used.
-fn uses(table: &str) -> Store<PersistentCacheKey<String>, ()> {
+fn uses(table: &str) -> Store<TuneEntry<String>, ()> {
     let namespace = alloc::format!("used-by-tests/{table}");
     Store::new(
         StoreOptions::new()
@@ -254,7 +254,7 @@ fn uses(table: &str) -> Store<PersistentCacheKey<String>, ()> {
 }
 
 /// Every entry of `table` the work was recorded using, by key and list.
-fn used(table: &str) -> Vec<PersistentCacheKey<String>> {
+fn used(table: &str) -> Vec<TuneEntry<String>> {
     let mut used = Vec::new();
     uses(table).scan(|key, ()| used.push(key));
     used.sort_by(|a, b| (&a.key, &a.checksum).cmp(&(&b.key, &b.checksum)));
@@ -262,22 +262,22 @@ fn used(table: &str) -> Vec<PersistentCacheKey<String>> {
 }
 
 /// Stores in `table`, as a tune of `checksum`'s list would, `winner_index`
-/// as the answer to `key`.
+/// as the tune of `key`.
 fn plant(table: &str, key: &str, checksum: &str, winner_index: usize) {
-    answers(table)
-        .insert(pair(key, checksum), answer_at(winner_index))
+    tunes(table)
+        .insert(pair(key, checksum), tune_at(winner_index))
         .unwrap();
 }
 
-fn pair(key: &str, checksum: &str) -> PersistentCacheKey<String> {
-    PersistentCacheKey {
+fn pair(key: &str, checksum: &str) -> TuneEntry<String> {
+    TuneEntry {
         key: key.to_string(),
         checksum: checksum.into(),
     }
 }
 
-fn answer_at(winner_index: usize) -> PersistentCacheValue {
-    PersistentCacheValue {
+fn tune_at(winner_index: usize) -> StoredTune {
+    StoredTune {
         winner_index,
         results: Vec::new(),
         bounds: None,
@@ -285,10 +285,10 @@ fn answer_at(winner_index: usize) -> PersistentCacheValue {
     }
 }
 
-/// Every answer `table` holds, by key and list.
-fn stored(table: &str) -> Vec<PersistentCacheKey<String>> {
+/// Every tune `table` holds, by key and list.
+fn stored(table: &str) -> Vec<TuneEntry<String>> {
     let mut stored = Vec::new();
-    answers(table).scan(|key, _| stored.push(key));
+    tunes(table).scan(|key, _| stored.push(key));
     stored.sort_by(|a, b| (&a.key, &a.checksum).cmp(&(&b.key, &b.checksum)));
     stored
 }
