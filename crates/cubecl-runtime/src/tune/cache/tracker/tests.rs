@@ -38,7 +38,7 @@ fn a_tune_of_the_current_list_is_served() {
 
     assert!(matches!(
         tracker_over(table).track_stored(&KEY.to_string(), CURRENT, 3),
-        TuneAnswer::Hit { decided_index: 2 }
+        TuneAnswer::Hit { winner_index: 2 }
     ));
 }
 
@@ -260,11 +260,11 @@ fn used(table: &str) -> Vec<TuneEntry<String>> {
     used
 }
 
-/// Stores in `table`, as a tune of `checksum`'s list would, `decided_index`
+/// Stores in `table`, as a tune of `checksum`'s list would, `winner_index`
 /// as the tune of `key`.
-fn plant(table: &str, key: &str, checksum: &str, decided_index: usize) {
+fn plant(table: &str, key: &str, checksum: &str, winner_index: usize) {
     tunes(table)
-        .insert(pair(key, checksum), tune_at(decided_index))
+        .insert(pair(key, checksum), tune_at(winner_index))
         .unwrap();
 }
 
@@ -275,9 +275,9 @@ fn pair(key: &str, checksum: &str) -> TuneEntry<String> {
     }
 }
 
-fn tune_at(decided_index: usize) -> StoredTune {
+fn tune_at(winner_index: usize) -> StoredTune {
     StoredTune {
-        decided_index,
+        winner_index,
         results: Vec::new(),
         bounds: None,
         limit: None,

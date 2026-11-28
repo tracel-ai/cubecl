@@ -3,12 +3,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::tune::{AutotuneCheckable, AutotuneError, CheckResult};
+use crate::tune::{AutotuneError, AutotuneOutput, CheckResult};
 
 /// Check every candidate's output of `outputs`, each with its name, against the first one that
 /// served the call, or the last one where none did. A mismatch is collected as a failed check where
 /// `collect`, where something reports it, and panics otherwise rather than passing silently.
-pub fn check_outputs<O: AutotuneCheckable>(
+pub fn check_outputs<O: AutotuneOutput>(
     mut outputs: Vec<(String, Result<O, AutotuneError>)>,
     collect: bool,
 ) -> Vec<CheckResult> {
@@ -33,7 +33,7 @@ pub fn check_outputs<O: AutotuneCheckable>(
 
 /// The check of the candidate `name`, whose output is `other`, against `reference`. A candidate
 /// that did not serve the call fails it.
-fn check<O: AutotuneCheckable>(
+fn check<O: AutotuneOutput>(
     reference: &Result<O, AutotuneError>,
     name: String,
     other: Result<O, AutotuneError>,
@@ -65,7 +65,7 @@ mod tests {
     /// An output that matches another of the same value.
     struct Value(u8);
 
-    impl AutotuneCheckable for Value {
+    impl AutotuneOutput for Value {
         fn check_equivalence(&self, other: Self) -> Result<(), String> {
             if self.0 == other.0 {
                 Ok(())

@@ -4,8 +4,9 @@ use crate::shared::offline_kernels::{
     Wait, bf16_math_kernel, byte_permutes_kernel, cdna_quantized_product_kernel,
     cube_meeting_kernel, e4m3_decode_kernel, e4m3_encode_kernel, fence_poll_kernel,
     fence_send_kernel, fragment_registers_kernel, keep_largest_kernel, manual_product_kernel,
-    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, relay_kernel,
-    scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    nested_calls_with_source_kernel, peer_tally_kernel, plane_moves_kernel, register_lines_kernel,
+    relay_kernel, scale_kernel, tally_kernel, tile_product_in_plane, tile_product_kernel,
+    transposed_stage_product_kernel,
 };
 use crate::target::LlvmTarget;
 use crate::{
@@ -111,6 +112,35 @@ fn half_precision_tiles_multiply_on_the_matrix_cores() {
         assert!(asm.contains("v_wmma_bf16_16x16x16_bf16"), "{arch}:\n{asm}");
         let asm = asm_of(tile_product_kernel::<f16, f16, f16>((16, 16, 16)), arch);
         assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{arch}:\n{asm}");
+    }
+}
+
+/// A `B` stage laid with each column's `k` contiguous, filled by blocks transposed in registers,
+/// is stored in lines of `k` and read by its fragment in whole runs: no 2-byte value crosses
+/// shared memory, and no register spills. RDNA reads a lane's 16 values of `k` 16 bytes at a time,
+/// CDNA its four 8 bytes at a time.
+#[test]
+fn a_k_contiguous_b_stage_loads_and_stores_whole_runs() {
+    for (arch, read, narrow_read, narrow_write) in [
+        ("gfx1151", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx1201", "ds_load_b128", "ds_load_u16", "ds_store_b16"),
+        ("gfx942", "ds_read_b64", "ds_read_u16", "ds_write_b16"),
+    ] {
+        let asm = asm_of(transposed_stage_product_kernel(&GfxArch::parse(arch)), arch);
+        keep_asm(&asm, &format!("transposed_stage_product_{arch}"));
+        assert!(asm.contains(read), "{arch}: the runs load whole:\n{asm}");
+        assert!(
+            !asm.contains(narrow_read),
+            "{arch}: no run loads element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains(narrow_write),
+            "{arch}: no column stores element by element:\n{asm}"
+        );
+        assert!(
+            !asm.contains("scratch_") && !asm.contains("buffer_store"),
+            "{arch}: no register spills:\n{asm}"
+        );
     }
 }
 
@@ -283,6 +313,38 @@ fn a_fragment_copies_into_registers_on_every_matrix_core() {
     let asm = asm_of(kernel, "gfx1151");
     assert!(asm.contains("v_wmma_f16_16x16x16_f16"), "{asm}");
     assert!(!asm.contains("scratch_"), "{asm}");
+}
+
+/// A destination bound four `f32` values a line takes a sum out of its registers in 16-byte
+/// stores, through no shared memory, barrier or scratch: as an RDNA4 lane holds its lines, and on
+/// RDNA3 and CDNA, whose lanes hold columns, after a regroup by DPP moves within each quad.
+#[test]
+fn a_sum_drains_in_b128_lines_from_registers() {
+    let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+    let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+    for (arch, core, lines, store, moves) in [
+        ("gfx1201", rdna4, 2, "global_store_b128", 0),
+        ("gfx1151", rdna3, 2, "global_store_b128", 8),
+        (MI300, CDNA3, 1, "global_store_dwordx4", 4),
+    ] {
+        let kernel = register_lines_kernel(&GfxArch::parse(arch), stating_positions(core));
+        let asm = asm_of(kernel, arch);
+        keep_asm(&asm, &format!("register_lines_{arch}"));
+        assert_eq!(
+            asm.matches("quad_perm").count(),
+            moves,
+            "{arch}: one move within a quad of lanes a cell:\n{asm}"
+        );
+        assert_eq!(
+            asm.matches(store).count(),
+            lines,
+            "{arch}: {lines} lines of four cells a lane:\n{asm}"
+        );
+        assert!(
+            !asm.contains("ds_") && !asm.contains("s_barrier") && !asm.contains("scratch_"),
+            "{arch}: no cell moves through shared memory or scratch:\n{asm}"
+        );
+    }
 }
 
 /// The architecture the MI300 tests compile for.

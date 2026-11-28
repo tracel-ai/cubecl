@@ -11,11 +11,11 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::cache::tracker::TuneTracker;
 use crate::tune::drive::pending_unmarker::PendingUnmarker;
 use crate::tune::log::tune_logger::TuneLogger;
-use crate::tune::{AutotuneKeyable, AutotuneResult};
+use crate::tune::{AutotuneKey, AutotuneResult};
 
 /// Settles the key one tune answered: reports the tune, keeps it in memory, settles the tune's
 /// registration, and, where tunes persist, stores and records it.
-pub struct TuneSettler<K: AutotuneKeyable> {
+pub struct TuneSettler<K: AutotuneKey> {
     tracker: Arc<Mutex<TuneTracker<K>>>,
     logger: Arc<Mutex<Logger>>,
     /// Where the tune settles once its pick is committed.
@@ -25,7 +25,7 @@ pub struct TuneSettler<K: AutotuneKeyable> {
     persister: crate::tune::drive::persister::TunePersister<K>,
 }
 
-impl<K: AutotuneKeyable> TuneSettler<K> {
+impl<K: AutotuneKey> TuneSettler<K> {
     pub fn new(
         tracker: Arc<Mutex<TuneTracker<K>>>,
         logger: Arc<Mutex<Logger>>,
@@ -43,23 +43,23 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
         }
     }
 
-    /// Settle `key` on `decided_index`, which is `unmeasured` where it was picked with nothing
+    /// Settle `key` on `winner_index`, which is `unmeasured` where it was picked with nothing
     /// measured, `results` holding every candidate's result by tunable index.
     pub fn settle(
         self,
         key: K,
         results: Vec<AutotuneResult>,
-        decided_index: usize,
+        winner_index: usize,
         unmeasured: bool,
         tune_logger: &TuneLogger,
     ) {
         // Ranked for the report and the table: measured ones first, fastest first.
         let mut results = results;
         results.sort_by_key(AutotuneResult::score);
-        tune_logger.log_result(&mut self.logger.lock(), &key, &results, decided_index);
+        tune_logger.log_result(&mut self.logger.lock(), &key, &results, winner_index);
         // In-memory regardless: without it this key re-tunes on every call, and a tune that
         // measured nothing would keep failing the same way.
-        self.tracker.lock().track_tune(key.clone(), decided_index);
+        self.tracker.lock().track_tune(key.clone(), winner_index);
         // Where the tune was registered, whether or not that override is still open.
         let outcome = if unmeasured {
             TuneOutcome::Failed
@@ -77,7 +77,7 @@ impl<K: AutotuneKeyable> TuneSettler<K> {
                 &self.tracker,
                 key,
                 results,
-                decided_index,
+                winner_index,
                 unmeasured,
                 tune_logger.as_context(),
             );

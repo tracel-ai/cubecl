@@ -9,18 +9,18 @@ use crate::tune::cache::tracker::TuneAnswer;
 use crate::tune::execute::set_initializer::SetInitializer;
 use crate::tune::execute::tuner_opener::TunerOpener;
 use crate::tune::{
-    AutotuneCheckable, AutotuneError, AutotuneKeyable, CheckResult, TunableSet, TuneInputs,
+    AutotuneError, AutotuneKey, AutotuneOutput, CheckResult, TunableSet, TuneInputs,
 };
 
 /// Executes what a [`LocalTuner`](crate::tune::LocalTuner) is asked to: builds its sets, opens its
 /// tuners, and runs the candidate a key's tune elects.
-pub struct TuneExecutor<AK: AutotuneKeyable, ID> {
+pub struct TuneExecutor<AK: AutotuneKey, ID> {
     name: &'static str,
     tuners: Mutex<TunerOpener<AK, ID>>,
     sets: RwLock<SetInitializer<ID>>,
 }
 
-impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
+impl<AK: AutotuneKey, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -35,7 +35,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         F: Fn() -> TunableSet<AK, I, Out, Id> + 'static + Send + Sync,
         Id: Send + Sync + 'static,
         I: TuneInputs,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
     {
         let key = (TypeId::of::<F>(), id.clone());
         if let Some(set) = self.sets.read().cached(&key) {
@@ -44,8 +44,8 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
         self.sets.write().initialize(key, init_set)
     }
 
-    /// [`LocalTuner::fastest_identity`](crate::tune::LocalTuner::fastest_identity).
-    pub fn fastest_identity<I, Out, Id>(
+    /// [`LocalTuner::winner_identity`](crate::tune::LocalTuner::winner_identity).
+    pub fn winner_identity<I, Out, Id>(
         &self,
         id: &ID,
         operations: &TunableSet<AK, I, Out, Id>,
@@ -60,10 +60,10 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
             .lock()
             .opened(id, operations.checksum())?
             .clone();
-        let TuneAnswer::Hit { decided_index } = tuner.decided(key) else {
+        let TuneAnswer::Hit { winner_index } = tuner.decided(key) else {
             return None;
         };
-        Some(operations.identity_at(decided_index).clone())
+        Some(operations.identity_at(winner_index).clone())
     }
 
     /// [`LocalTuner::clear`](crate::tune::LocalTuner::clear).
@@ -86,25 +86,25 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     ) -> Out
     where
         <I as TuneInputs>::At<'a>: Clone + Send,
-        Out: AutotuneCheckable,
+        Out: AutotuneOutput,
         Id: Send + Sync,
     {
         let key = operations.generate_key(&inputs);
         let tuner = self.tuners.lock().open(id, self.name, client, &operations);
 
-        // Fast path: a cached hit skips straight to the decided candidate. A miss falls through to
+        // Fast path: a cached hit skips straight to the winner. A miss falls through to
         // `tune`, which reads the store.
-        if let TuneAnswer::Hit { decided_index } = tuner.reset_and_answer(&key) {
+        if let TuneAnswer::Hit { winner_index } = tuner.reset_and_answer(&key) {
             // `autotune-checks` cross-checks the candidates of every launch, a hit's included:
             // nothing reports a hit's checks, so a mismatch there panics.
             check_candidates(&operations, &inputs, client, false);
-            return execute_decided(&operations, &key, decided_index, inputs);
+            return execute_winner(&operations, &key, winner_index, inputs);
         }
 
         let checks = |collect| check_candidates(&operations, &inputs, client, collect);
         match tuner.tune::<I, Out, Id>(&key, &inputs, &operations, client, checks) {
-            TuneAnswer::Hit { decided_index } => {
-                execute_decided(&operations, &key, decided_index, inputs)
+            TuneAnswer::Hit { winner_index } => {
+                execute_winner(&operations, &key, winner_index, inputs)
             }
             TuneAnswer::Miss => unreachable!("a tune should never answer a miss"),
             // Still waiting (e.g. on wasm), stopped on a lost device, or its candidates' kernels
@@ -127,7 +127,7 @@ impl<AK: AutotuneKeyable, ID: Hash + Eq + Clone> TuneExecutor<AK, ID> {
     not(feature = "autotune-checks"),
     allow(unused_variables, clippy::unnecessary_wraps)
 )]
-fn check_candidates<'a, AK: AutotuneKeyable, I: TuneInputs, Out: AutotuneCheckable, Id: Sync>(
+fn check_candidates<'a, AK: AutotuneKey, I: TuneInputs, Out: AutotuneOutput, Id: Sync>(
     operations: &TunableSet<AK, I, Out, Id>,
     inputs: &<I as TuneInputs>::At<'a>,
     client: &Client,
@@ -191,7 +191,7 @@ where
 /// # Panics
 ///
 /// When no candidate launches: some candidate serves the problem.
-fn run_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn run_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
     inputs: <I as TuneInputs>::At<'a>,
@@ -207,7 +207,7 @@ where
 /// Runs the candidates in `order`, the key's run order, and hands back the first output, or every
 /// candidate's error when none launches. A candidate that fails to launch is skipped, as the
 /// measurement skips it.
-fn execute_in_plan_order<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn execute_in_plan_order<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     order: &[usize],
     inputs: <I as TuneInputs>::At<'a>,
@@ -239,10 +239,10 @@ fn first_served<Out>(
     Err(failures)
 }
 
-/// Runs `decided`, the candidate the tune decided for `key`, or the next one in the key's run
-/// order that serves `inputs` when it rejects them: a key groups calls, and the decided candidate
+/// Runs `decided`, the winner for `key`, or the next one in the key's run
+/// order that serves `inputs` when it rejects them: a key groups calls, and the winner
 /// may serve only some of them.
-fn execute_decided<'a, AK: AutotuneKeyable, I: TuneInputs, Out: 'static, Id>(
+fn execute_winner<'a, AK: AutotuneKey, I: TuneInputs, Out: 'static, Id>(
     operations: &TunableSet<AK, I, Out, Id>,
     key: &AK,
     decided: usize,
@@ -287,7 +287,7 @@ mod tests {
         }
     }
 
-    impl AutotuneKeyable for FakeAutotuneKey {}
+    impl AutotuneKey for FakeAutotuneKey {}
 
     fn set() -> TunableSet<FakeAutotuneKey, (), usize> {
         TunableSet::new(|_: &()| FakeAutotuneKey, |_: &FakeAutotuneKey, _: &()| ())
@@ -374,14 +374,14 @@ mod tests {
             .with(fails("decided").group(&group, |_| 2))
             .with(answers("planned_second", 2).group(&group, |_| 1));
 
-        assert_eq!(execute_decided(&operations, &FakeAutotuneKey, 1, ()), 2);
+        assert_eq!(execute_winner(&operations, &FakeAutotuneKey, 1, ()), 2);
     }
 
     #[test]
-    fn a_decided_candidate_that_serves_the_call_runs_alone() {
+    fn a_winner_that_serves_the_call_runs_alone() {
         let operations = set().with(answers("other", 0)).with(answers("decided", 1));
 
-        assert_eq!(execute_decided(&operations, &FakeAutotuneKey, 1, ()), 1);
+        assert_eq!(execute_winner(&operations, &FakeAutotuneKey, 1, ()), 1);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
     fn a_call_no_candidate_serves_panics() {
         let operations = set().with(fails("decided")).with(fails("other"));
 
-        execute_decided(&operations, &FakeAutotuneKey, 0, ());
+        execute_winner(&operations, &FakeAutotuneKey, 0, ());
     }
 
     #[test]
@@ -415,17 +415,14 @@ mod tests {
                 |_| Ok::<_, String>(1),
             ));
 
-        execute_decided(&operations, &FakeAutotuneKey, 0, ());
+        execute_winner(&operations, &FakeAutotuneKey, 0, ());
     }
 
     #[test]
     fn an_id_that_executed_nothing_has_no_fastest_identity() {
         let executor = TuneExecutor::<FakeAutotuneKey, u8>::new("test");
 
-        assert_eq!(
-            executor.fastest_identity(&0, &set(), &FakeAutotuneKey),
-            None
-        );
+        assert_eq!(executor.winner_identity(&0, &set(), &FakeAutotuneKey), None);
     }
 
     /// An initializer of empty sets, counting the sets it built in `built`.

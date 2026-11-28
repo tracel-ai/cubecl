@@ -2,15 +2,15 @@ use alloc::string::String;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
-/// What a value needs to key an autotune: to be hashed and compared in memory, displayed in the
-/// logs, and, where tunes persist, serialized into the table.
+/// A value that keys an autotune: one hashed and compared in memory, displayed in the
+/// logs and, where tunes persist, serialized into the table.
 ///
 /// # Guarantees
 ///
 /// - Every implementation's equal keys pose problems one decision is measured for: a tune
 ///   measures one of them and keeps its tune for every equal key.
 /// - Where tunes persist, a key serialized and read back is equal to the key it was written from.
-pub trait AutotuneKeyable:
+pub trait AutotuneKey:
     Clone + Debug + PartialEq + Eq + Hash + Display + Persistable + Send + Sync + 'static
 {
 }
@@ -29,4 +29,4 @@ pub trait Persistable {}
 #[cfg(not(serializable))]
 impl<T> Persistable for T {}
 
-impl AutotuneKeyable for String {}
+impl AutotuneKey for String {}

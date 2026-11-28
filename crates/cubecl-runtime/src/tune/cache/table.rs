@@ -15,7 +15,7 @@ use crate::tune::AutotuneResult;
 /// The layout version of the tables: how they are named and what their rows hold, bumped when
 /// either changes.
 ///
-/// Version 2 stores `decided_index` and `threshold_fraction` where version 1 stored
+/// Version 2 stores `winner_index` and `threshold_fraction` where version 1 stored
 /// `fastest_index` and `threshold`: a table of version 1 is dropped rather than misread.
 #[cfg(persistence)]
 pub static TABLE_LAYOUT_VERSION: NamespaceVersion =
@@ -34,7 +34,7 @@ pub struct TuneEntry<K> {
 
 /// The tune a table stores for one entry.
 ///
-/// Only [`decided_index`](Self::decided_index) is read back: a look-up seeds the in-memory cache
+/// Only [`winner_index`](Self::winner_index) is read back: a look-up seeds the in-memory cache
 /// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
 /// the fact — why a kernel won, against which measurements, and under which bounds — which is the
 /// question that cannot be answered from a live process once tuning is over. That is also why the
@@ -42,9 +42,11 @@ pub struct TuneEntry<K> {
 #[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct StoredTune {
-    /// The index of the candidate the key runs: the one the tune decided, which a round robin or
-    /// a short circuit may pick over the best-scored one.
-    pub decided_index: usize,
+    /// The index of the candidate the key runs: the winner of its race, under the race's rules,
+    /// where a round robin or a short circuit may make a candidate other than the best-scored one
+    /// win. Read under its earlier name too, which tables written before hold.
+    #[serde(alias = "decided_index")]
+    pub winner_index: usize,
     /// Every candidate's result, measured ones first, fastest first (Arrival Usage).
     pub results: Vec<AutotuneResult>,
     /// The bounds the tune was measured against, where the set has a bounds generator.
@@ -94,5 +96,25 @@ impl TuneTableName<'_> {
     pub fn namespace(&self) -> Namespace {
         let Self { hardware, tuner } = self;
         TABLE_LAYOUT_VERSION.namespace(&alloc::format!("{hardware}/{tuner}"))
+    }
+}
+
+#[cfg(all(test, persistence))]
+mod tests {
+    use super::*;
+
+    /// A row a table stored when the winner's index was named `decided_index` still reads.
+    #[test]
+    fn a_row_stored_under_the_earlier_name_reads() {
+        let row = serde_json::json!({
+            "decided_index": 2,
+            "results": [],
+            "bounds": null,
+            "limit": null,
+        });
+
+        let read: StoredTune = serde_json::from_value(row).unwrap();
+
+        assert_eq!(read.winner_index, 2);
     }
 }

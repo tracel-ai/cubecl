@@ -4,7 +4,7 @@
 //! per key.
 //!
 //! ```ignore
-//! #[derive(AutotuneKeyable)]
+//! #[derive(AutotuneKey)]
 //! struct KernelKey { size: u32 }
 //!
 //! fn run_kernel_tuned(device_id: DeviceId, lhs: Tensor, rhs: Tensor) -> Tensor {
@@ -53,7 +53,7 @@ pub use cache::table::LAYOUT_PREFIX;
 pub use cache::table::{StoredTune, TuneEntry, TuneTableName};
 pub use hook::bounds_generator::BoundsGenerator;
 pub use key::anchor::Anchor;
-pub use set::checkable::AutotuneCheckable;
+pub use set::autotune_output::AutotuneOutput;
 // `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
 // autotune bounds and benchmark reporting share one definition.
 pub use cubecl_common::work::Work;
@@ -65,7 +65,7 @@ pub use hook::input_generator::InputGenerator;
 pub use hook::key_generator::KeyGenerator;
 pub use hook::stage_enterer::StageEnterer;
 pub use hook::tune_stage::TuneStage;
-pub use key::keyable::AutotuneKeyable;
+pub use key::autotune_key::AutotuneKey;
 #[cfg(std_io)]
 pub use log::context::LoggedTune;
 pub use log::context::{AutotuneLogContext, AutotuneLogEvent, CheckResult};

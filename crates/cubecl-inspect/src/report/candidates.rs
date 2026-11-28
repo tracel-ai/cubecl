@@ -20,14 +20,14 @@ pub struct CandidateRow {
     pub candidate: String,
     /// Keys it was benchmarked for.
     pub measured: u64,
-    /// Keys whose tune decided it.
+    /// Keys it is the winner of.
     pub won: u64,
     /// Keys the tuner declined to run it for.
     pub skipped: u64,
     pub failed: u64,
     /// The geometric mean, over the keys it was measured for, of its score
     /// over the winner's: 1 when it always wins, 3 when it is typically three
-    /// times slower than the decided candidate. `None` when it was never measured against
+    /// times slower than the winner. `None` when it was never measured against
     /// a measured winner.
     pub slowdown: Option<f64>,
     /// What running it cost, over the recorded tunes; `None` when none of its

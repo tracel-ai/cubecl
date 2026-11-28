@@ -348,6 +348,7 @@ impl Memory {
                 physical_strides,
                 projection: gmem_projection,
                 rows: RowArrangement::InOrder,
+                order: StageOrder::AsSource,
                 paging,
             },
             window: Window::new(

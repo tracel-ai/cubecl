@@ -1,6 +1,6 @@
 //! What one plane contracts through ([`Instruction`]).
 
-use cubecl::cmma::{MatrixIdent, MatrixShape};
+use cubecl::cmma::{MatrixIdent, MatrixLayout, MatrixShape};
 use cubecl::ir::features::{MmaConfig, Plane};
 use cubecl::ir::{
     DeviceProperties, ElemType, FloatKind, FragmentPositions, TargetProperties,
@@ -12,7 +12,7 @@ use cubecl::quant::scheme::QuantValue;
 use crate::ops::matmul::mma_io::LaneVectors;
 use crate::tile::kind::plane::mma::lane_runs::LaneMap;
 use crate::tile::packing::base::Field;
-use crate::{ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
+use crate::{CellLines, ComputeScope, KeyOrder, MmaIo, SoftwareMatmul};
 
 /// What one plane contracts through: a software matmul or a hardware fragment form.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -72,13 +72,50 @@ impl Instruction {
     }
 
     /// Whether a sum this instruction contracts is backed by a scratch: a cmma fragment's is, so
-    /// it reaches a destination that adds, overhangs or casts out of place through that scratch,
-    /// a cell at a time, and the host sizes it.
+    /// it is scaled through that scratch, and reaches a destination that adds, overhangs or casts
+    /// out of place through it wherever its units do not write it out of their registers.
     pub(crate) fn takes_scratch(self) -> bool {
         match self {
             Self::Cmma => true,
             Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => false,
         }
+    }
+
+    /// The widest line along the rows (`m`) and along the columns (`n`) of an `m × n` sum held in
+    /// `sum` that this instruction's units write out of their registers on `target`, where the
+    /// sum bounces no cell: a cmma fragment whose positions the target states writes the lines
+    /// its units hold, alone or regrouped across units in registers ([`CellLines::widest`]). One
+    /// along each side for every other case: a fragment that hides its positions bounces, and
+    /// the other forms write their cells one at a time.
+    ///
+    /// # Guarantees
+    ///
+    /// - A destination bound at a width dividing the side its lines run along is written out of
+    ///   registers, with no scratch.
+    pub fn widest_line(
+        self,
+        target: &TargetProperties,
+        [m, n]: [usize; 2],
+        sum: ElemType,
+    ) -> [usize; 2] {
+        let positions =
+            match self {
+                Self::Cmma if !self.hides_cell_positions(target) => target
+                    .mma
+                    .element_positions_of(MatrixIdent::Accumulator, (m, n, m).into(), sum),
+                Self::Cmma | Self::Registers { .. } | Self::Mma { .. } | Self::Wgmma => None,
+            };
+        let lanes = target.mma.const_plane_lane_count as usize;
+        let elems = target.mma.elems_per_lane(MatrixIdent::Accumulator, m * n);
+        let widest = |layout| {
+            positions.as_ref().map_or(1, |positions| {
+                CellLines::widest(positions, lanes, elems, layout)
+            })
+        };
+        [
+            widest(MatrixLayout::ColMajor),
+            widest(MatrixLayout::RowMajor),
+        ]
     }
 }
 
@@ -772,7 +809,6 @@ fn best_call<'a>(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use cubecl::cmma::MatrixLayout;
     use cubecl::ir::{
         ContiguousElements, DeviceIdentity, HardwareProperties, MemoryDeviceProperties, VectorSize,
         features::Features,
@@ -942,6 +978,42 @@ pub(crate) mod tests {
         assert!(Instruction::Cmma.takes_scratch());
         assert!(!mma().takes_scratch());
         assert!(!Instruction::Wgmma.takes_scratch());
+    }
+
+    /// `core`'s target with its fragments' positions stated as `stated` says.
+    fn amd(core: cubecl_ir::amd::AmdMatrixCore, stated: FragmentPositions) -> TargetProperties {
+        let mut mma = core.mma_properties();
+        mma.fragment_positions = stated;
+        TargetProperties { mma }
+    }
+
+    /// A cmma fragment whose positions the target states writes lines as wide as its lanes hold
+    /// them, along a row as RDNA4's lanes do, or regrouped where each lane holds a column, as
+    /// RDNA3's and CDNA's do; one cell a line where its target hides them, and for the manual
+    /// MMA, whose lines this crate does not widen yet.
+    #[test]
+    fn a_stated_fragment_writes_the_lines_its_lanes_hold() {
+        use FragmentPositions::{AsElementPositions, Hidden};
+        use cubecl_ir::amd::{AmdMatrixCore, AmdMfma, AmdWmma};
+        let rdna3 = AmdMatrixCore::Wmma(AmdWmma::Rdna3);
+        let rdna4 = AmdMatrixCore::Wmma(AmdWmma::Rdna4);
+        let cdna3 = AmdMatrixCore::Mfma(AmdMfma::Cdna3);
+        let widest =
+            |instruction: Instruction, target| instruction.widest_line(&target, [16, 16], F32);
+        assert_eq!(
+            widest(Instruction::Cmma, amd(rdna4, AsElementPositions)),
+            [8, 8]
+        );
+        assert_eq!(
+            widest(Instruction::Cmma, amd(rdna3, AsElementPositions)),
+            [1, 8]
+        );
+        assert_eq!(
+            widest(Instruction::Cmma, amd(cdna3, AsElementPositions)),
+            [4, 4]
+        );
+        assert_eq!(widest(Instruction::Cmma, amd(rdna3, Hidden)), [1, 1]);
+        assert_eq!(widest(mma(), amd(rdna4, AsElementPositions)), [1, 1]);
     }
 
     /// What a rescaled sum over `shape` contracts through on `device`.
